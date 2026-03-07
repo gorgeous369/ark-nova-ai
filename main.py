@@ -1005,6 +1005,73 @@ def _pilfering_target_ids(state: GameState, player_id: int, amount: int) -> List
     return targets
 
 
+def _pilfering_card_loss_score(player: PlayerState, card: AnimalCard) -> float:
+    if card.card_type == "sponsor":
+        base_value = float(max(0, _sponsor_level(card)))
+    elif card.card_type == "animal":
+        base_value = float(max(0, _animal_play_cost(player, card)))
+    elif card.card_type == "conservation_project":
+        base_value = 6.0
+    else:
+        base_value = float(max(0, int(card.cost)))
+    base_value += float(max(0, int(card.reputation_gain))) * 1.5
+    base_value += float(max(0, int(card.conservation))) * 2.0
+    base_value += float(max(0, int(card.appeal))) * 0.25
+    return base_value
+
+
+def _pick_pilfering_card_index_for_ai(player: PlayerState) -> int:
+    if not player.hand:
+        raise ValueError("Cannot pick pilfering card from empty hand.")
+    return min(
+        range(len(player.hand)),
+        key=lambda idx: (
+            _pilfering_card_loss_score(player, player.hand[idx]),
+            max(0, int(getattr(player.hand[idx], "number", -1))),
+            str(getattr(player.hand[idx], "instance_id", "")),
+            str(getattr(player.hand[idx], "name", "")),
+        ),
+    )
+
+
+def _pick_pilfering_loss_for_ai(player: PlayerState) -> Tuple[str, Optional[int]]:
+    can_take_money = int(player.money) >= 5
+    can_take_card = bool(player.hand)
+    if not can_take_money and not can_take_card:
+        return "none", None
+    if can_take_money and not can_take_card:
+        return "money", None
+    if can_take_card and not can_take_money:
+        return "card", _pick_pilfering_card_index_for_ai(player)
+
+    chosen_idx = _pick_pilfering_card_index_for_ai(player)
+    chosen_card = player.hand[chosen_idx]
+    if _pilfering_card_loss_score(player, chosen_card) <= 5.0:
+        return "card", chosen_idx
+    return "money", None
+
+
+def _prompt_pilfering_card_index(target_player: PlayerState) -> int:
+    if not target_player.hand:
+        raise ValueError("Cannot prompt for pilfering card from empty hand.")
+    if len(target_player.hand) == 1:
+        return 0
+
+    print(f"Pilfering: {target_player.name} chooses 1 hand card to give.")
+    while True:
+        for idx, card in enumerate(target_player.hand, start=1):
+            print(f"{idx}. {_format_card_line_for_player(card, target_player)}")
+        raw = input("Select 1 card index to give: ").strip()
+        try:
+            picked = int(raw)
+        except ValueError:
+            print("Please enter a valid number.")
+            continue
+        if 1 <= picked <= len(target_player.hand):
+            return picked - 1
+        print("Index out of range.")
+
+
 def legal_actions(
     player: PlayerState,
     state: Optional[GameState] = None,
@@ -3950,12 +4017,13 @@ def _perform_animals_action_effect(
                     continue
 
                 choice = "money" if can_take_money else "card"
+                chosen_card_index: Optional[int] = None
                 if interactive_effect_prompts and can_take_money and can_take_card:
                     print(
                         f"Pilfering: {target_player.name} chooses what to lose."
                     )
                     print("1. Lose 5 money")
-                    print("2. Give 1 random hand card")
+                    print("2. Give 1 hand card")
                     while True:
                         raw = input("Select option [1-2]: ").strip()
                         if raw == "1":
@@ -3965,6 +4033,10 @@ def _perform_animals_action_effect(
                             choice = "card"
                             break
                         print("Please enter 1 or 2.")
+                    if choice == "card":
+                        chosen_card_index = _prompt_pilfering_card_index(target_player)
+                elif not interactive_effect_prompts:
+                    choice, chosen_card_index = _pick_pilfering_loss_for_ai(target_player)
 
                 if choice == "money" and can_take_money:
                     target_player.money -= 5
@@ -3972,8 +4044,9 @@ def _perform_animals_action_effect(
                     results.append(f"{target_player.name}:money")
                     continue
                 if can_take_card:
-                    picked = random.choice(target_player.hand)
-                    target_player.hand.remove(picked)
+                    if chosen_card_index is None:
+                        chosen_card_index = 0 if len(target_player.hand) == 1 else _pick_pilfering_card_index_for_ai(target_player)
+                    picked = target_player.hand.pop(chosen_card_index)
                     player.hand.append(picked)
                     results.append(f"{target_player.name}:card#{picked.number}")
                     continue
@@ -4315,6 +4388,8 @@ def _perform_animals_action_effect(
                 add_multiplier_token=_effect_add_multiplier_token,
                 apply_venom=_effect_apply_venom,
                 apply_constriction=_effect_apply_constriction,
+                perform_hypnosis=_effect_hypnosis,
+                perform_pilfering=_effect_pilfering,
                 scavenge_from_discard=_effect_scavenge_from_discard,
                 mark_extra_action=_effect_mark_extra_action,
                 increase_conservation=lambda n: setattr(player, "conservation", player.conservation + max(0, n)),
@@ -4351,6 +4426,8 @@ def _perform_animals_action_effect(
             add_multiplier_token=_effect_add_multiplier_token,
             apply_venom=_effect_apply_venom,
             apply_constriction=_effect_apply_constriction,
+            perform_hypnosis=_effect_hypnosis,
+            perform_pilfering=_effect_pilfering,
             scavenge_from_discard=_effect_scavenge_from_discard,
             mark_extra_action=_effect_mark_extra_action,
             increase_conservation=lambda n: setattr(player, "conservation", player.conservation + max(0, n)),

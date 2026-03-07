@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import List
 
 from arknova_engine.base_game import (
+    AssociationTask,
     AssociationTaskSelection,
     DONATION_COST_TRACK,
     GameState,
@@ -37,6 +38,23 @@ def run_association_action(
         raise ValueError(
             f"Association tasks total value {total_value} exceeds action strength {strength}."
         )
+
+    for task in tasks:
+        if task.task != AssociationTask.CONSERVATION_PROJECT:
+            continue
+        project, _ = gs._conservation_project_from_selection(
+            player=player,
+            task=task,
+            is_association_upgraded=is_association_upgraded,
+        )
+        if project.card_id in player.supported_conservation_projects:
+            raise ValueError("Conservation project already supported by this player.")
+        if task.project_slot_id is None:
+            raise ValueError("Conservation project support requires a project_slot_id.")
+        slot = gs._conservation_project_slot(project, task.project_slot_id)
+        owners = gs.conservation_project_slot_owners.get(project.card_id)
+        if owners is not None and owners[slot.slot_id] is not None:
+            raise ValueError("Selected conservation project slot is already occupied.")
 
     took_from_display = False
     workers_spent = 0

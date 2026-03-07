@@ -1,9 +1,13 @@
+import main
+
 from main import (
     Action,
     ActionType,
     AnimalCard,
+    Enclosure,
     HumanPlayer,
     MAIN_ACTION_CARDS,
+    _perform_animals_action_effect,
     _resolve_break,
     _prompt_sponsors_action_details_for_human,
     _resolve_manual_opening_drafts,
@@ -278,8 +282,11 @@ def test_break_resolves_in_rule_order_for_display_workers_and_temp_tokens(monkey
         AnimalCard("H5", 0, 0, 0, 0, number=9105, instance_id="h5"),
     ]
     p0.multiplier_tokens_on_actions["cards"] = 1
-    p0.venom_tokens = 2
-    p0.constriction_tokens = 3
+    p0.venom_tokens_on_actions["cards"] = 1
+    p0.venom_tokens_on_actions["build"] = 1
+    p0.constriction_tokens_on_actions["association"] = 1
+    p0.constriction_tokens_on_actions["sponsors"] = 1
+    p0.constriction_tokens_on_actions["animals"] = 1
     p0.workers = 0
     p0.workers_on_association_board = 2
     p0.association_workers_by_task["reputation"] = 2
@@ -298,8 +305,8 @@ def test_break_resolves_in_rule_order_for_display_workers_and_temp_tokens(monkey
     assert len(p0.hand) == 3
 
     assert p0.multiplier_tokens_on_actions["cards"] == 0
-    assert p0.venom_tokens == 0
-    assert p0.constriction_tokens == 0
+    assert sum(p0.venom_tokens_on_actions.values()) == 0
+    assert sum(p0.constriction_tokens_on_actions.values()) == 0
 
     assert p0.workers == 2
     assert p0.workers_on_association_board == 0
@@ -329,3 +336,345 @@ def test_break_income_order_starts_from_trigger_player_when_contested():
     # After step 4, display becomes [C, D]. Trigger player (P2) takes C first, then P1 takes D.
     assert [card.instance_id for card in p1.hand] == ["c"]
     assert [card.instance_id for card in p0.hand] == ["d"]
+
+
+def test_legal_actions_show_strength_reduced_by_constriction():
+    state = setup_game(seed=183, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    player.constriction_tokens_on_actions["cards"] = 1
+    player.x_tokens = 1
+
+    actions = legal_actions(player, state=state, player_id=0)
+    cards_zero = next(
+        action for action in actions
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "cards" and int(action.value or 0) == 0
+    )
+    cards_one = next(
+        action for action in actions
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "cards" and int(action.value or 0) == 1
+    )
+
+    assert cards_zero.details["effective_strength"] == 0
+    assert cards_one.details["effective_strength"] == 0
+    assert str(cards_zero) == "cards(strength=0)"
+
+
+def test_venom_penalty_applies_if_turn_ends_with_remaining_venom_tokens():
+    state = setup_game(seed=184, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.money = 10
+    player.venom_tokens_on_actions["build"] = 1
+
+    apply_action(state, Action(ActionType.X_TOKEN, card_name="cards"))
+
+    assert player.money == 8
+    assert player.x_tokens == 1
+    assert player.venom_tokens_on_actions["build"] == 1
+
+
+def test_using_venom_marked_action_discards_token_and_avoids_penalty():
+    state = setup_game(seed=185, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    player.money = 10
+    player.venom_tokens_on_actions["cards"] = 1
+
+    apply_action(state, Action(ActionType.MAIN_ACTION, card_name="cards"))
+
+    assert player.money == 10
+    assert player.venom_tokens_on_actions["cards"] == 0
+
+
+def test_playing_venom_animal_marks_leftmost_actions_of_higher_appeal_zoo():
+    state = setup_game(seed=186, player_names=["P1", "P2"])
+    actor = state.players[0]
+    target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Venom Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Venom 2",
+            number=9901,
+            instance_id="venom-1",
+        )
+    ]
+    actor.money = 10
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    target.appeal = 5
+    target.action_order = ["cards", "build", "animals", "association", "sponsors"]
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0},
+    )
+
+    assert target.venom_tokens_on_actions["cards"] == 1
+    assert target.venom_tokens_on_actions["build"] == 1
+    assert sum(target.venom_tokens_on_actions.values()) == 2
+
+
+def test_playing_constriction_animal_uses_only_appeal_and_conservation_tracks():
+    state = setup_game(seed=187, player_names=["P1", "P2"])
+    actor = state.players[0]
+    target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Constriction Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Constriction",
+            number=9902,
+            instance_id="constrict-1",
+        )
+    ]
+    actor.money = 10
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    target.appeal = 0
+    target.conservation = 0
+    target.reputation = 7
+    target.action_order = ["cards", "build", "animals", "association", "sponsors"]
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0},
+    )
+
+    assert sum(target.constriction_tokens_on_actions.values()) == 0
+
+
+def test_playing_constriction_animal_marks_rightmost_action_when_target_is_ahead():
+    state = setup_game(seed=287, player_names=["P1", "P2"])
+    actor = state.players[0]
+    target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Constriction Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Constriction",
+            number=9905,
+            instance_id="constrict-2",
+        )
+    ]
+    actor.money = 10
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    target.appeal = 4
+    target.action_order = ["cards", "build", "animals", "association", "sponsors"]
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0},
+    )
+
+    assert target.constriction_tokens_on_actions["sponsors"] == 1
+    assert sum(target.constriction_tokens_on_actions.values()) == 1
+
+
+def test_hypnosis_uses_target_action_card_and_rotates_target_card_to_slot_1(monkeypatch):
+    state = setup_game(seed=188, player_names=["P1", "P2"])
+    actor = state.players[0]
+    target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Hypnosis Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Hypnosis 3",
+            number=9903,
+            instance_id="hyp-1",
+        )
+    ]
+    actor.money = 10
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    target.appeal = 5
+    target.action_order = ["cards", "build", "animals", "association", "sponsors"]
+
+    monkeypatch.setattr(main, "_prompt_build_action_details_for_human", lambda **kwargs: {"selections": []})
+    monkeypatch.setattr("builtins.input", lambda _: "2")
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0, "_interactive": True},
+    )
+
+    assert target.action_order[0] == "build"
+
+
+def test_pilfering_takes_five_money_from_highest_appeal_target():
+    state = setup_game(seed=189, player_names=["P1", "P2"])
+    actor = state.players[0]
+    target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Pilfer Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Pilfering 1",
+            number=9904,
+            instance_id="pilfer-1",
+        )
+    ]
+    actor.money = 2
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    target.appeal = 5
+    target.money = 11
+    target.hand = []
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0},
+    )
+
+    assert actor.money == 7
+    assert target.money == 6
+
+
+def test_pilfering_noninteractive_target_can_choose_card_instead_of_money():
+    state = setup_game(seed=190, player_names=["P1", "P2"])
+    actor = state.players[0]
+    target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Pilfer Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Pilfering 1",
+            number=9905,
+            instance_id="pilfer-2",
+        )
+    ]
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    actor.money = 2
+    target.appeal = 5
+    target.money = 11
+    target.hand = [
+        AnimalCard("Expensive Animal", 12, 4, 3, 1, number=9910, instance_id="expensive"),
+        AnimalCard("Cheap Animal", 1, 1, 0, 0, number=9911, instance_id="cheap"),
+    ]
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0},
+    )
+
+    assert actor.money == 2
+    assert target.money == 11
+    assert [card.instance_id for card in actor.hand] == ["cheap"]
+    assert [card.instance_id for card in target.hand] == ["expensive"]
+
+
+def test_pilfering_interactive_target_can_choose_specific_card(monkeypatch):
+    state = setup_game(seed=191, player_names=["P1", "P2"])
+    actor = state.players[0]
+    target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Pilfer Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Pilfering 1",
+            number=9906,
+            instance_id="pilfer-3",
+        )
+    ]
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    target.appeal = 5
+    target.money = 11
+    target.hand = [
+        AnimalCard("Card A", 2, 1, 0, 0, number=9912, instance_id="card-a"),
+        AnimalCard("Card B", 8, 3, 0, 0, number=9913, instance_id="card-b"),
+    ]
+
+    responses = iter(["2", "2"])
+    monkeypatch.setattr("builtins.input", lambda _: next(responses))
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0, "_interactive": True},
+    )
+
+    assert actor.money == 25
+    assert target.money == 11
+    assert [card.instance_id for card in actor.hand] == ["card-b"]
+    assert [card.instance_id for card in target.hand] == ["card-a"]
+
+
+def test_pilfering_does_not_prompt_when_only_card_loss_is_available(monkeypatch):
+    state = setup_game(seed=192, player_names=["P1", "P2"])
+    actor = state.players[0]
+    target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Pilfer Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Pilfering 1",
+            number=9907,
+            instance_id="pilfer-4",
+        )
+    ]
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    target.appeal = 5
+    target.money = 4
+    target.hand = [
+        AnimalCard("Only Card", 3, 2, 0, 0, number=9914, instance_id="only-card"),
+    ]
+
+    def _unexpected_input(_: str) -> str:
+        raise AssertionError("input() should not be called when there is no pilfering choice.")
+
+    monkeypatch.setattr("builtins.input", _unexpected_input)
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0, "_interactive": True},
+    )
+
+    assert actor.money == 25
+    assert target.money == 4
+    assert [card.instance_id for card in actor.hand] == ["only-card"]
+    assert target.hand == []

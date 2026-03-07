@@ -72,6 +72,19 @@ def test_resolve_card_effect_for_inventive_and_resistance_and_assertion():
     assert a.code == "take_unused_base_project"
 
 
+def test_resolve_card_effect_for_hypnosis_and_pilfering():
+    hypnosis = _make_card(ability_title="Hypnosis 3")
+    pilfering = _make_card(ability_title="Pilfering 2")
+
+    h = resolve_card_effect(hypnosis)
+    p = resolve_card_effect(pilfering)
+
+    assert h.code == "hypnosis"
+    assert h.value == 3
+    assert p.code == "pilfering"
+    assert p.value == 2
+
+
 def test_apply_hunter_effect_keeps_first_animal_and_discards_rest():
     played_card = _make_card(ability_title="Hunter 3")
     hand = []
@@ -161,6 +174,31 @@ def test_apply_resistance_and_assertion_and_inventive_callbacks():
     assert any("effect[draw_final_scoring_keep]" in msg for msg in resistance)
     assert any("effect[take_unused_base_project]" in msg for msg in assertion)
     assert any("effect[gain_x_tokens]" in msg for msg in inventive)
+
+
+def test_apply_hypnosis_and_pilfering_callbacks():
+    hypnosis_card = _make_card(ability_title="Hypnosis 3")
+    pilfering_card = _make_card(ability_title="Pilfering 1")
+
+    hypnosis = apply_animal_effect(
+        card=hypnosis_card,
+        move_action_to_slot_1=lambda _: None,
+        advance_break=lambda _: False,
+        draw_from_deck=lambda _: [],
+        push_to_discard=lambda _: None,
+        perform_hypnosis=lambda value: f"target=P2 slot<={value}",
+    )
+    pilfering = apply_animal_effect(
+        card=pilfering_card,
+        move_action_to_slot_1=lambda _: None,
+        advance_break=lambda _: False,
+        draw_from_deck=lambda _: [],
+        push_to_discard=lambda _: None,
+        perform_pilfering=lambda value: f"targets={value}",
+    )
+
+    assert any("effect[hypnosis] target=P2 slot<=3" == msg for msg in hypnosis)
+    assert any("effect[pilfering] targets=1" == msg for msg in pilfering)
 
 
 def test_build_effect_coverage_counts_supported_and_unsupported():

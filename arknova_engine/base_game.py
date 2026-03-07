@@ -283,6 +283,7 @@ def _builtin_conservation_project_catalog() -> Dict[str, ConservationProjectCard
             requirement_icon=icon,
             requirement_group=group,
             slots=_clone_project_slots(RELEASE_PROJECT_SLOT_DEFS),
+            play_bonus_reputation_gain=1,
         )
 
     catalog["P101_SpeciesDiversity"] = ConservationProjectCard(

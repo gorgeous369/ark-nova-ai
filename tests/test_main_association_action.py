@@ -6,6 +6,7 @@ from main import (
     AnimalCard,
     BASE_CONSERVATION_PROJECT_LEVELS,
     _blocked_level_by_project,
+    _project_requirement_value,
     _resolve_break,
     apply_action,
     setup_game,
@@ -175,6 +176,59 @@ def test_association_strength_5_can_support_base_conservation_project():
 
     assert project_id in p0.supported_conservation_projects
     assert p0.conservation == expected_gain
+
+
+def test_species_diversity_does_not_count_science_rock_or_water():
+    state = setup_game(seed=6041, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.zoo_cards = [
+        AnimalCard(
+            name="science-sponsor",
+            cost=0,
+            size=0,
+            appeal=0,
+            conservation=0,
+            card_type="sponsor",
+            badges=("Science",),
+            number=201,
+        ),
+        AnimalCard(
+            name="rock-animal",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            badges=(),
+            required_rock_adjacency=1,
+        ),
+        AnimalCard(
+            name="water-animal",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            badges=(),
+            required_water_adjacency=1,
+        ),
+        AnimalCard(
+            name="bird-animal",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            badges=("Bird",),
+        ),
+        AnimalCard(
+            name="predator-animal",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            badges=("Predator",),
+        ),
+    ]
+
+    assert _project_requirement_value(player, "P101_SpeciesDiversity") == 2
 
 
 def test_association_conservation_project_slot_is_blocked_if_occupied():

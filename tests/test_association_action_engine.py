@@ -27,6 +27,7 @@ def _project(
     *,
     requirement_icon: str | None = None,
     requirement_group: str | None = None,
+    play_bonus_reputation_gain: int = 0,
 ) -> ConservationProjectCard:
     return ConservationProjectCard(
         card_id=card_id,
@@ -35,6 +36,7 @@ def _project(
         requirement_icon=requirement_icon,
         requirement_group=requirement_group,
         slots=tuple(slots),
+        play_bonus_reputation_gain=play_bonus_reputation_gain,
     )
 
 
@@ -376,6 +378,116 @@ def test_new_conservation_project_from_display_shifts_row_and_discards_rightmost
     assert player.x_tokens == 3
 
 
+def test_playing_new_release_project_grants_only_the_playing_player_one_reputation():
+    state = create_base_game(num_players=2, seed=42_1)
+    player0 = state.players[0]
+    player1 = state.players[1]
+
+    player0.action_upgraded[MainAction.ASSOCIATION] = False
+    player0.active_workers = 1
+    player0.action_order = [
+        MainAction.ANIMALS,
+        MainAction.CARDS,
+        MainAction.BUILD,
+        MainAction.SPONSORS,
+        MainAction.ASSOCIATION,
+    ]
+
+    reptile_origin = HexTile(2, 1)
+    reptile_house = Building(BuildingType.REPTILE_HOUSE, reptile_origin, Rotation.ROT_0)
+    player0.zoo_map.add_building(reptile_house)
+    reptile_house.empty_spaces = 3
+    reptile = AnimalCard(
+        card_id="release_reptile_p0",
+        cost=0,
+        min_enclosure_size=3,
+        appeal_gain=2,
+        category_icons={"reptile": 1},
+        special_enclosure_spaces={BuildingType.REPTILE_HOUSE: 2},
+    )
+    player0.played_animals = [reptile]
+    player0.animal_placements[reptile.card_id] = AnimalPlacement(
+        enclosure_origin=reptile_origin,
+        enclosure_type=BuildingType.REPTILE_HOUSE,
+        spaces_used=2,
+    )
+    player0.zoo_icons["reptile"] = 1
+    player0.hand = [
+        _project(
+            "p_release_new",
+            ConservationRequirementKind.RELEASE,
+            [
+                ConservationProjectSlot("left", conservation_gain=5, release_size_bucket="4+"),
+                ConservationProjectSlot("middle", conservation_gain=4, release_size_bucket="3"),
+                ConservationProjectSlot("right", conservation_gain=3, release_size_bucket="2-"),
+            ],
+            requirement_icon="reptile",
+            requirement_group="category",
+            play_bonus_reputation_gain=1,
+        )
+    ]
+
+    state.current_player = 0
+    state.perform_association_action(
+        [
+            AssociationTaskSelection(
+                task=AssociationTask.CONSERVATION_PROJECT,
+                project_from_hand_index=0,
+                project_slot_id="middle",
+                released_animal_index=0,
+                map_support_space_index=6,
+            )
+        ]
+    )
+
+    assert player0.reputation == 1
+    assert player0.hand == []
+    assert [project.card_id for project in state.conservation_projects_in_play] == ["p_release_new"]
+
+    player1.action_upgraded[MainAction.ASSOCIATION] = False
+    player1.active_workers = 1
+    player1.action_order = [
+        MainAction.ANIMALS,
+        MainAction.CARDS,
+        MainAction.BUILD,
+        MainAction.SPONSORS,
+        MainAction.ASSOCIATION,
+    ]
+    bird_origin = HexTile(0, 1)
+    bird_enclosure = Building(BuildingType.SIZE_2, bird_origin, Rotation.ROT_0)
+    player1.zoo_map.add_building(bird_enclosure)
+    bird_enclosure.empty_spaces = 0
+    bird = AnimalCard(
+        card_id="release_reptile_p1",
+        cost=0,
+        min_enclosure_size=2,
+        appeal_gain=1,
+        category_icons={"reptile": 1},
+    )
+    player1.played_animals = [bird]
+    player1.animal_placements[bird.card_id] = AnimalPlacement(
+        enclosure_origin=bird_origin,
+        enclosure_type=BuildingType.SIZE_2,
+        spaces_used=1,
+    )
+    player1.zoo_icons["reptile"] = 1
+
+    state.current_player = 1
+    state.perform_association_action(
+        [
+            AssociationTaskSelection(
+                task=AssociationTask.CONSERVATION_PROJECT,
+                project_id="p_release_new",
+                project_slot_id="right",
+                released_animal_index=0,
+                map_support_space_index=6,
+            )
+        ]
+    )
+
+    assert player1.reputation == 0
+
+
 def test_release_project_from_special_enclosure_uses_printed_standard_size():
     state = create_base_game(num_players=2, seed=43)
     player = state.current()
@@ -436,6 +548,7 @@ def test_release_project_from_special_enclosure_uses_printed_standard_size():
 
     assert player.conservation == 4
     assert player.money == 37
+    assert player.reputation == 0
     assert player.appeal == 4
     assert player.played_animals == []
     assert player.zoo_icons == {}
@@ -504,6 +617,7 @@ def test_release_project_frees_smallest_occupied_standard_enclosure():
 
     assert size3.empty_spaces == 1
     assert size4.empty_spaces == 0
+    assert player.reputation == 0
     assert player.appeal == 5
     assert player.played_animals == []
 
