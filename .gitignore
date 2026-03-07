@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+
+# JetBrains
+.idea/
+*.iml
+
+# Python cache / tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local virtualenvs
+.venv/
+venv/
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# Local reference material
+/Ark-Nova-Icon-Overview.pdf
+/Arknova_rules_jpn_web.pdf
+/ark-nova-rulebook.pdf

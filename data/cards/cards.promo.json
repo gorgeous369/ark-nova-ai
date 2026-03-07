@@ -1,0 +1,71 @@
+{
+  "source": "https://ark-nova.ender-wiggin.com",
+  "generated_at_utc": "2026-03-07T01:54:38+00:00",
+  "split_source_group": "promo",
+  "cards": [
+    {
+      "data_id": "A341_Capybara",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/341",
+      "number": 341,
+      "title": "CAPYBARA",
+      "subtitle": "Hydrochoerus hydrochaeris",
+      "cost": 7,
+      "enclosure_size": 1,
+      "appeal": 0,
+      "badges": [
+        "Pet"
+      ],
+      "ability_title": "Petting Zoo Animal",
+      "ability_text": "Gain 3",
+      "site_card_id": 341
+    },
+    {
+      "data_id": "S281_Arcade",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/281",
+      "number": 281,
+      "title": "ARCADE",
+      "effects": [
+        {
+          "kind": "income",
+          "text": "Income:"
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain 2 2"
+        }
+      ],
+      "site_card_id": 281
+    },
+    {
+      "data_id": "S282_PromotionTeam",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/282",
+      "number": 282,
+      "title": "PROMOTION TEAM",
+      "effects": [
+        {
+          "kind": "immediate",
+          "text": "Find a person"
+        },
+        {
+          "kind": "passive",
+          "text": "Each time a person"
+        }
+      ],
+      "site_card_id": 282
+    }
+  ],
+  "stats": {
+    "total": 3,
+    "by_type": {
+      "animal": 1,
+      "sponsor": 2
+    }
+  },
+  "max_card_id_scanned": 1300
+}

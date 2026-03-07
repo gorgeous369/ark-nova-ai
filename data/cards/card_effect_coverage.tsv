@@ -1,0 +1,225 @@
+number	instance_id	type	name	effect_code	supported	ability_title	ability_text
+101	101	conservation_project	SPECIES DIVERSITY	none	1		
+102	102	conservation_project	HABITAT DIVERSITY	none	1		
+103	103	conservation_project	AFRICA	none	1		
+104	104	conservation_project	AMERICAS	none	1		
+105	105	conservation_project	AUSTRALIA	none	1		
+106	106	conservation_project	ASIA	none	1		
+107	107	conservation_project	EUROPE	none	1		
+108	108	conservation_project	PRIMATES	none	1		
+109	109	conservation_project	REPTILES	none	1		
+110	110	conservation_project	PREDATORS	none	1		
+111	111	conservation_project	HERBIVORES	none	1		
+112	112	conservation_project	BIRDS	none	1		
+113	113	conservation_project	BAVARIAN FOREST NATIONAL PARK	none	1		
+114	114	conservation_project	YOSEMITE NATIONAL PARK	none	1		
+115	115	conservation_project	ANGTHONG NATIONAL PARK	none	1		
+116	116	conservation_project	SERENGETI NATIONAL PARK	none	1		
+117	117	conservation_project	BLUE MOUNTAINS NATIONAL PARK	none	1		
+118	118	conservation_project	SAVANNA	none	1		
+119	119	conservation_project	LOW MOUNTAIN RANGE	none	1		
+120	120	conservation_project	BAMBOO FOREST	none	1		
+121	121	conservation_project	SEA CAVE	none	1		
+122	122	conservation_project	JUNGLE	none	1		
+123	123	conservation_project	BIRD BREEDING PROGRAM	none	1		
+124	124	conservation_project	PREDATOR BREEDING PROGRAM	none	1		
+125	125	conservation_project	REPTILE BREEDING PROGRAM	none	1		
+126	126	conservation_project	HERBIVORE BREEDING PROGRAM	none	1		
+127	127	conservation_project	PRIMATE BREEDING PROGRAM	none	1		
+128	128	conservation_project	AQUATIC	none	1		
+129	129	conservation_project	GEOLOGICAL	none	1		
+130	130	conservation_project	SMALL ANIMALS	none	1		
+131	131	conservation_project	LARGE ANIMALS	none	1		
+132	132	conservation_project	RESEARCH	none	1		
+201	201	sponsor	SCIENCE LAB	sponsor_effects_from_dataset	1		
+202	202	sponsor	SPOKESPERSON	none	1		
+203	203	sponsor	VETERINARIAN	none	1		
+204	204	sponsor	SCIENCE MUSEUM	none	1		
+205	205	sponsor	GORILLA FIELD RESEARCH	none	1		
+206	206	sponsor	MEDICAL BREAKTHROUGH	none	1		
+207	207	sponsor	BASIC RESEARCH	none	1		
+208	208	sponsor	SCIENCE LIBRARY	sponsor_effects_from_dataset	1		
+209	209	sponsor	TECHNOLOGY INSTITUTE	none	1		
+210	210	sponsor	EXPERT ON THE AMERICAS	none	1		
+211	211	sponsor	EXPERT ON EUROPE	none	1		
+212	212	sponsor	EXPERT ON AUSTRALIA	none	1		
+213	213	sponsor	EXPERT ON ASIA	none	1		
+214	214	sponsor	EXPERT ON AFRICA	none	1		
+215	215	sponsor	BREEDING COOPERATION	none	1		
+216	216	sponsor	TALENTED COMMUNICATOR	none	1		
+217	217	sponsor	ENGINEER	none	1		
+218	218	sponsor	BREEDING PROGRAM	none	1		
+219	219	sponsor	DIVERSITY RESEARCHER	none	1		
+220	220	sponsor	FEDERAL GRANTS	none	1		
+221	221	sponsor	ARCHEOLOGIST	none	1		
+222	222	sponsor	RELEASE OF PATENTS	none	1		
+223	223	sponsor	SCIENCE INSTITUTE	none	1		
+224	224	sponsor	MIGRATION RECORDING	none	1		
+225	225	sponsor	QUARANTINE LAB	none	1		
+226	226	sponsor	FOREIGN INSTITUTE	none	1		
+227	227	sponsor	WAZA SPECIAL ASSIGNMENT	none	1		
+228	228	sponsor	WAZA SMALL ANIMAL PROGRAM	none	1		
+229	229	sponsor	EXPERT IN SMALL ANIMALS	none	1		
+230	230	sponsor	EXPERT IN LARGE ANIMALS	none	1		
+231	231	sponsor	SPONSORSHIP: PRIMATES	none	1		
+232	232	sponsor	SPONSORSHIP: REPTILES	none	1		
+233	233	sponsor	SPONSORSHIP: VULTURES	none	1		
+234	234	sponsor	SPONSORSHIP: LIONS	none	1		
+235	235	sponsor	SPONSORSHIP: ELEPHANTS	none	1		
+236	236	sponsor	PRIMATOLOGIST	none	1		
+237	237	sponsor	HERPETOLOGIST	none	1		
+238	238	sponsor	ORNITHOLOGIST	none	1		
+239	239	sponsor	EXPERT IN PREDATORS	none	1		
+240	240	sponsor	EXPERT IN HERBIVORES	none	1		
+241	241	sponsor	HYDROLOGIST	sponsor_effects_from_dataset	1		
+242	242	sponsor	GEOLOGIST	sponsor_effects_from_dataset	1		
+243	243	sponsor	MEERKAT DEN	sponsor_effects_from_dataset	1		
+244	244	sponsor	PENGUIN POOL	sponsor_effects_from_dataset	1		
+245	245	sponsor	AQUARIUM	sponsor_effects_from_dataset	1		
+246	246	sponsor	CABLE CAR	sponsor_effects_from_dataset	1		
+247	247	sponsor	BABOON ROCK	sponsor_effects_from_dataset	1		
+248	248	sponsor	RHESUS MONKEY PARK	none	1		
+249	249	sponsor	BARRED OWL HUT	sponsor_effects_from_dataset	1		
+250	250	sponsor	SEA TURTLE TANK	sponsor_effects_from_dataset	1		
+251	251	sponsor	POLAR BEAR EXHIBIT	none	1		
+252	252	sponsor	SPOTTED HYENA COMPOUND	sponsor_effects_from_dataset	1		
+253	253	sponsor	OKAPI STABLE	sponsor_effects_from_dataset	1		
+254	254	sponsor	ZOO SCHOOL	none	1		
+255	255	sponsor	ADVENTURE PLAYGROUND	none	1		
+256	256	sponsor	WATER PLAYGROUND	none	1		
+257	257	sponsor	SIDE ENTRANCE	sponsor_effects_from_dataset	1		
+258	258	sponsor	NATIVE SEABIRDS	none	1		
+259	259	sponsor	NATIVE LIZARDS	none	1		
+260	260	sponsor	NATIVE FARM ANIMALS	sponsor_effects_from_dataset	1		
+261	261	sponsor	GUIDED SCHOOL TOURS	none	1		
+262	262	sponsor	EXPLORER	sponsor_effects_from_dataset	1		
+263	263	sponsor	WAZA LARGE ANIMAL PROGRAM	sponsor_effects_from_dataset	1		
+264	264	sponsor	FREE-RANGE NEW WORLD MONKEYS	sponsor_effects_from_dataset	1		
+401	401	animal	CHEETAH	draw_from_deck	1	Sprint 3	Draw 3 card(s) from the deck.
+402	402	animal	LION	gain_appeal	1	Pack	Gain 1
+403	403	animal	LEOPARD	hunter	1	Hunter 4	Reveal the 4 topmost card(s) of the deck. Choose 1 Animal card and add it to your hand. Discard the other cards.
+404	404	animal	CARACAL	hunter	1	Hunter 2	Reveal the 2 topmost card(s) of the deck. Choose 1 Animal card and add it to your hand. Discard the other cards.
+405	405	animal	FENNEC FOX	move_any_action_to_slot_1	1	Clever	After finishing you may place any Action card on 1
+406	406	animal	SIBERIAN TIGER	none	1		
+407	407	animal	SUMATRAN TIGER	none	1		
+408	408	animal	SLOTH BEAR	move_action_to_slot_1	1	Boost: Association	After finishing this action, you may place your Association Action card
+409	409	animal	SUN BEAR	extra_action_granted	1	Action: Association	After finishing this action, you may take the Association action
+410	410	animal	YELLOW-THROATED MARTEN	hunter	1	Hunter 1	Reveal the 1 topmost card(s) of the deck. Choose 1 Animal card and add it to your hand. Discard the other cards.
+411	411	animal	GRIZZLY BEAR	gain_x_tokens_from_icon	1	Inventive: Bear	Gain
+412	412	animal	JAGUAR	hunter	1	Hunter 4	Reveal the 4 topmost card(s) of the deck. Choose 1 Animal card and add it to your hand. Discard the other cards.
+413	413	animal	COUGAR	jumping_break_and_money	1	Jumping 3	Advance the break token 3 spaces. Gain 3
+414	414	animal	SOUTH AMERICAN COATI	gain_x_tokens	1	Inventive	Gain
+415	415	animal	RACCOON	move_action_to_slot_1	1	Boost: Association	After finishing this action, you may place your Association Action card
+416	416	animal	EURASIAN BROWN BEAR	multiplier_token	1	Multiplier: Association	Place 1
+417	417	animal	WOLF	gain_appeal	1	Pack	Gain 1
+418	418	animal	EURASIAN LYNX	gain_conservation	1	Iconic Animal:Europe	Gain 1
+419	419	animal	EUROPEAN BADGER	move_action_to_slot_1	1	Boost: Animal	After finishing this action, you may place your Animal Action card
+420	420	animal	STOAT	hunter	1	Hunter 1	Reveal the 1 topmost card(s) of the deck. Choose 1 Animal card and add it to your hand. Discard the other cards.
+421	421	animal	NEW ZEALAND FUR SEAL	hire_worker	1	Full-throated	Hire an association worker.
+422	422	animal	AUSTRALIAN SEA LION	sell_hand_cards	1	Sun Bathing 3	You may sell up to 3 card(s) from your hand for 4
+423	423	animal	NEW ZEALAND SEA LION	gain_appeal	1	Pack	Gain 1
+424	424	animal	AUSTRALIAN DINGO	gain_appeal	1	Pack	Gain 1
+425	425	animal	TASMANIAN DEVIL	discard_hand_for_money	1	Pouch 1	You may place 1 card(s) from your hand under this card to gain 2
+426	426	animal	AFRICAN BUSH ELEPHANT	draw_final_scoring_keep	1	Resistance	Draw 2 Final Scoring cards. Keep 1 and discard the other.
+427	427	animal	WHITE RHINOCEROS	take_unused_base_project	1	Assertion	You may add any 1 of the unused base conservation projects to your hand.
+428	428	animal	GIRAFFE	move_action_to_slot_1	1	Boost: Sponsors	After finishing this action, you may place your Sponsors Action card
+429	429	animal	GREVY'S ZEBRA	move_action_to_slot_1	1	Boost: Sponsors	After finishing this action, you may place your Sponsors Action card
+430	430	animal	PYGMY HIPPOPOTAMUS	extra_action_granted	1	Action: Sponsors	After finishing this action, you may take the Sponsors Action
+431	431	animal	ASIAN ELEPHANT	draw_final_scoring_keep	1	Resistance	Draw 2 Final Scoring cards. Keep 1 and discard the other.
+432	432	animal	INDIAN RHINOCEROS	take_unused_base_project	1	Assertion	You may add any 1 of the unused base conservation projects to your hand.
+433	433	animal	GIANT PANDA	none	1		
+434	434	animal	RED PANDA	multiplier_token	1	Multiplier: Sponsors	Place 1
+435	435	animal	MALAYAN TAPIR	digging_cycle	1	Digging 3	Choose up to 3x: Discard 1 card from the display and replenish OR discard 1 card from your hand and draw 1 other from the deck.
+436	436	animal	AMERICAN BISON	gain_conservation	1	Iconic Animal:Americas	Gain 1
+437	437	animal	MUSKOX	take_display_sponsors	1	Sponsor Magnet	Add all sponsors cards from the display to your hand.
+438	438	animal	REINDEER	flock_optional	1	Flock Animal 3	May share the existing enclosure of a
+439	439	animal	LAMA	flock_optional	1	Flock Animal 2	May share the existing enclosure of a
+440	440	animal	MOUNTAIN TAPIR	digging_cycle	1	Digging 2	Choose up to 2x: Discard 1 card from the display and replenish OR discard 1 card from your hand and draw 1 other from the deck.
+441	441	animal	EUROPEAN BISON	take_display_sponsors	1	Sponsor Magnet	Add all sponsors cards from the display to your hand.
+442	442	animal	MOOSE	multiplier_token	1	Multiplier: Sponsors	Place 1
+443	443	animal	RED DEER	flock_optional	1	Flock Animal 3	May share the existing enclosure of a
+444	444	animal	ALPINE IBEX	jumping_break_and_money	1	Jumping 2	Advance the break token 2 spaces. Gain 2
+445	445	animal	CRESTED PORCUPINE	digging_cycle	1	Digging 2	Choose up to 2x: Discard 1 card from the display and replenish OR discard 1 card from your hand and draw 1 other from the deck.
+446	446	animal	DUGONG	digging_cycle	1	Digging 4	Choose up to 4x: Discard 1 card from the display and replenish OR discard 1 card from your hand and draw 1 other from the deck.
+447	447	animal	RED KANGAROO	discard_hand_for_money	1	Pouch 2	You may place 2 card(s) from your hand under this card to gain 2
+448	448	animal	KOALA	discard_hand_for_money	1	Pouch 2	You may place 2 card(s) from your hand under this card to gain 2
+449	449	animal	PLATYPUS	venom_tokens	1	Venom 1	Each player ahead of you on the Appeal track gains 1 Venom token(s).
+450	450	animal	COMMON WOMBAT	discard_hand_for_money	1	Pouch 1	You may place 1 card(s) from your hand under this card to gain 2
+451	451	animal	PROBOSCIS MONKEY	take_specific_base_project	1	Dominance	You may add the base conservation project Primates to your hand if it is not already in the game.
+452	452	animal	SENEGAL BUSHBABY	gain_conservation	1	Iconic Animal:africa	Gain 1
+453	453	animal	COLLARED MANGABEY	extra_action_granted	1	Action: Cards	After finishing this action, you may take the Card action
+454	454	animal	RING-TAILED LEMUR	sell_hand_cards	1	Sun Bathing 3	You may sell up to 3 card(s) from your hand for 4
+455	455	animal	MANTLED GUEREZA	move_any_action_to_slot_1	1	Clever	After finishing you may place any Action card on 1
+456	456	animal	BARBARY MACAQUE	pilfering_or_money	1	Pilfering 1	Draw 1 card from the hand of or take 5
+457	457	animal	MANDRILL	multiplier_token	1	Multiplier: Card	Place 1
+458	458	animal	JAPANESE MACAQUE	pilfering_or_money	1	Pilfering 2	From both the player with the highest
+459	459	animal	RED-SHANKED DOUC	gain_x_tokens_from_primary	1	Inventive: Primary	Gain 1/2/3
+460	460	animal	DUSKY-LEAF MONKEY	move_any_action_to_slot_1	1	Clever	After finishing you may place any Action card on 1
+461	461	animal	HORSFIELD'S TARSIER	jumping_break_and_money	1	Jumping 4	Advance the break token 4 spaces. Gain 4
+462	462	animal	NORTHERN PLAINS GRAY LANGUR	jumping_break_and_money	1	Jumping 3	Advance the break token 3 spaces. Gain 3
+463	463	animal	PANAMANIAN WHITE-FACED CAPUCHIN	pilfering_or_money	1	Pilfering 1	Draw 1 card from the hand of or take 5
+464	464	animal	BROWN SPIDER MONKEY	gain_x_tokens_from_primary	1	Inventive: Primary	Gain 1/2/3
+465	465	animal	GOLDEN LION TAMARIN	move_any_action_to_slot_1	1	Clever	After finishing you may place any Action card on 1
+466	466	animal	BOLIVIAN RED HOWLER	move_action_to_slot_1	1	Boost: Card	After finishing this action, you may place your Card Action card
+467	467	animal	ECUADORIAN SQUIRELL MONKEY	move_any_action_to_slot_1	1	Clever	After finishing you may place any Action card on 1
+468	468	animal	COTTON-TOP TAMARIN	none	1		
+469	469	animal	NILE CROCODILE	take_display_cards	1	Snapping 2	2x: Gain any 1 card from the display. You may replenish in between.
+470	470	animal	WESTERN GREEN MAMBA	venom_tokens	1	Venom 2	Each player ahead of you on the Appeal track gains 2 Venom token(s).
+471	471	animal	AFRICAN SPURRED TORTOISE	sell_hand_cards	1	Sun Bathing 3	You may sell up to 3 card(s) from your hand for 4
+472	472	animal	ROCK MONITOR	sell_hand_cards	1	Sun Bathing 3	You may sell up to 3 card(s) from your hand for 4
+473	473	animal	COMMON AGAMA	sell_hand_cards	1	Sun Bathing 2	You may sell up to 2 card(s) from your hand for 4
+474	474	animal	INDIAN ROCK PYTHON	constriction_tokens	1	Constriction	Each player ahead of you on a track gains 1 Constriction token for each of those tracks (
+475	475	animal	KING COBRA	extra_action_strength	1	Hypnosis 3	After finishing this action, you may take 1 action
+476	476	animal	KOMODO DRAGON	gain_conservation	1	Iconic Animal:asia	Gain 1
+477	477	animal	VEILED CHAMELEON	take_display_cards	1	Snapping 1	Gain any 1 card from the display.
+478	478	animal	CHINESE WATER DRAGON	sell_hand_cards	1	Sun Bathing 2	You may sell up to 2 card(s) from your hand for 4
+479	479	animal	AMERICAN ALLIGATOR	take_display_cards	1	Snapping 1	Gain any 1 card from the display.
+480	480	animal	BROAD-SNOUTED CAIMAN	take_display_cards	1	Snapping 1	Gain any 1 card from the display.
+481	481	animal	GALAPAGOS GIANT TORTOISE	sell_hand_cards	1	Sun Bathing 4	You may sell up to 4 card(s) from your hand for 4
+482	482	animal	ANACONDA	constriction_tokens	1	Constriction	Each player ahead of you on a track gains 1 Constriction token for each of those tracks (
+483	483	animal	BOA CONSTRICTOR	constriction_tokens	1	Constriction	Each player ahead of you on a track gains 1 Constriction token for each of those tracks (
+484	484	animal	EUROPEAN POND TURTLE	none	1		
+485	485	animal	COMMON EUROPEAN ADDER	extra_action_strength	1	Hypnosis 3	After finishing this action, you may take 1 action
+486	486	animal	COMMON WALL LIZARD	none	1		
+487	487	animal	EUROPEAN GRASS SNAKE	move_any_action_to_slot_1	1	Clever	After finishing you may place any Action card on 1
+488	488	animal	SLOW WORM	none	1		
+489	489	animal	SALTWATER CROCODILE	take_display_cards	1	Snapping 2	2x: Gain any 1 card from the display. You may replenish in between.
+490	490	animal	GOULD'S MONITOR	scavenge_from_discard	1	Scavenging 2	Shuffle the discard pile and draw 2 cards. Add 1 to your hand and discard the other.
+491	491	animal	FRILLED LIZARD	draw_from_deck	1	Sprint 1	Draw 1 card(s) from the deck.
+492	492	animal	INLAND TAIPAN	venom_tokens	1	Venom 2	Each player ahead of you on the Appeal track gains 2 Venom token(s).
+493	493	animal	THORNY DEVIL	none	1		
+494	494	animal	AFRICAN OSTRICH	draw_from_deck	1	Sprint 2	Draw 2 card(s) from the deck.
+495	495	animal	SECRETARY BIRD	none	1		
+496	496	animal	MARABOU	scavenge_from_discard	1	Scavenging 2	Shuffle the discard pile and draw 2 cards. Add 1 to your hand and discard the other.
+497	497	animal	LESSER FLAMINGO	free_kiosk_or_pavilion	1	Posturing 1	Up to 1x: You may place 1 free kiosk or pavilion.
+498	498	animal	SHOEBILL	none	1		
+499	499	animal	CINEREOUS VULTURE	scavenge_from_discard	1	Scavenging 3	Shuffle the discard pile and draw 3 cards. Add 1 to your hand and discard the other.
+500	500	animal	LONG-BILLED VULTURE	scavenge_from_discard	1	Scavenging 3	Shuffle the discard pile and draw 3 cards. Add 1 to your hand and discard the other.
+501	501	animal	INDIAN PEAFOWL	free_kiosk_or_pavilion	1	Posturing 2	Up to 2x: You may place 1 free kiosk or pavilion.
+502	502	animal	GREAT HORNBILL	move_action_to_slot_1	1	Boost: Building	After finishing this action, you may place your Building Action card
+503	503	animal	SNOWY OWL	draw_keep_from_deck	1	Perception 4	Draw 4 cards from the deck. Add 2 to your hand and discard the rest.
+504	504	animal	ANDEAN CONDOR	scavenge_from_discard	1	Scavenging 4	Shuffle the discard pile and draw 4 cards. Add 1 to your hand and discard the other.
+505	505	animal	BALD EAGLE	extra_action_any	1	Determination	After finishing this action, you take 1 other action
+506	506	animal	KING VULTURE	scavenge_from_discard	1	Scavenging 5	Shuffle the discard pile and draw 5 cards. Add 1 to your hand and discard the other.
+507	507	animal	GREATER RHEA	draw_from_deck	1	Sprint 1	Draw 1 card(s) from the deck.
+508	508	animal	SCARLET MACAW	free_kiosk_or_pavilion	1	Posturing 3	Up to 3x: You may place 1 free kiosk or pavilion.
+509	509	animal	GOLDEN EAGLE	extra_action_any	1	Determination	After finishing this action, you take 1 other action
+510	510	animal	WHITE STORK	multiplier_token	1	Multiplier: Building	Place 1
+511	511	animal	GREATER FLAMINGO	free_kiosk_or_pavilion	1	Posturing 1	Up to 1x: You may place 1 free kiosk or pavilion.
+512	512	animal	EURASIAN EAGLE-OWL	draw_keep_from_deck	1	Perception 4	Draw 4 cards from the deck. Add 2 to your hand and discard the rest.
+513	513	animal	BARN OWL	draw_keep_from_deck	1	Perception 4	Draw 4 cards from the deck. Add 2 to your hand and discard the rest.
+514	514	animal	EMU	place_free_large_bird_aviary	1	Peacocking	You may place a Large Bird Aviary
+515	515	animal	AUSTRALIAN PELICAN	extra_action_granted	1	Action: Building	After finishing this action, you may take the Building action
+516	516	animal	NORTHERN CASSOWARY	multiplier_token	1	Multiplier: Building	Place 1
+517	517	animal	LAUGHING KOOKABURRA	gain_conservation	1	Iconic Animal:australia	Gain 1
+518	518	animal	LESSER BIRD-OF-PARADISE	free_kiosk_or_pavilion	1	Posturing 1	Up to 1x: You may place 1 free kiosk or pavilion.
+519	519	animal	(DOMESTIC) GOAT	gain_appeal	1	Petting Zoo Animal	Gain 3
+520	520	animal	SHEEP	gain_appeal	1	Petting Zoo Animal	Gain 3
+521	521	animal	HORSE	gain_appeal	1	Petting Zoo Animal	Gain 3
+522	522	animal	DONKEY	gain_x_tokens	1	Inventive	Gain
+523	523	animal	DOMESTIC RABBIT	gain_appeal	1	Petting Zoo Animal	Gain 3
+524	524	animal	MANGALICA	digging_cycle	1	Digging 1	Choose up to 1x: Discard 1 card from the display and replenish OR discard 1 card from your hand and draw 1 other from the deck.
+525	525	animal	GUINEA PIG	gain_appeal	1	Petting Zoo Animal	Gain 3
+526	526	animal	ALPACA	gain_appeal	1	Petting Zoo Animal	Gain 3
+527	527	animal	COCONUT LORIKEET	gain_appeal	1	Petting Zoo Animal	Gain 3
+528	528	animal	BENNETT'S WALLABY	discard_hand_for_money	1	Pouch 1	You may place 1 card(s) from your hand under this card to gain 2

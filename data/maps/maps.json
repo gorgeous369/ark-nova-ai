@@ -1,0 +1,483 @@
+{
+  "source": "https://ark-nova.ender-wiggin.com",
+  "generated_at_utc": "2026-03-04T10:41:22+00:00",
+  "maps_page_url": "https://ark-nova.ender-wiggin.com/maps",
+  "maps_chunk_url": "https://ark-nova.ender-wiggin.com/_next/static/chunks/pages/maps-8c1bb68874295c1b.js",
+  "maps": [
+    {
+      "id": "m1a",
+      "name_key": "maps.name1",
+      "image_name": "plan1a",
+      "card_source_key": "ALTERNATIVE",
+      "card_source": "Alternative",
+      "description_keys": [
+        "maps.desc1-1",
+        "maps.desc1-2",
+        "maps.desc1-3",
+        "maps.desc1-4"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan1a.jpg",
+      "name": "Observation Tower",
+      "descriptions": [
+        "Gain 2 Appeals every time you flip a standard enclosure to its occupied side next to the Observation Tower.",
+        "The enclosure must be adjacent to the space with the tower, not merely to any one of the other 3 rock spaces.",
+        "The platform has no effect on special enclosures.",
+        "If you release an animal into the wild (and thus flip an occupied enclosure back to the empty side) and then accommodate a new animal in this enclosure, you gain the 2 appeal again. The Observation Tower itself does not count as a building (e. g. for kiosks)."
+      ],
+      "image_path": "data/maps/images/plan1a.jpg"
+    },
+    {
+      "id": "m2a",
+      "name_key": "maps.name2",
+      "image_name": "plan2a",
+      "card_source_key": "ALTERNATIVE",
+      "card_source": "Alternative",
+      "description_keys": [
+        "maps.desc2-1",
+        "maps.desc2-2",
+        "maps.desc2-3",
+        "maps.desc2-4"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan2a.jpg",
+      "name": "Outdoor Areas",
+      "descriptions": [
+        "Each standard enclosure adjacent to Gates has +2 capacity.",
+        "After placing any standard enclosure adjacent to the Outdoor Areas, you treat it as if it were 2 spaces larger for all purposes (e. g. release).",
+        "The enclosure must be adjacent to the space with the Outdoor Area, not merely to any one of the other 4 water spaces.",
+        "The Outdoor Area itself is not considered a building (e. g. for kiosks)."
+      ],
+      "image_path": "data/maps/images/plan2a.jpg"
+    },
+    {
+      "id": "m3a",
+      "name_key": "maps.name3",
+      "image_name": "plan3a",
+      "card_source_key": "ALTERNATIVE",
+      "card_source": "Alternative",
+      "description_keys": [
+        "maps.desc3-1"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan3a.jpg",
+      "name": "Silver Lake",
+      "descriptions": [
+        "Profitable area around the Lake."
+      ],
+      "image_path": "data/maps/images/plan3a.jpg"
+    },
+    {
+      "id": "m4a",
+      "name_key": "maps.name4",
+      "image_name": "plan4a",
+      "card_source_key": "ALTERNATIVE",
+      "card_source": "Alternative",
+      "description_keys": [
+        "maps.desc4-1",
+        "maps.desc4-2",
+        "maps.desc4-3"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan4a.jpg",
+      "name": "Commercial Harbor",
+      "descriptions": [
+        "Active if Harbor is connected: Once during your turn, you may discard 1 hand card for 3 Money (at any time).",
+        "The Commercial Harbor is considered to be connected as soon as you have placed a building on the adjacent building space.",
+        "You may use the ability at any time during your turn, before, after, or during an action. However, you may only discard 1 card with the Commercial Harbor per turn. You may not use the ability during a break or someone else\u2019s turn. The Commercial Harbor itself does not count as a building (e. g. for kiosks)."
+      ],
+      "image_path": "data/maps/images/plan4a.jpg"
+    },
+    {
+      "id": "m5a",
+      "name_key": "maps.name5",
+      "image_name": "plan5a",
+      "card_source_key": "ALTERNATIVE",
+      "card_source": "Alternative",
+      "description_keys": [
+        "maps.desc5-1",
+        "maps.desc5-2",
+        "maps.desc5-3"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan5a.jpg",
+      "name": "Park Restaurant",
+      "descriptions": [
+        "Income: gain 1 Money income for each covered space adjacent to the Restaurant.",
+        "The left bonus: you can build 1 of the 2 depicted special enclosures in your zoo for free, even if you did not upgrade the Build Action card yet.",
+        "During the break, you gain income of 1 money for each space adjacent to the Park Restaurant with\na building on it. It does not matter if these are single buildings or if several spaces belong to the same building. It also doesn\u2019t matter what kind of buildings you build there and whether\nenclosures are occupied or not. The Park Restaurant itself does not count as a building (e. g. for kiosks)."
+      ],
+      "image_path": "data/maps/images/plan5a.jpg"
+    },
+    {
+      "id": "m6a",
+      "name_key": "maps.name6",
+      "image_name": "plan6a",
+      "card_source_key": "ALTERNATIVE",
+      "card_source": "Alternative",
+      "description_keys": [
+        "maps.desc6-1",
+        "maps.desc6-2"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan6a.jpg",
+      "name": "Research Institute",
+      "descriptions": [
+        "Active if Institute is connected: Each time you play an animal card, ignore 1 condition of your choice.",
+        "The Research Institute is considered connected as soon as you have placed a building on the adjacent building space. You may build your first building directly adjacent to the Research Institute, but you do not have to. Once active, you can play Animal cards even when you are 1 condition short; you must still fulfill all other conditions. You cannot ignore rock or water requirements."
+      ],
+      "image_path": "data/maps/images/plan6a.jpg"
+    },
+    {
+      "id": "m7a",
+      "name_key": "maps.name7",
+      "image_name": "plan7a",
+      "card_source_key": "ALTERNATIVE",
+      "card_source": "Alternative",
+      "description_keys": [
+        "maps.desc7-1"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan7a.jpg",
+      "name": "Ice Cream Parlors",
+      "descriptions": [
+        "All kiosk placement bonuses covered: Income: Gain 1 Money extra income for each kiosk"
+      ],
+      "image_path": "data/maps/images/plan7a.jpg"
+    },
+    {
+      "id": "m8a",
+      "name_key": "maps.name8",
+      "image_name": "plan8a",
+      "card_source_key": "ALTERNATIVE",
+      "card_source": "Alternative",
+      "description_keys": [
+        "maps.desc8-1",
+        "maps.desc8-2",
+        "maps.desc8-3"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan8a.jpg",
+      "name": "Hollywood Hills",
+      "descriptions": [
+        "Each time you cover an H, reveal cards from the deck and add the first Sponsor card to your hand. All H covered: Each Sponsor card Strength decrease 1 when played.",
+        "The left bonus: if you have not yet upgraded the Association Action card, you can not gain a third partner zoo.",
+        "Spaces with an H may be covered like any other space. This is similar to a placement bonus, but does not count as one (e. g. for card 221). Every time you place a building on an H, reveal cards from the deck one by one until you reveal a Sponsor card. Add this card to your hand and put all other revealed cards onto the discard pile. Once you have covered all 3 spaces, the level of each Sponsor card you play is 1 lower. This means you can play them more easily."
+      ],
+      "image_path": "data/maps/images/plan8a.jpg"
+    },
+    {
+      "id": "m1",
+      "name_key": "maps.name1",
+      "image_name": "plan1",
+      "card_source_key": "BASE",
+      "card_source": "Base",
+      "description_keys": [
+        "maps.desc1-1",
+        "maps.desc1-2",
+        "maps.desc1-3",
+        "maps.desc1-4"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan1.jpg",
+      "name": "Observation Tower",
+      "descriptions": [
+        "Gain 2 Appeals every time you flip a standard enclosure to its occupied side next to the Observation Tower.",
+        "The enclosure must be adjacent to the space with the tower, not merely to any one of the other 3 rock spaces.",
+        "The platform has no effect on special enclosures.",
+        "If you release an animal into the wild (and thus flip an occupied enclosure back to the empty side) and then accommodate a new animal in this enclosure, you gain the 2 appeal again. The Observation Tower itself does not count as a building (e. g. for kiosks)."
+      ],
+      "image_path": "data/maps/images/plan1.jpg"
+    },
+    {
+      "id": "m2",
+      "name_key": "maps.name2",
+      "image_name": "plan2",
+      "card_source_key": "BASE",
+      "card_source": "Base",
+      "description_keys": [
+        "maps.desc2-1",
+        "maps.desc2-2",
+        "maps.desc2-3",
+        "maps.desc2-4"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan2.jpg",
+      "name": "Outdoor Areas",
+      "descriptions": [
+        "Each standard enclosure adjacent to Gates has +2 capacity.",
+        "After placing any standard enclosure adjacent to the Outdoor Areas, you treat it as if it were 2 spaces larger for all purposes (e. g. release).",
+        "The enclosure must be adjacent to the space with the Outdoor Area, not merely to any one of the other 4 water spaces.",
+        "The Outdoor Area itself is not considered a building (e. g. for kiosks)."
+      ],
+      "image_path": "data/maps/images/plan2.jpg"
+    },
+    {
+      "id": "m3",
+      "name_key": "maps.name3",
+      "image_name": "plan3",
+      "card_source_key": "BASE",
+      "card_source": "Base",
+      "description_keys": [
+        "maps.desc3-1"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan3.jpg",
+      "name": "Silver Lake",
+      "descriptions": [
+        "Profitable area around the Lake."
+      ],
+      "image_path": "data/maps/images/plan3.jpg"
+    },
+    {
+      "id": "m4",
+      "name_key": "maps.name4",
+      "image_name": "plan4",
+      "card_source_key": "BASE",
+      "card_source": "Base",
+      "description_keys": [
+        "maps.desc4-1",
+        "maps.desc4-2",
+        "maps.desc4-3"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan4.jpg",
+      "name": "Commercial Harbor",
+      "descriptions": [
+        "Active if Harbor is connected: Once during your turn, you may discard 1 hand card for 3 Money (at any time).",
+        "The Commercial Harbor is considered to be connected as soon as you have placed a building on the adjacent building space.",
+        "You may use the ability at any time during your turn, before, after, or during an action. However, you may only discard 1 card with the Commercial Harbor per turn. You may not use the ability during a break or someone else\u2019s turn. The Commercial Harbor itself does not count as a building (e. g. for kiosks)."
+      ],
+      "image_path": "data/maps/images/plan4.jpg"
+    },
+    {
+      "id": "m5",
+      "name_key": "maps.name5",
+      "image_name": "plan5",
+      "card_source_key": "BASE",
+      "card_source": "Base",
+      "description_keys": [
+        "maps.desc5-1",
+        "maps.desc5-2",
+        "maps.desc5-3"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan5.jpg",
+      "name": "Park Restaurant",
+      "descriptions": [
+        "Income: gain 1 Money income for each covered space adjacent to the Restaurant.",
+        "The left bonus: you can build 1 of the 2 depicted special enclosures in your zoo for free, even if you did not upgrade the Build Action card yet.",
+        "During the break, you gain income of 1 money for each space adjacent to the Park Restaurant with\na building on it. It does not matter if these are single buildings or if several spaces belong to the same building. It also doesn\u2019t matter what kind of buildings you build there and whether\nenclosures are occupied or not. The Park Restaurant itself does not count as a building (e. g. for kiosks)."
+      ],
+      "image_path": "data/maps/images/plan5.jpg"
+    },
+    {
+      "id": "m6",
+      "name_key": "maps.name6",
+      "image_name": "plan6",
+      "card_source_key": "BASE",
+      "card_source": "Base",
+      "description_keys": [
+        "maps.desc6-1",
+        "maps.desc6-2"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan6.jpg",
+      "name": "Research Institute",
+      "descriptions": [
+        "Active if Institute is connected: Each time you play an animal card, ignore 1 condition of your choice.",
+        "The Research Institute is considered connected as soon as you have placed a building on the adjacent building space. You may build your first building directly adjacent to the Research Institute, but you do not have to. Once active, you can play Animal cards even when you are 1 condition short; you must still fulfill all other conditions. You cannot ignore rock or water requirements."
+      ],
+      "image_path": "data/maps/images/plan6.jpg"
+    },
+    {
+      "id": "m7",
+      "name_key": "maps.name7",
+      "image_name": "plan7",
+      "card_source_key": "BASE",
+      "card_source": "Base",
+      "description_keys": [
+        "maps.desc7-1"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan7.jpg",
+      "name": "Ice Cream Parlors",
+      "descriptions": [
+        "All kiosk placement bonuses covered: Income: Gain 1 Money extra income for each kiosk"
+      ],
+      "image_path": "data/maps/images/plan7.jpg"
+    },
+    {
+      "id": "m8",
+      "name_key": "maps.name8",
+      "image_name": "plan8",
+      "card_source_key": "BASE",
+      "card_source": "Base",
+      "description_keys": [
+        "maps.desc8-1",
+        "maps.desc8-2",
+        "maps.desc8-3"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan8.jpg",
+      "name": "Hollywood Hills",
+      "descriptions": [
+        "Each time you cover an H, reveal cards from the deck and add the first Sponsor card to your hand. All H covered: Each Sponsor card Strength decrease 1 when played.",
+        "The left bonus: if you have not yet upgraded the Association Action card, you can not gain a third partner zoo.",
+        "Spaces with an H may be covered like any other space. This is similar to a placement bonus, but does not count as one (e. g. for card 221). Every time you place a building on an H, reveal cards from the deck one by one until you reveal a Sponsor card. Add this card to your hand and put all other revealed cards onto the discard pile. Once you have covered all 3 spaces, the level of each Sponsor card you play is 1 lower. This means you can play them more easily."
+      ],
+      "image_path": "data/maps/images/plan8.jpg"
+    },
+    {
+      "id": "m9",
+      "name_key": "maps.name9",
+      "image_name": "plan9",
+      "card_source_key": "PROMO",
+      "card_source": "Promo",
+      "description_keys": [
+        "maps.desc9-1",
+        "maps.desc9-2",
+        "maps.desc9-3",
+        "maps.desc9-4",
+        "maps.desc9-5",
+        "maps.desc9-6"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan9.jpg",
+      "name": "Geographical Zoo",
+      "descriptions": [
+        "This zoo map has 5 areas of 6 spaces each. Each of these areas is color coded to a specific continent. At the start of the game, place 1 player marker each on the 5 spaces that belong to those areas. These spaces are also color coded to the continent and have a black outline of the respective continent on white ground next to it.",
+        "When you play an animal into your zoo and at least 1 space of the enclosure you put the animal in is in the area belonging to the same continent as the animal, then you may remove the player marker from that continent area and get one of the 5 bonuses depicted. Put the marker back into your supply. It does not matter whether the enclosure is a standard enclosure or a special enclosure.",
+        "You can gain the bonus once per continent icon/area. If you have already removed the player marker before, you cannot gain the bonus for this continent again.",
+        "Each time you gain a bonus, you can choose any 1 of the 5 bonuses. So you can take the same bonus multiple times during the game. When you remove the 5th and final player marker, you gain 1 Conservation point in addition to the bonus you get.",
+        "The left bonus: When you take this bonus on the left side of your zoo map, you can remove any 1 player marker from 1 of the 5 continent areas (without having to play a matching animal). Gain 1 bonus as usual (plus 1 Conservation point if this was the 5th and final player marker you removed).",
+        "When using the Flock Animal ability, you cannot gain a continent bonus (because you do not use a specific enclosure). When you build this special building and move an animal from a standard enclosure into it, you can gain the continent bonus if the animal moved shares a continent symbol with an area this building is in."
+      ],
+      "image_path": "data/maps/images/plan9.jpg"
+    },
+    {
+      "id": "m10",
+      "name_key": "maps.name10",
+      "image_name": "plan10",
+      "card_source_key": "PROMO",
+      "card_source": "Promo",
+      "description_keys": [
+        "maps.desc10-1",
+        "maps.desc10-2",
+        "maps.desc10-3",
+        "maps.desc10-4",
+        "maps.desc10-5"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan10.jpg",
+      "name": "Rescue Station",
+      "descriptions": [
+        "When gaining this placement bonus, you gain Digging 1: Choose up to 1\u00d7 : EITHER discard 1 card from the display and replenish OR discard 1 card from your hand and draw 1 other from the deck.",
+        "If the discarded card is an animal card (except for a Petting Zoo animal ), you may slide it underneath your zoo map from the top, at one of the 3 slots marked by an arrow that does not have a card yet, so that only the top of the card is visible. The animal counts as \u201cin your zoo\u201d from that moment on and triggers any other card that looks for icons or animals being played into your zoo. Ignore the rest of the card. That means you do not gain any effects from the animal card itself.",
+        "You can have up to 3 cards at the top of your zoo map. If you gain the bonus more than 3 times, for example because of Sponsor card 221, Archaeologist, you cannot replace one of the cards with a new card. In that case you can only use Digging 1.",
+        "You do not need to fulfill any conditions depicted on the animal card. You do not need to pay the money cost. The animal card does not need an enclosure. Any enclosure requirements still count as in your zoo (since they are also icons).",
+        "If the animal card is a large or small animal, it also counts as such in your zoo. You may not release the animal into the Wild."
+      ],
+      "image_path": "data/maps/images/plan10.jpg"
+    },
+    {
+      "id": "m11",
+      "name_key": "maps.name11",
+      "image_name": "plan11",
+      "card_source_key": "PROMO",
+      "card_source": "Promo",
+      "description_keys": [
+        "maps.desc11-1"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan11.jpg",
+      "name": "Caves",
+      "descriptions": [
+        "Store: Place 1 hand card under your notepad (can be taken back into your hand at ant time). During each break, gain 2 money per stored card."
+      ],
+      "image_path": "data/maps/images/plan11.jpg"
+    },
+    {
+      "id": "m12",
+      "name_key": "maps.name12",
+      "image_name": "plan12",
+      "card_source_key": "PROMO",
+      "card_source": "Promo",
+      "description_keys": [
+        "maps.desc12-1"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan12.jpg",
+      "name": "Artificial Intelligence",
+      "descriptions": [
+        "Conceal the leftmost open action strength (the \"3\") always remains open). Action strength is increased to the next highest visible number."
+      ],
+      "image_path": "data/maps/images/plan12.jpg"
+    },
+    {
+      "id": "m13",
+      "name_key": "maps.name13",
+      "image_name": "plan13",
+      "card_source_key": "PROMO",
+      "card_source": "Promo",
+      "description_keys": [
+        "maps.desc13-1"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan13.jpg",
+      "name": "Drawing Board",
+      "descriptions": [
+        "If you completely cover an area on your mao, immediately and during each break gain the depicted bonus."
+      ],
+      "image_path": "data/maps/images/plan13.jpg"
+    },
+    {
+      "id": "m14",
+      "name_key": "maps.name14",
+      "image_name": "plan14",
+      "card_source_key": "PROMO",
+      "card_source": "Promo",
+      "description_keys": [
+        "maps.desc14-1"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan14.jpg",
+      "name": "Lagoon",
+      "descriptions": [
+        "Find a person Sponsor card (including 1x at start of game) and take it into your hand."
+      ],
+      "image_path": "data/maps/images/plan14.jpg"
+    },
+    {
+      "id": "m0",
+      "name_key": "maps.name0",
+      "image_name": "plan0",
+      "card_source_key": "BEGINNER",
+      "card_source": "Beginner",
+      "description_keys": [],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plan0.jpg",
+      "name": "Map 0",
+      "descriptions": [],
+      "image_path": "data/maps/images/plan0.jpg"
+    },
+    {
+      "id": "mA",
+      "name_key": "maps.nameA",
+      "image_name": "plana",
+      "card_source_key": "BEGINNER",
+      "card_source": "Beginner",
+      "description_keys": [
+        "maps.descA-1"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/plana.jpg",
+      "name": "Map A",
+      "descriptions": [
+        "You start with a free size-3 enclosure and a kiosk in the bottom left corner. No special ability. "
+      ],
+      "image_path": "data/maps/images/plana.jpg"
+    },
+    {
+      "id": "mt1",
+      "name_key": "maps.nameT1",
+      "image_name": "planT1",
+      "card_source_key": "PROMO",
+      "card_source": "Promo",
+      "description_keys": [
+        "maps.descT1-1"
+      ],
+      "image_url": "https://ark-nova.ender-wiggin.com/img/maps/planT1.jpg",
+      "name": "Tournament 1",
+      "descriptions": [
+        "Active if left top bonus unlocked: once during your turn, you may discard 1 hand card to increase the strength of an action by +1."
+      ],
+      "image_path": "data/maps/images/planT1.jpg"
+    }
+  ],
+  "stats": {
+    "total": 25,
+    "by_card_source": {
+      "Alternative": 8,
+      "Base": 8,
+      "Beginner": 2,
+      "Promo": 7
+    }
+  }
+}

@@ -1,0 +1,486 @@
+{
+  "map_id": "m10",
+  "map_name": "Rescue Station",
+  "image_name": "plan10",
+  "image_path": "data/maps/images/plan10.jpg",
+  "coordinate_system": "axial_xy",
+  "axis_definition": {
+    "x_positive_direction": "right_down",
+    "y_positive_direction": "right_up",
+    "origin": "top_left"
+  },
+  "grid_version": "arknova_map_v1",
+  "map_effects": [
+    "When gaining this placement bonus, you gain Digging 1: Choose up to 1\u00d7 : EITHER discard 1 card from the display and replenish OR discard 1 card from your hand and draw 1 other from the deck.",
+    "If the discarded card is an animal card (except for a Petting Zoo animal ), you may slide it underneath your zoo map from the top, at one of the 3 slots marked by an arrow that does not have a card yet, so that only the top of the card is visible. The animal counts as \u201cin your zoo\u201d from that moment on and triggers any other card that looks for icons or animals being played into your zoo. Ignore the rest of the card. That means you do not gain any effects from the animal card itself.",
+    "You can have up to 3 cards at the top of your zoo map. If you gain the bonus more than 3 times, for example because of Sponsor card 221, Archaeologist, you cannot replace one of the cards with a new card. In that case you can only use Digging 1.",
+    "You do not need to fulfill any conditions depicted on the animal card. You do not need to pay the money cost. The animal card does not need an enclosure. Any enclosure requirements still count as in your zoo (since they are also icons).",
+    "If the animal card is a large or small animal, it also counts as such in your zoo. You may not release the animal into the Wild."
+  ],
+  "tiles": [
+    {
+      "x": 0,
+      "y": 0,
+      "terrain": "rock",
+      "build2_required": false,
+      "placement_bonus": "card_in_reputation_range",
+      "tags": []
+    },
+    {
+      "x": 0,
+      "y": 1,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 1,
+      "y": -1,
+      "terrain": "rock",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 1,
+      "y": 1,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 1,
+      "y": 2,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 2,
+      "y": -2,
+      "terrain": "rock",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 2,
+      "y": -1,
+      "terrain": "water",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 2,
+      "y": 0,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 2,
+      "y": 1,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 2,
+      "y": 2,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 2,
+      "y": 3,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 3,
+      "y": -3,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": "reputation",
+      "tags": []
+    },
+    {
+      "x": 3,
+      "y": -2,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 3,
+      "y": -1,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": "card_in_reputation_range",
+      "tags": []
+    },
+    {
+      "x": 3,
+      "y": 0,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 3,
+      "y": 1,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 3,
+      "y": 2,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 3,
+      "y": 3,
+      "terrain": "rock",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 3,
+      "y": 4,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": "card_in_reputation_range",
+      "tags": []
+    },
+    {
+      "x": 4,
+      "y": -4,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": "reputation",
+      "tags": []
+    },
+    {
+      "x": 4,
+      "y": -3,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 4,
+      "y": -2,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 4,
+      "y": -1,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 4,
+      "y": 0,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 4,
+      "y": 1,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 4,
+      "y": 2,
+      "terrain": "rock",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 4,
+      "y": 3,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": "card_in_reputation_range",
+      "tags": []
+    },
+    {
+      "x": 4,
+      "y": 4,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": "card_in_reputation_range",
+      "tags": []
+    },
+    {
+      "x": 5,
+      "y": -5,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": "card_in_reputation_range",
+      "tags": []
+    },
+    {
+      "x": 5,
+      "y": -4,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 5,
+      "y": -3,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 5,
+      "y": -2,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 5,
+      "y": -1,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 5,
+      "y": 0,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 5,
+      "y": 1,
+      "terrain": "rock",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 5,
+      "y": 2,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": "card_in_reputation_range",
+      "tags": []
+    },
+    {
+      "x": 5,
+      "y": 3,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": "card_in_reputation_range",
+      "tags": []
+    },
+    {
+      "x": 6,
+      "y": -5,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 6,
+      "y": -4,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 6,
+      "y": -3,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 6,
+      "y": -2,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 6,
+      "y": -1,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 6,
+      "y": 0,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": "card_in_reputation_range",
+      "tags": []
+    },
+    {
+      "x": 6,
+      "y": 1,
+      "terrain": "rock",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 6,
+      "y": 2,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 7,
+      "y": -4,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 7,
+      "y": -3,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 7,
+      "y": -2,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 7,
+      "y": -1,
+      "terrain": "water",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 7,
+      "y": 0,
+      "terrain": "water",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 7,
+      "y": 1,
+      "terrain": "rock",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 8,
+      "y": -3,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 8,
+      "y": -2,
+      "terrain": "water",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 8,
+      "y": -1,
+      "terrain": "water",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 8,
+      "y": 0,
+      "terrain": "rock",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 9,
+      "y": -2,
+      "terrain": "water",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    },
+    {
+      "x": 9,
+      "y": -1,
+      "terrain": "plain",
+      "build2_required": false,
+      "placement_bonus": null,
+      "tags": []
+    }
+  ]
+}

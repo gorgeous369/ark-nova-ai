@@ -1,0 +1,1132 @@
+{
+  "source": "https://ark-nova.ender-wiggin.com",
+  "generated_at_utc": "2026-03-07T01:54:38+00:00",
+  "split_source_group": "marine_world",
+  "cards": [
+    {
+      "data_id": "A529_MagnificentSeaAnemone",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/529",
+      "number": 529,
+      "title": "MAGNIFICENT SEA ANEMONE",
+      "subtitle": "Heteractis magnifica",
+      "cost": 6,
+      "enclosure_size": 1,
+      "appeal": 3,
+      "badges": [
+        "SeaAnimal",
+        "Australia"
+      ],
+      "ability_title": "Mark",
+      "ability_text": "After finishing this action, mark 1 Animal card in the display.",
+      "site_card_id": 529
+    },
+    {
+      "data_id": "A530_OrangeClownfish",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/530",
+      "number": 530,
+      "title": "ORANGE CLOWNFISH",
+      "subtitle": "Amphiprion percula",
+      "cost": 10,
+      "enclosure_size": 1,
+      "appeal": 3,
+      "badges": [
+        "SeaAnimal",
+        "Australia"
+      ],
+      "site_card_id": 530
+    },
+    {
+      "data_id": "A531_PaletteSurgeonfish",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/531",
+      "number": 531,
+      "title": "PALETTE SURGEONFISH",
+      "subtitle": "Paracanthurus hepatus",
+      "cost": 9,
+      "enclosure_size": 1,
+      "appeal": 4,
+      "badges": [
+        "SeaAnimal",
+        "Asia"
+      ],
+      "ability_title": "Trade",
+      "ability_text": "You may trade exactly 1",
+      "site_card_id": 531
+    },
+    {
+      "data_id": "A532_Zooplankton",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/532",
+      "number": 532,
+      "title": "ZOOPLANKTON",
+      "cost": 4,
+      "enclosure_size": 1,
+      "appeal": 1,
+      "badges": [
+        "SeaAnimal"
+      ],
+      "ability_title": "Sea Animal Magnet",
+      "ability_text": "Add all cards with the",
+      "site_card_id": 532
+    },
+    {
+      "data_id": "A533_BlacksideHawkfish",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/533",
+      "number": 533,
+      "title": "BLACKSIDE HAWKFISH",
+      "subtitle": "Paracirrhitforsteri",
+      "cost": 11,
+      "enclosure_size": 2,
+      "appeal": 4,
+      "badges": [
+        "SeaAnimal",
+        "Australia"
+      ],
+      "ability_title": "Posturing 1",
+      "ability_text": "Up to 1x: You may place 1 free kiosk or pavilion.",
+      "site_card_id": 533
+    },
+    {
+      "data_id": "A534_SouthernBlue-RingedOctopl",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/534",
+      "number": 534,
+      "title": "SOUTHERN BLUE-RINGED OCTOPUS",
+      "subtitle": "Hapalochlaena maculosa",
+      "cost": 12,
+      "enclosure_size": 2,
+      "appeal": 4,
+      "badges": [
+        "SeaAnimal",
+        "Australia"
+      ],
+      "ability_title": "Venom 1",
+      "ability_text": "Each player ahead of you on the Appeal track gains 1 Venom token(s).",
+      "site_card_id": 534
+    },
+    {
+      "data_id": "A535_SharknoseGoby",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/535",
+      "number": 535,
+      "title": "SHARKNOSE GOBY",
+      "subtitle": "Flacatinus evelynae",
+      "cost": 7,
+      "enclosure_size": 1,
+      "appeal": 2,
+      "badges": [
+        "SeaAnimal",
+        "Americas"
+      ],
+      "ability_title": "Symbiosis",
+      "ability_text": "Use 1 ability (not a Reef Dweller effect) of 1 other",
+      "site_card_id": 535
+    },
+    {
+      "data_id": "A536_LonghornCowfish",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/536",
+      "number": 536,
+      "title": "LONGHORN COWFISH",
+      "subtitle": "Lactoria cornuta",
+      "cost": 9,
+      "enclosure_size": 2,
+      "appeal": 4,
+      "badges": [
+        "SeaAnimal",
+        "Africa"
+      ],
+      "ability_title": "Boost: Sponsors",
+      "ability_text": "After finishing this action, you may place your Sponsors Action card",
+      "site_card_id": 536
+    },
+    {
+      "data_id": "A537_BlackbarTriggerfish",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/537",
+      "number": 537,
+      "title": "BLACKBAR TRIGGERFISH",
+      "subtitle": "Rhinecanthus aculeatus",
+      "cost": 14,
+      "enclosure_size": 2,
+      "appeal": 5,
+      "required_icons": {
+        "university": 1
+      },
+      "badges": [
+        "SeaAnimal",
+        "Africa"
+      ],
+      "ability_title": "Constriction",
+      "ability_text": "Each player ahead of you on a track gains 1 Constriction token for each of those tracks (",
+      "site_card_id": 537
+    },
+    {
+      "data_id": "A538_DevilFirefish",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/538",
+      "number": 538,
+      "title": "DEVIL FIREFISH",
+      "subtitle": "Pterois miles",
+      "cost": 16,
+      "enclosure_size": 2,
+      "appeal": 6,
+      "required_icons": {
+        "science": 1
+      },
+      "badges": [
+        "SeaAnimal",
+        "Asia"
+      ],
+      "ability_title": "Venom 1",
+      "ability_text": "Each player ahead of you on the Appeal track gains 1 Venom token(s).",
+      "site_card_id": 538
+    },
+    {
+      "data_id": "A539_MericanWhitespottedFilefis",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/539",
+      "number": 539,
+      "title": "AMERICAN WHITESPOTTED FILEFISH",
+      "subtitle": "Cantherhinmacrocerus",
+      "cost": 12,
+      "enclosure_size": 1,
+      "appeal": 5,
+      "badges": [
+        "SeaAnimal",
+        "Americas"
+      ],
+      "site_card_id": 539
+    },
+    {
+      "data_id": "A540_GuineafowlPuffer",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/540",
+      "number": 540,
+      "title": "GUINEAFOWL PUFFER",
+      "subtitle": "Arothron meleagris",
+      "cost": 15,
+      "enclosure_size": 2,
+      "appeal": 5,
+      "badges": [
+        "SeaAnimal",
+        "Asia"
+      ],
+      "ability_title": "Venom 1",
+      "ability_text": "Each player ahead of you on the Appeal track gains 1 Venom token(s).",
+      "site_card_id": 540
+    },
+    {
+      "data_id": "A541_BluespottedRibbontailRay",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/541",
+      "number": 541,
+      "title": "BLUESPOTTED RIBBONTAIL RAY",
+      "subtitle": "Jaeniura lymma",
+      "cost": 16,
+      "enclosure_size": 2,
+      "appeal": 7,
+      "badges": [
+        "SeaAnimal",
+        "Asia"
+      ],
+      "ability_title": "Digging 1",
+      "ability_text": "Choose up to 1x: Discard 1 card from the display and replenish OR discard 1 card from your hand and draw 1 other from the deck.",
+      "site_card_id": 541
+    },
+    {
+      "data_id": "A542_Humpheadwrasse",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/542",
+      "number": 542,
+      "title": "HUMPHEAD WRASSE",
+      "subtitle": "Cheilinus undulatus",
+      "cost": 22,
+      "enclosure_size": 3,
+      "appeal": 6,
+      "conservation": 1,
+      "required_icons": {
+        "university": 1
+      },
+      "badges": [
+        "SeaAnimal",
+        "Africa"
+      ],
+      "ability_title": "Extra Shift",
+      "ability_text": "You may return 1 of your association workers to your notepad.",
+      "site_card_id": 542
+    },
+    {
+      "data_id": "A543_CoastalMantaRay",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/543",
+      "number": 543,
+      "title": "COASTAL MANTA RAY",
+      "subtitle": "Mobula alfredi",
+      "cost": 23,
+      "enclosure_size": 5,
+      "appeal": 8,
+      "reputation": 1,
+      "required_icons": {
+        "animalsii": 1
+      },
+      "badges": [
+        "SeaAnimal",
+        "Asia"
+      ],
+      "ability_title": "Glide 3",
+      "ability_text": "Discard up to 3 cards from your hand: For every",
+      "site_card_id": 543
+    },
+    {
+      "data_id": "A544_CaribbeanReefShark",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/544",
+      "number": 544,
+      "title": "CARIBBEAN REEF SHARK",
+      "subtitle": "Carcharhinus perezii",
+      "cost": 20,
+      "enclosure_size": 4,
+      "appeal": 5,
+      "reputation": 1,
+      "badges": [
+        "SeaAnimal",
+        "Predator",
+        "Americas"
+      ],
+      "ability_title": "Shark Attack 1",
+      "ability_text": "Discard 1 Animal card(s) in reputation range from the display: Gain half the",
+      "site_card_id": 544
+    },
+    {
+      "data_id": "A545_LongcombSawfish",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/545",
+      "number": 545,
+      "title": "LONGCOMB SAWFISH",
+      "subtitle": "Pristis zijsron",
+      "cost": 21,
+      "enclosure_size": 4,
+      "appeal": 9,
+      "conservation": 1,
+      "required_icons": {
+        "seaanimal": 1
+      },
+      "badges": [
+        "SeaAnimal",
+        "SeaAnimal",
+        "Africa"
+      ],
+      "ability_title": "Cut Down",
+      "ability_text": "You may remove 1 empty standard enclosure from your zoo map and gain back its cost.",
+      "site_card_id": 545
+    },
+    {
+      "data_id": "A546_SandTigerShark",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/546",
+      "number": 546,
+      "title": "SAND TIGER SHARK",
+      "subtitle": "Carcharias taurus",
+      "cost": 32,
+      "enclosure_size": 5,
+      "required_rock_adjacency": 1,
+      "appeal": 8,
+      "conservation": 1,
+      "required_icons": {
+        "animalsii": 1
+      },
+      "badges": [
+        "SeaAnimal",
+        "Predator",
+        "Australia"
+      ],
+      "ability_title": "Shark Attack 2",
+      "ability_text": "Discard 2 Animal card(s) in reputation range from the display: Gain half the",
+      "site_card_id": 546
+    },
+    {
+      "data_id": "A547_MediterraneanRainbow",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/547",
+      "number": 547,
+      "title": "MEDITERRANEAN RAINBOW",
+      "subtitle": "Coris julis",
+      "cost": 8,
+      "enclosure_size": 1,
+      "required_rock_adjacency": 1,
+      "appeal": 3,
+      "badges": [
+        "SeaAnimal",
+        "Europe"
+      ],
+      "ability_title": "Symbiosis",
+      "ability_text": "Use 1 ability (not a Reef Dweller effect) of 1 other",
+      "site_card_id": 547
+    },
+    {
+      "data_id": "A548_LinedSeahorse",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/548",
+      "number": 548,
+      "title": "LINED SEAHORSE",
+      "subtitle": "Hippocampus erectus",
+      "cost": 7,
+      "enclosure_size": 1,
+      "required_rock_adjacency": 1,
+      "appeal": 2,
+      "badges": [
+        "SeaAnimal",
+        "Europe"
+      ],
+      "ability_title": "Camouflage",
+      "ability_text": "If you play 1 other animal during this turn, you may ignore 1 of its conditions",
+      "site_card_id": 548
+    },
+    {
+      "data_id": "A549_MmonOctopus",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/549",
+      "number": 549,
+      "title": "COMMON OCTOPUS",
+      "subtitle": "Octopus vulgaris",
+      "cost": 9,
+      "enclosure_size": 3,
+      "required_rock_adjacency": 1,
+      "appeal": 5,
+      "required_icons": {
+        "science": 1
+      },
+      "badges": [
+        "SeaAnimal",
+        "Europe"
+      ],
+      "ability_title": "Camouflage",
+      "ability_text": "If you play 1 other animal during this turn, you may ignore 1 of its conditions",
+      "site_card_id": 549
+    },
+    {
+      "data_id": "A550_CompassJellyfish",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/550",
+      "number": 550,
+      "title": "COMPASS JELLYFISH",
+      "subtitle": "Chrysaora hysoscella",
+      "cost": 10,
+      "enclosure_size": 3,
+      "appeal": 6,
+      "required_icons": {
+        "reputation": 1
+      },
+      "badges": [
+        "SeaAnimal",
+        "Europe"
+      ],
+      "ability_title": "Glide 2",
+      "ability_text": "Discard up to 2 cards from your hand: For every",
+      "site_card_id": 550
+    },
+    {
+      "data_id": "A551_LoggerheadSeaTurtle",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/551",
+      "number": 551,
+      "title": "LOGGERHEAD SEA TURTLE",
+      "subtitle": "Caretta caretta",
+      "cost": 23,
+      "enclosure_size": 4,
+      "reptile_house_size": 3,
+      "appeal": 8,
+      "badges": [
+        "SeaAnimal",
+        "Reptile",
+        "Europe"
+      ],
+      "ability_title": "Scuba Dive X",
+      "ability_text": "Reveal the X topmost cards of the deck. Choose 1 Sponsor card and add it to your hand. Discard the other cards. X is the number of",
+      "site_card_id": 551
+    },
+    {
+      "data_id": "A552_GreenSeaTurtle",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/552",
+      "number": 552,
+      "title": "GREEN SEA TURTLE",
+      "subtitle": "Chelonia mydas",
+      "cost": 17,
+      "enclosure_size": 3,
+      "reptile_house_size": 2,
+      "appeal": 6,
+      "badges": [
+        "SeaAnimal",
+        "Reptile",
+        "Americas"
+      ],
+      "ability_title": "Scuba Dive X",
+      "ability_text": "Reveal the X topmost cards of the deck. Choose 1 Sponsor card and add it to your hand. Discard the other cards. X is the number of",
+      "site_card_id": 552
+    },
+    {
+      "data_id": "A553_Tambaqui",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/553",
+      "number": 553,
+      "title": "TAMBAQUI",
+      "subtitle": "Colossoma macropomum",
+      "cost": 15,
+      "enclosure_size": 1,
+      "appeal": 5,
+      "badges": [
+        "SeaAnimal",
+        "Herbivore",
+        "Americas"
+      ],
+      "ability_title": "Adapt 1",
+      "ability_text": "Draw 1 Final Scoring cards, then discard 1 Final Scoring cards.",
+      "site_card_id": 553
+    },
+    {
+      "data_id": "A554_AfricanPenguin",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/554",
+      "number": 554,
+      "title": "AFRICAN PENGUIN",
+      "subtitle": "Spheniscus demersus",
+      "cost": 18,
+      "enclosure_size": 3,
+      "required_rock_adjacency": 1,
+      "required_water_adjacency": 1,
+      "appeal": 6,
+      "reputation": 1,
+      "required_icons": {
+        "animalsii": 1
+      },
+      "badges": [
+        "SeaAnimal",
+        "Bird",
+        "Africa"
+      ],
+      "ability_title": "Adapt 2",
+      "ability_text": "Draw 2 Final Scoring cards, then discard 2 Final Scoring cards.",
+      "site_card_id": 554
+    },
+    {
+      "data_id": "A555_SoldenSnub-NosedMonkey",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/555",
+      "number": 555,
+      "title": "GOLDEN SNUB-NOSED MONKEY",
+      "subtitle": "Rhinopithecus roxellana",
+      "cost": 18,
+      "enclosure_size": 3,
+      "required_rock_adjacency": 1,
+      "appeal": 6,
+      "conservation": 1,
+      "required_icons": {
+        "science": 1
+      },
+      "badges": [
+        "Primate",
+        "Asia"
+      ],
+      "ability_title": "Pilfering 1",
+      "ability_text": "Draw 1 card from the hand of or take 5",
+      "site_card_id": 555
+    },
+    {
+      "data_id": "A556_Wolverine",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/556",
+      "number": 556,
+      "title": "WOLVERINE",
+      "subtitle": "Gulo gulo",
+      "cost": 15,
+      "enclosure_size": 3,
+      "required_rock_adjacency": 1,
+      "appeal": 5,
+      "reputation": 1,
+      "badges": [
+        "Bear",
+        "Predator",
+        "Europe"
+      ],
+      "ability_title": "Boost: Association",
+      "ability_text": "After finishing this action, you may place your Association Action card",
+      "site_card_id": 556
+    },
+    {
+      "data_id": "A557_IetnamesePot-BelliedPig",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/557",
+      "number": 557,
+      "title": "Vietnamese Pot-Bellied Pig",
+      "subtitle": "Sus scrofa f. domestica",
+      "cost": 7,
+      "enclosure_size": 1,
+      "appeal": 0,
+      "badges": [
+        "Pet"
+      ],
+      "ability_title": "Petting Zoo Animal",
+      "ability_text": "Gain 3",
+      "site_card_id": 557
+    },
+    {
+      "data_id": "A558_NorthernMuriqui",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/558",
+      "number": 558,
+      "title": "NORTHERN MURIQUI",
+      "subtitle": "Brachytelhypoxanthus",
+      "cost": 16,
+      "enclosure_size": 4,
+      "required_rock_adjacency": 1,
+      "appeal": 6,
+      "conservation": 1,
+      "required_icons": {
+        "university": 1
+      },
+      "badges": [
+        "Primate",
+        "Americas"
+      ],
+      "ability_title": "Monkey Gang",
+      "ability_text": "Reveal cards from the deck. Take the first card with",
+      "site_card_id": 558
+    },
+    {
+      "data_id": "A559_CoquerelsSifaka",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/559",
+      "number": 559,
+      "title": "COQUERELS SIFAKA",
+      "subtitle": "Propithecus coquereli",
+      "cost": 17,
+      "enclosure_size": 3,
+      "required_rock_adjacency": 1,
+      "appeal": 7,
+      "badges": [
+        "Primate",
+        "Africa"
+      ],
+      "ability_title": "Monkey Gang",
+      "ability_text": "Reveal cards from the deck. Take the first card with",
+      "site_card_id": 559
+    },
+    {
+      "data_id": "A560_BrahminyKite",
+      "type": "animal",
+      "class_name": "ark-card zoo-card animal-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/560",
+      "number": 560,
+      "title": "BRAHMINY KITE",
+      "subtitle": "Haliastur indus",
+      "cost": 12,
+      "enclosure_size": 3,
+      "required_rock_adjacency": 1,
+      "required_water_adjacency": 1,
+      "large_bird_aviary_size": 1,
+      "appeal": 6,
+      "badges": [
+        "Bird",
+        "Australia"
+      ],
+      "ability_title": "Hunter 2",
+      "ability_text": "Reveal the 2 topmost card(s) of the deck. Choose 1 Animal card and add it to your hand. Discard the other cards.",
+      "site_card_id": 560
+    },
+    {
+      "data_id": "F012_DesignerZoo",
+      "type": "final_scoring",
+      "class_name": "ark-card zoo-card scoring-card",
+      "source_url": "https://ark-nova.ender-wiggin.com/cards",
+      "number": 12,
+      "title": "Designer Zoo",
+      "description": "Gain"
+    },
+    {
+      "data_id": "F013_SpecializedHabitatZoo",
+      "type": "final_scoring",
+      "class_name": "ark-card zoo-card scoring-card",
+      "source_url": "https://ark-nova.ender-wiggin.com/cards",
+      "number": 13,
+      "title": "Specialized Habitat Zoo",
+      "description": "Choose 1 continent icon you did not support a Base Conservation Project with. Gain"
+    },
+    {
+      "data_id": "F014_SpecializedSpeciesZoo",
+      "type": "final_scoring",
+      "class_name": "ark-card zoo-card scoring-card",
+      "source_url": "https://ark-nova.ender-wiggin.com/cards",
+      "number": 14,
+      "title": "Specialized Species Zoo",
+      "description": "Choose 1 animal category icon you did not support a Base Conservation Project with. Gain"
+    },
+    {
+      "data_id": "F015_CateredPicnicAreas",
+      "type": "final_scoring",
+      "class_name": "ark-card zoo-card scoring-card",
+      "source_url": "https://ark-nova.ender-wiggin.com/cards",
+      "number": 15,
+      "title": "Catered Picnic Areas",
+      "description": "Gain"
+    },
+    {
+      "data_id": "F016_AccessibleZoo",
+      "type": "final_scoring",
+      "class_name": "ark-card zoo-card scoring-card",
+      "source_url": "https://ark-nova.ender-wiggin.com/cards",
+      "number": 16,
+      "title": "Accessible Zoo",
+      "description": "Gain"
+    },
+    {
+      "data_id": "F017_InternationalZoo",
+      "type": "final_scoring",
+      "class_name": "ark-card zoo-card scoring-card",
+      "source_url": "https://ark-nova.ender-wiggin.com/cards",
+      "number": 17,
+      "title": "International Zoo"
+    },
+    {
+      "number": 265,
+      "title": "FRANCHISE BUSINESS",
+      "level": 4,
+      "required_icons": {
+        "kiosk": 1
+      },
+      "effects": [
+        {
+          "kind": "income",
+          "text": "Gain {Money-1} for each kiosk in other zoos."
+        },
+        {
+          "kind": "immediate",
+          "text": "Place a kiosk."
+        },
+        {
+          "kind": "endgame",
+          "text": "If you have 5 kiosks, gain {ConservationPoint-1} ."
+        }
+      ],
+      "appeal": 2,
+      "data_id": "S265_FranchiseBusiness",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/265",
+      "site_card_id": 265
+    },
+    {
+      "number": 266,
+      "title": "MARINE BIOLOGIST",
+      "level": 4,
+      "effects": [
+        {
+          "kind": "passive",
+          "text": "Each time a sea animal icon is played into any zoo, gain {Money-3} ."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {ConservationPoint-1} for each {Kiosk} with at least 3 empty building spaces next to it (max. {ConservationPoint-3} )."
+        },
+        {
+          "kind": "passive",
+          "text": "Each time you play a Europe icon into your zoo, you may mark 1 Animal card after finishing the current action."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {ConservationPoint-1} if you did 3 donations."
+        },
+        {
+          "kind": "passive",
+          "text": "Each time you play an Australia icon into your zoo, you may increase the size of a standard enclosure by 1 for free. If the enclosure is occupied, gain {Appeal-2} ."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {Appeal-1} for each card **pouched** (max. 5)."
+        },
+        {
+          "kind": "passive",
+          "text": "**Expedition** | You may send a **person** Sponsor card in your zoo away (discard) to gain {ConservationPoint-1} OR **Scuba** **Dive** **3** | Reveal the 3 topmost cards of the deck. Choose 1 Sponsor card and add it to your hand. Discard the other cards."
+        },
+        {
+          "kind": "immediate",
+          "text": "Gain placement bonuses twice for placing this building."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {ConservationPoint-1} if all placement bonuses are covered."
+        },
+        {
+          "kind": "passive",
+          "text": "Treat all 3-space enclosures on at least 1 border space as 5-space enclosures."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {ConservationPoint-1} if all border spaces are covered."
+        },
+        {
+          "kind": "passive",
+          "text": "When making a donation, pay {Money-1} less for each {ScienceIcon} in your zoo."
+        },
+        {
+          "kind": "immediate",
+          "text": "You may make 1 donation."
+        },
+        {
+          "kind": "income",
+          "text": "**Income:** Gain {Appeal-1} ."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {Appeal-2} for each zoo with higher appeal (score last)."
+        },
+        {
+          "kind": "passive",
+          "text": "Each time a Petting Zoo Animal icon is played into **any** **zoo** , gain {Money-2} ."
+        },
+        {
+          "kind": "immediate",
+          "text": "Search the **discard** **pile** for 1 Petting Zoo Animal and take it into hand."
+        },
+        {
+          "kind": "passive",
+          "text": "Each time you build a pavilion, gain 1 {XToken} -marker (max. 1 per action)."
+        },
+        {
+          "kind": "immediate",
+          "text": "sponsors.s276_desc2"
+        },
+        {
+          "kind": "immediate",
+          "text": "Place next to at least 1 water space and 1 rock space."
+        },
+        {
+          "kind": "passive",
+          "text": "Can accommodate {SeaAnimalTag} (max. 2 markers)."
+        },
+        {
+          "kind": "immediate",
+          "text": "Place **on** 2 water spaces."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {Appeal-3} / {Appeal-5} for 1/2 adjacent aquariums."
+        },
+        {
+          "kind": "passive",
+          "text": "Do not gain placement bonuses anymore."
+        },
+        {
+          "kind": "immediate",
+          "text": "You may reposition up to 3 buildings. You may build 1 pavilion and 1 kiosk."
+        },
+        {
+          "kind": "endgame",
+          "text": "sponsors.s280_desc3"
+        },
+        {
+          "kind": "income",
+          "text": "**Income:** Gain {Money-1} per {Appeal-10} ."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain 2 {Appeal-2} for each zoo with less appeal (score first)."
+        }
+      ],
+      "appeal": 2,
+      "data_id": "S266_MarineBiologist",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/266",
+      "site_card_id": 266
+    },
+    {
+      "data_id": "S267_FarmCat",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/267",
+      "number": 267,
+      "title": "FARM CAT",
+      "effects": [
+        {
+          "kind": "endgame",
+          "text": "Gain 1"
+        }
+      ],
+      "site_card_id": 267
+    },
+    {
+      "data_id": "S268_ConferenceOnEurope",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/268",
+      "number": 268,
+      "title": "CONFERENCE ON EUROPE",
+      "effects": [
+        {
+          "kind": "passive",
+          "text": "Each time you play a Europe icon into your zoo, you may mark 1 Animal card after finishing the current action."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain 1"
+        }
+      ],
+      "site_card_id": 268
+    },
+    {
+      "data_id": "S269_ConferenceOnAustralia",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/269",
+      "number": 269,
+      "title": "CONFERENCE ON AUSTRALIA",
+      "effects": [
+        {
+          "kind": "passive",
+          "text": "Each time you play an Australia icon into your zoo, you may increase the size of a standard enclosure by 1 for free. If the enclosure is occupied, gain 2"
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain 1"
+        }
+      ],
+      "site_card_id": 269
+    },
+    {
+      "data_id": "S270_MarineResearchExpedition",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/270",
+      "number": 270,
+      "title": "MARINE RESEARCH EXPEDITION",
+      "effects": [
+        {
+          "kind": "passive",
+          "text": "Expedition"
+        }
+      ],
+      "site_card_id": 270
+    },
+    {
+      "data_id": "S271_ExcavationSite",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/271",
+      "number": 271,
+      "title": "EXCAVATION SITE",
+      "effects": [
+        {
+          "kind": "immediate",
+          "text": "Gain placement bonuses twice for placing this building."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain 1"
+        }
+      ],
+      "site_card_id": 271
+    },
+    {
+      "data_id": "S272_ExpansionArea",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/272",
+      "number": 272,
+      "title": "EXPANSION AREA",
+      "effects": [
+        {
+          "kind": "passive",
+          "text": "Treat all 3-space enclosures on at least 1 border space as 5-space enclosures."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain 1"
+        }
+      ],
+      "site_card_id": 272
+    },
+    {
+      "data_id": "S273_Publications",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/273",
+      "number": 273,
+      "title": "PUBLICATIONS",
+      "effects": [
+        {
+          "kind": "passive",
+          "text": "When making a donation, pay 1"
+        },
+        {
+          "kind": "immediate",
+          "text": "You may make 1 donation."
+        }
+      ],
+      "site_card_id": 273
+    },
+    {
+      "data_id": "S274_MascotStatue",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/274",
+      "number": 274,
+      "title": "MASCOT STATUE",
+      "effects": [
+        {
+          "kind": "income",
+          "text": "Income:"
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain 2"
+        }
+      ],
+      "site_card_id": 274
+    },
+    {
+      "data_id": "S275_HorseWhisperer",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/275",
+      "number": 275,
+      "title": "HORSE WHISPERER",
+      "effects": [
+        {
+          "kind": "passive",
+          "text": "Each time a Petting Zoo Animal icon is played into any"
+        },
+        {
+          "kind": "immediate",
+          "text": "Search the discard"
+        }
+      ],
+      "site_card_id": 275
+    },
+    {
+      "data_id": "S276_LandscapeGardener",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/276",
+      "number": 276,
+      "title": "LANDSCAPE GARDENER",
+      "effects": [
+        {
+          "kind": "passive",
+          "text": "Each time you build a pavilion, gain 1"
+        }
+      ],
+      "site_card_id": 276
+    },
+    {
+      "data_id": "S277_FieldResearchTypeDOrcas",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/277",
+      "number": 277,
+      "title": "FIELD RESEARCH TYPE D ORCAS",
+      "site_card_id": 277
+    },
+    {
+      "data_id": "S278_AmazonHouse",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/278",
+      "number": 278,
+      "title": "AMAZON HOUSE",
+      "effects": [
+        {
+          "kind": "immediate",
+          "text": "Place next to at least 1 water space and 1 rock space."
+        }
+      ],
+      "site_card_id": 278
+    },
+    {
+      "data_id": "S279_UnderwaterTunnel",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/279",
+      "number": 279,
+      "title": "UNDERWATER TUNNEL",
+      "effects": [
+        {
+          "kind": "passive",
+          "text": "Can accommodate"
+        },
+        {
+          "kind": "immediate",
+          "text": "Place on"
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain 3"
+        }
+      ],
+      "site_card_id": 279
+    },
+    {
+      "data_id": "S280_Reconstruction",
+      "type": "sponsor",
+      "class_name": "ark-card zoo-card sponsor-card tooltipable",
+      "source_url": "https://ark-nova.ender-wiggin.com/card/280",
+      "number": 280,
+      "title": "RECONSTRUCTION",
+      "effects": [
+        {
+          "kind": "passive",
+          "text": "Do not gain placement bonuses anymore."
+        },
+        {
+          "kind": "immediate",
+          "text": "You may reposition up to 3 buildings. You may build 1 pavilion and 1 kiosk."
+        }
+      ],
+      "site_card_id": 280
+    }
+  ],
+  "stats": {
+    "total": 54,
+    "by_type": {
+      "animal": 32,
+      "final_scoring": 6,
+      "sponsor": 16
+    }
+  },
+  "max_card_id_scanned": 1300
+}

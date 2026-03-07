@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="4028" height="2126" viewBox="0 0 4028 2126">
+  <image href="data/maps/images/planT1.jpg" x="0" y="0" width="4028" height="2126" />
+  <polygon points="360.93,372.50 270.00,425.00 179.07,372.50 179.07,267.50 270.00,215.00 360.93,267.50" fill="#8b5e3c66" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="270.00" y="320.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(0,0)</text>
+  <text x="270.00" y="358.00" text-anchor="middle" dominant-baseline="middle" font-size="24" font-family="monospace" fill="#111">card_in_reputation_range</text>
+  <polygon points="790.93,267.50 700.00,320.00 609.07,267.50 609.07,162.50 700.00,110.00 790.93,162.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="700.00" y="215.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(0,1)</text>
+  <polygon points="360.93,582.50 270.00,635.00 179.07,582.50 179.07,477.50 270.00,425.00 360.93,477.50" fill="#8b5e3c66" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="270.00" y="530.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(1,-1)</text>
+  <polygon points="790.93,477.50 700.00,530.00 609.07,477.50 609.07,372.50 700.00,320.00 790.93,372.50" fill="#8b5e3c66" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="700.00" y="425.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(1,0)</text>
+  <polygon points="1220.93,372.50 1130.00,425.00 1039.07,372.50 1039.07,267.50 1130.00,215.00 1220.93,267.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1130.00" y="320.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(1,1)</text>
+  <polygon points="1650.93,267.50 1560.00,320.00 1469.07,267.50 1469.07,162.50 1560.00,110.00 1650.93,162.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1560.00" y="215.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(1,2)</text>
+  <polygon points="360.93,792.50 270.00,845.00 179.07,792.50 179.07,687.50 270.00,635.00 360.93,687.50" fill="#8b5e3c66" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="270.00" y="740.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(2,-2)</text>
+  <polygon points="790.93,687.50 700.00,740.00 609.07,687.50 609.07,582.50 700.00,530.00 790.93,582.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="700.00" y="635.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(2,-1)</text>
+  <polygon points="1220.93,582.50 1130.00,635.00 1039.07,582.50 1039.07,477.50 1130.00,425.00 1220.93,477.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1130.00" y="530.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(2,0)</text>
+  <polygon points="1650.93,477.50 1560.00,530.00 1469.07,477.50 1469.07,372.50 1560.00,320.00 1650.93,372.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1560.00" y="425.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(2,1)</text>
+  <polygon points="2080.93,372.50 1990.00,425.00 1899.07,372.50 1899.07,267.50 1990.00,215.00 2080.93,267.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1990.00" y="320.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(2,2)</text>
+  <polygon points="2510.93,267.50 2420.00,320.00 2329.07,267.50 2329.07,162.50 2420.00,110.00 2510.93,162.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2420.00" y="215.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(2,3)</text>
+  <polygon points="360.93,1002.50 270.00,1055.00 179.07,1002.50 179.07,897.50 270.00,845.00 360.93,897.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="270.00" y="950.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(3,-3)</text>
+  <text x="270.00" y="988.00" text-anchor="middle" dominant-baseline="middle" font-size="24" font-family="monospace" fill="#111">reputation</text>
+  <polygon points="790.93,897.50 700.00,950.00 609.07,897.50 609.07,792.50 700.00,740.00 790.93,792.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="700.00" y="845.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(3,-2)</text>
+  <polygon points="1220.93,792.50 1130.00,845.00 1039.07,792.50 1039.07,687.50 1130.00,635.00 1220.93,687.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1130.00" y="740.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(3,-1)</text>
+  <polygon points="1650.93,687.50 1560.00,740.00 1469.07,687.50 1469.07,582.50 1560.00,530.00 1650.93,582.50" fill="#1d9bf066" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1560.00" y="635.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(3,0)</text>
+  <polygon points="2080.93,582.50 1990.00,635.00 1899.07,582.50 1899.07,477.50 1990.00,425.00 2080.93,477.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1990.00" y="530.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(3,1)</text>
+  <polygon points="2510.93,477.50 2420.00,530.00 2329.07,477.50 2329.07,372.50 2420.00,320.00 2510.93,372.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2420.00" y="425.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(3,2)</text>
+  <polygon points="2940.93,372.50 2850.00,425.00 2759.07,372.50 2759.07,267.50 2850.00,215.00 2940.93,267.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2850.00" y="320.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(3,3)</text>
+  <polygon points="3370.93,267.50 3280.00,320.00 3189.07,267.50 3189.07,162.50 3280.00,110.00 3370.93,162.50" fill="#1d9bf066" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3280.00" y="215.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(3,4)</text>
+  <text x="3280.00" y="253.00" text-anchor="middle" dominant-baseline="middle" font-size="24" font-family="monospace" fill="#111">card_in_reputation_range</text>
+  <polygon points="360.93,1212.50 270.00,1265.00 179.07,1212.50 179.07,1107.50 270.00,1055.00 360.93,1107.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="270.00" y="1160.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(4,-4)</text>
+  <text x="270.00" y="1198.00" text-anchor="middle" dominant-baseline="middle" font-size="24" font-family="monospace" fill="#111">reputation</text>
+  <polygon points="790.93,1107.50 700.00,1160.00 609.07,1107.50 609.07,1002.50 700.00,950.00 790.93,1002.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="700.00" y="1055.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(4,-3)</text>
+  <polygon points="1220.93,1002.50 1130.00,1055.00 1039.07,1002.50 1039.07,897.50 1130.00,845.00 1220.93,897.50" fill="#8b5e3c66" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1130.00" y="950.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(4,-2)</text>
+  <text x="1130.00" y="988.00" text-anchor="middle" dominant-baseline="middle" font-size="24" font-family="monospace" fill="#111">card_in_reputation_range</text>
+  <polygon points="1650.93,897.50 1560.00,950.00 1469.07,897.50 1469.07,792.50 1560.00,740.00 1650.93,792.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1560.00" y="845.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(4,-1)</text>
+  <polygon points="2080.93,792.50 1990.00,845.00 1899.07,792.50 1899.07,687.50 1990.00,635.00 2080.93,687.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1990.00" y="740.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(4,0)</text>
+  <polygon points="2510.93,687.50 2420.00,740.00 2329.07,687.50 2329.07,582.50 2420.00,530.00 2510.93,582.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2420.00" y="635.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(4,1)</text>
+  <polygon points="2940.93,582.50 2850.00,635.00 2759.07,582.50 2759.07,477.50 2850.00,425.00 2940.93,477.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2850.00" y="530.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(4,2)</text>
+  <polygon points="3370.93,477.50 3280.00,530.00 3189.07,477.50 3189.07,372.50 3280.00,320.00 3370.93,372.50" fill="#1d9bf066" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3280.00" y="425.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(4,3)</text>
+  <text x="3280.00" y="463.00" text-anchor="middle" dominant-baseline="middle" font-size="24" font-family="monospace" fill="#111">card_in_reputation_range</text>
+  <polygon points="3800.93,372.50 3710.00,425.00 3619.07,372.50 3619.07,267.50 3710.00,215.00 3800.93,267.50" fill="#1d9bf066" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3710.00" y="320.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(4,4)</text>
+  <text x="3710.00" y="358.00" text-anchor="middle" dominant-baseline="middle" font-size="24" font-family="monospace" fill="#111">card_in_reputation_range</text>
+  <polygon points="360.93,1422.50 270.00,1475.00 179.07,1422.50 179.07,1317.50 270.00,1265.00 360.93,1317.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="270.00" y="1370.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(5,-5)</text>
+  <text x="270.00" y="1408.00" text-anchor="middle" dominant-baseline="middle" font-size="24" font-family="monospace" fill="#111">5coins</text>
+  <polygon points="790.93,1317.50 700.00,1370.00 609.07,1317.50 609.07,1212.50 700.00,1160.00 790.93,1212.50" fill="#8b5e3c66" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="700.00" y="1265.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(5,-4)</text>
+  <polygon points="1220.93,1212.50 1130.00,1265.00 1039.07,1212.50 1039.07,1107.50 1130.00,1055.00 1220.93,1107.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1130.00" y="1160.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(5,-3)</text>
+  <polygon points="1650.93,1107.50 1560.00,1160.00 1469.07,1107.50 1469.07,1002.50 1560.00,950.00 1650.93,1002.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1560.00" y="1055.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(5,-2)</text>
+  <polygon points="2080.93,1002.50 1990.00,1055.00 1899.07,1002.50 1899.07,897.50 1990.00,845.00 2080.93,897.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1990.00" y="950.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(5,-1)</text>
+  <polygon points="2510.93,897.50 2420.00,950.00 2329.07,897.50 2329.07,792.50 2420.00,740.00 2510.93,792.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2420.00" y="845.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(5,0)</text>
+  <polygon points="2940.93,792.50 2850.00,845.00 2759.07,792.50 2759.07,687.50 2850.00,635.00 2940.93,687.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2850.00" y="740.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(5,1)</text>
+  <polygon points="3370.93,687.50 3280.00,740.00 3189.07,687.50 3189.07,582.50 3280.00,530.00 3370.93,582.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3280.00" y="635.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(5,2)</text>
+  <text x="3280.00" y="673.00" text-anchor="middle" dominant-baseline="middle" font-size="24" font-family="monospace" fill="#111">card_in_reputation_range</text>
+  <polygon points="3800.93,582.50 3710.00,635.00 3619.07,582.50 3619.07,477.50 3710.00,425.00 3800.93,477.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3710.00" y="530.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(5,3)</text>
+  <text x="3710.00" y="568.00" text-anchor="middle" dominant-baseline="middle" font-size="24" font-family="monospace" fill="#111">card_in_reputation_range</text>
+  <polygon points="790.93,1527.50 700.00,1580.00 609.07,1527.50 609.07,1422.50 700.00,1370.00 790.93,1422.50" fill="#8b5e3c66" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="700.00" y="1475.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(6,-5)</text>
+  <polygon points="1220.93,1422.50 1130.00,1475.00 1039.07,1422.50 1039.07,1317.50 1130.00,1265.00 1220.93,1317.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1130.00" y="1370.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(6,-4)</text>
+  <polygon points="1650.93,1317.50 1560.00,1370.00 1469.07,1317.50 1469.07,1212.50 1560.00,1160.00 1650.93,1212.50" fill="#8b5e3c66" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1560.00" y="1265.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(6,-3)</text>
+  <polygon points="2080.93,1212.50 1990.00,1265.00 1899.07,1212.50 1899.07,1107.50 1990.00,1055.00 2080.93,1107.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1990.00" y="1160.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(6,-2)</text>
+  <polygon points="2510.93,1107.50 2420.00,1160.00 2329.07,1107.50 2329.07,1002.50 2420.00,950.00 2510.93,1002.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2420.00" y="1055.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(6,-1)</text>
+  <polygon points="2940.93,1002.50 2850.00,1055.00 2759.07,1002.50 2759.07,897.50 2850.00,845.00 2940.93,897.50" fill="#8b5e3c66" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2850.00" y="950.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(6,0)</text>
+  <polygon points="3370.93,897.50 3280.00,950.00 3189.07,897.50 3189.07,792.50 3280.00,740.00 3370.93,792.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3280.00" y="845.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(6,1)</text>
+  <polygon points="3800.93,792.50 3710.00,845.00 3619.07,792.50 3619.07,687.50 3710.00,635.00 3800.93,687.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3710.00" y="740.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(6,2)</text>
+  <text x="3710.00" y="778.00" text-anchor="middle" dominant-baseline="middle" font-size="24" font-family="monospace" fill="#111">card_in_reputation_range</text>
+  <polygon points="1650.93,1527.50 1560.00,1580.00 1469.07,1527.50 1469.07,1422.50 1560.00,1370.00 1650.93,1422.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1560.00" y="1475.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(7,-4)</text>
+  <polygon points="2080.93,1422.50 1990.00,1475.00 1899.07,1422.50 1899.07,1317.50 1990.00,1265.00 2080.93,1317.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="1990.00" y="1370.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(7,-3)</text>
+  <polygon points="2510.93,1317.50 2420.00,1370.00 2329.07,1317.50 2329.07,1212.50 2420.00,1160.00 2510.93,1212.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2420.00" y="1265.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(7,-2)</text>
+  <polygon points="2940.93,1212.50 2850.00,1265.00 2759.07,1212.50 2759.07,1107.50 2850.00,1055.00 2940.93,1107.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2850.00" y="1160.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(7,-1)</text>
+  <polygon points="3370.93,1107.50 3280.00,1160.00 3189.07,1107.50 3189.07,1002.50 3280.00,950.00 3370.93,1002.50" fill="#1d9bf066" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3280.00" y="1055.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(7,0)</text>
+  <polygon points="3800.93,1002.50 3710.00,1055.00 3619.07,1002.50 3619.07,897.50 3710.00,845.00 3800.93,897.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3710.00" y="950.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(7,1)</text>
+  <polygon points="2510.93,1527.50 2420.00,1580.00 2329.07,1527.50 2329.07,1422.50 2420.00,1370.00 2510.93,1422.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2420.00" y="1475.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(8,-3)</text>
+  <polygon points="2940.93,1422.50 2850.00,1475.00 2759.07,1422.50 2759.07,1317.50 2850.00,1265.00 2940.93,1317.50" fill="#1d9bf066" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="2850.00" y="1370.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(8,-2)</text>
+  <polygon points="3370.93,1317.50 3280.00,1370.00 3189.07,1317.50 3189.07,1212.50 3280.00,1160.00 3370.93,1212.50" fill="#1d9bf066" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3280.00" y="1265.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(8,-1)</text>
+  <polygon points="3800.93,1212.50 3710.00,1265.00 3619.07,1212.50 3619.07,1107.50 3710.00,1055.00 3800.93,1107.50" fill="#8b5e3c66" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3710.00" y="1160.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(8,0)</text>
+  <polygon points="3370.93,1527.50 3280.00,1580.00 3189.07,1527.50 3189.07,1422.50 3280.00,1370.00 3370.93,1422.50" fill="#1d9bf066" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3280.00" y="1475.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(9,-2)</text>
+  <polygon points="3800.93,1422.50 3710.00,1475.00 3619.07,1422.50 3619.07,1317.50 3710.00,1265.00 3800.93,1317.50" fill="#ffffff00" stroke="#ffffff" stroke-width="4" stroke-opacity="0.8"/>
+  <text x="3710.00" y="1370.00" text-anchor="middle" dominant-baseline="middle" font-size="34" font-family="monospace" fill="#111">(9,-1)</text>
+</svg>
