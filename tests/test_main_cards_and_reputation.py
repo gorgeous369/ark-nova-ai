@@ -11,6 +11,7 @@ from main import (
     apply_action,
     build_deck,
     card_zone_report,
+    legal_actions,
     setup_game,
 )
 
@@ -127,6 +128,8 @@ def test_cards_action_draw_and_discard_goes_to_global_discard():
     discard_before = len(state.zoo_discard)
     hand_before = len(p0.hand)
     apply_action(state, Action(ActionType.MAIN_ACTION, card_name="cards"))
+    pending_action = legal_actions(p0, state=state, player_id=state.current_player)[0]
+    apply_action(state, pending_action)
 
     assert len(state.zoo_deck) == max(0, deck_before - 1)
     assert len(state.zoo_discard) >= discard_before + 1

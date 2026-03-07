@@ -374,18 +374,12 @@ def prompt_sponsors_action_details_for_human(
     )
     if candidates:
         print("Sponsor candidates:")
-        for idx, cand in enumerate(candidates, start=1):
+        for idx, cand in enumerate(playable, start=1):
             card = cand["card"]
             source = str(cand["source"])
             folder = ""
             if source == "display":
                 folder = f" folder={int(cand['source_index']) + 1}"
-            if _candidate_is_playable_under_cap(cand):
-                status = "OK"
-            elif not cand.get("playable_now"):
-                status = f"BLOCKED({cand.get('reason')})"
-            else:
-                status = f"BLOCKED(level_cap_{level_cap})"
             print(
                 "{}. [{}{}] level={} pay={} {} | {}".format(
                     idx,
@@ -393,7 +387,7 @@ def prompt_sponsors_action_details_for_human(
                     folder,
                     int(cand["level"]),
                     int(cand["pay_cost"]),
-                    status,
+                    "OK",
                     format_card_line_fn(card),
                 )
             )
@@ -414,18 +408,15 @@ def prompt_sponsors_action_details_for_human(
 
         if not upgraded:
             while True:
-                raw_pick = input(f"Select one sponsor option [1-{len(candidates)}]: ").strip()
+                raw_pick = input(f"Select one sponsor option [1-{len(playable)}]: ").strip()
                 if not raw_pick.isdigit():
                     print("Please enter a number.")
                     continue
                 picked = int(raw_pick)
-                if not (1 <= picked <= len(candidates)):
+                if not (1 <= picked <= len(playable)):
                     print("Out of range, try again.")
                     continue
-                chosen = candidates[picked - 1]
-                if not _candidate_is_playable_under_cap(chosen):
-                    print(f"That card is not playable now ({chosen.get('reason')}).")
-                    continue
+                chosen = playable[picked - 1]
                 details: Dict[str, Any] = {
                     "use_break_ability": False,
                     "sponsor_selections": [
@@ -447,7 +438,7 @@ def prompt_sponsors_action_details_for_human(
 
         while True:
             raw = input(
-                f"Select sponsor option indices (space-separated, 1-{len(candidates)}): "
+                f"Select sponsor option indices (space-separated, 1-{len(playable)}): "
             ).strip()
             parts = raw.split()
             if not parts or not all(part.isdigit() for part in parts):
@@ -457,13 +448,10 @@ def prompt_sponsors_action_details_for_human(
             if len(picks) != len(set(picks)):
                 print("Indices must be unique.")
                 continue
-            if any(pick < 1 or pick > len(candidates) for pick in picks):
+            if any(pick < 1 or pick > len(playable) for pick in picks):
                 print("Out of range, try again.")
                 continue
-            chosen_items = [candidates[pick - 1] for pick in picks]
-            if not all(_candidate_is_playable_under_cap(item) for item in chosen_items):
-                print("At least one selected card is not playable now.")
-                continue
+            chosen_items = [playable[pick - 1] for pick in picks]
             total_level = sum(int(item["level"]) for item in chosen_items)
             if total_level > level_cap:
                 print(f"Total sponsor level {total_level} exceeds cap {level_cap}.")

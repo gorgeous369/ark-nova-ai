@@ -44,6 +44,7 @@ def test_setup_game_contains_requested_opening_information():
             number = int(card.data_id[1:4])
             assert 1 <= number <= 11
     assert len(set(all_final_ids)) == 4
+    assert len(state.final_scoring_deck) == 7
 
 
 def test_setup_game_opening_information_is_seed_deterministic():

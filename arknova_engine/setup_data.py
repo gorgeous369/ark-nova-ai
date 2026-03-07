@@ -208,10 +208,12 @@ def load_base_setup_card_pools(
     repo_root: Optional[Path] = None,
 ) -> Tuple[List[TSetupCard], List[TSetupCard]]:
     path = dataset_path or resolve_cards_dataset_path(repo_root=repo_root)
+    full_final_scoring_pool_requested = path.name == "cards.json"
+    fallback_final_count = 17 if full_final_scoring_pool_requested else 11
     if not path.exists():
         fallback_final = [
             setup_card_factory(data_id=f"F{i:03d}_Fallback", title=f"Final Scoring {i}")
-            for i in range(1, 12)
+            for i in range(1, fallback_final_count + 1)
         ]
         fallback_projects = [
             setup_card_factory(data_id=f"P{100 + i:03d}_Fallback", title=f"Base Project {i}")
@@ -226,6 +228,7 @@ def load_base_setup_card_pools(
 
     final_cards: List[TSetupCard] = []
     base_projects: List[TSetupCard] = []
+    final_numbers: set[int] = set()
     for card in cards:
         if not isinstance(card, dict):
             continue
@@ -235,16 +238,52 @@ def load_base_setup_card_pools(
             continue
         title = str(card.get("title") or card.get("subtitle") or card_id)
         number = _safe_card_number(card.get("number"))
-        if card_type == "final_scoring" and number is not None and 1 <= number <= 11:
+        if card_type == "final_scoring" and number is not None and 1 <= number <= 17:
             final_cards.append(setup_card_factory(data_id=card_id, title=title))
+            final_numbers.add(number)
         elif card_type == "conservation_project" and number is not None and 101 <= number <= 112:
             base_projects.append(setup_card_factory(data_id=card_id, title=title))
 
     final_cards.sort(key=lambda c: str(getattr(c, "data_id", "")))
     base_projects.sort(key=lambda c: str(getattr(c, "data_id", "")))
 
-    if len(final_cards) < 11 or len(base_projects) < 12:
+    expected_final_numbers = set(range(1, 18)) if full_final_scoring_pool_requested else set(range(1, 12))
+    if not expected_final_numbers.issubset(final_numbers) or len(base_projects) < 12:
         raise ValueError(
-            "Card dataset is missing base final scoring cards or base conservation project cards."
+            "Card dataset is missing final scoring cards or base conservation project cards."
         )
     return final_cards, base_projects
+
+
+def load_final_scoring_cards_from_dataset(
+    *,
+    setup_card_factory: Callable[..., TSetupCard],
+    dataset_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> List[TSetupCard]:
+    path = dataset_path or resolve_cards_dataset_path(repo_root=repo_root)
+    if not path.exists():
+        return []
+
+    payload = _load_cards_payload(str(path))
+    cards = payload.get("cards", [])
+    if not isinstance(cards, list):
+        return []
+
+    final_cards: List[TSetupCard] = []
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        if card.get("type") != "final_scoring":
+            continue
+        card_id = str(card.get("data_id", "")).strip()
+        if not card_id:
+            continue
+        number = _safe_card_number(card.get("number"))
+        if number is None or not (1 <= number <= 17):
+            continue
+        title = str(card.get("title") or card.get("subtitle") or card_id)
+        final_cards.append(setup_card_factory(data_id=card_id, title=title))
+
+    final_cards.sort(key=lambda c: str(getattr(c, "data_id", "")))
+    return final_cards

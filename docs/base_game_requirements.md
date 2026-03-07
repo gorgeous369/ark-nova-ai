@@ -95,12 +95,13 @@ This file is the implementation checklist for building a correct rules engine.
 - [ ] End-game sponsor/final-score effects.
 - [ ] Victory-point computation and tie-breakers per rulebook.
 
-## 11. AI Requirements (for this project)
+## 11. RL/Agent Interface Requirements (for this project)
 
 - [ ] Full legal action generation for current game state.
 - [ ] Deterministic rules engine stepping for simulation.
 - [ ] Hidden-information support (deck/hand uncertainty) for search.
-- [ ] Baseline AI (heuristic/MCTS) against random and scripted bots.
+- [ ] Explicit side-effect choice payloads for all choiceful card/map/sponsor effects.
+- [ ] Observation/action encoding layer for RL training.
 - [ ] Regression tests from fixed seeds/game logs.
 
 ## Current status in this repository

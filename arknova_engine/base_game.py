@@ -247,6 +247,11 @@ BASE_PROJECT_SLOT_DEFS: Tuple[Tuple[str, int, int, int, Optional[str]], ...] = (
     ("middle", 4, 0, 4, None),
     ("right", 2, 0, 2, None),
 )
+SPECIES_HABITAT_DIVERSITY_SLOT_DEFS: Tuple[Tuple[str, int, int, int, Optional[str]], ...] = (
+    ("left", 5, 0, 5, None),
+    ("middle", 3, 0, 4, None),
+    ("right", 2, 0, 3, None),
+)
 RELEASE_PROJECT_SLOT_DEFS: Tuple[Tuple[str, int, int, int, Optional[str]], ...] = (
     ("left", 5, 0, 0, "4+"),
     ("middle", 4, 0, 0, "3"),
@@ -290,13 +295,13 @@ def _builtin_conservation_project_catalog() -> Dict[str, ConservationProjectCard
         card_id="P101_SpeciesDiversity",
         title="SPECIES DIVERSITY",
         requirement_kind=ConservationRequirementKind.DISTINCT_CATEGORY,
-        slots=_clone_project_slots(BASE_PROJECT_SLOT_DEFS),
+        slots=_clone_project_slots(SPECIES_HABITAT_DIVERSITY_SLOT_DEFS),
     )
     catalog["P102_HabitatDiversity"] = ConservationProjectCard(
         card_id="P102_HabitatDiversity",
         title="HABITAT DIVERSITY",
         requirement_kind=ConservationRequirementKind.DISTINCT_CONTINENT,
-        slots=_clone_project_slots(BASE_PROJECT_SLOT_DEFS),
+        slots=_clone_project_slots(SPECIES_HABITAT_DIVERSITY_SLOT_DEFS),
     )
 
     add_icon_project(

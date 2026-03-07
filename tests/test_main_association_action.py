@@ -5,10 +5,13 @@ from main import (
     ActionType,
     AnimalCard,
     BASE_CONSERVATION_PROJECT_LEVELS,
+    SetupCardRef,
     _blocked_level_by_project,
+    _make_conservation_project_hand_card,
     _project_requirement_value,
     _resolve_break,
     apply_action,
+    list_legal_association_options,
     setup_game,
 )
 
@@ -229,6 +232,226 @@ def test_species_diversity_does_not_count_science_rock_or_water():
     ]
 
     assert _project_requirement_value(player, "P101_SpeciesDiversity") == 2
+
+
+def test_bird_breeding_program_requires_matching_badge_animal_and_partner_zoo():
+    state = setup_game(seed=6042, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.zoo_cards = [
+        AnimalCard(
+            name="bird-no-partner",
+            cost=0,
+            size=2,
+            appeal=0,
+            conservation=0,
+            badges=("Bird", "Africa"),
+        ),
+        AnimalCard(
+            name="wrong-category",
+            cost=0,
+            size=2,
+            appeal=0,
+            conservation=0,
+            badges=("Primate", "America"),
+        ),
+    ]
+
+    assert _project_requirement_value(player, "P123_BirdBreeding") == 0
+
+    player.partner_zoos.add("america")
+    assert _project_requirement_value(player, "P123_BirdBreeding") == 0
+
+    player.partner_zoos.add("africa")
+    assert _project_requirement_value(player, "P123_BirdBreeding") == 1
+
+
+def test_association_supports_bird_breeding_program_from_hand_with_reputation_gain():
+    state = setup_game(seed=6043, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "sponsors", "association"]
+    player.partner_zoos.add("america")
+    player.hand.append(
+        _make_conservation_project_hand_card(
+            SetupCardRef(data_id="P123_BirdBreeding", title="BIRD BREEDING PROGRAM"),
+            "proj-123",
+        )
+    )
+    player.zoo_cards.append(
+        AnimalCard(
+            name="matching-bird",
+            cost=0,
+            size=2,
+            appeal=0,
+            conservation=0,
+            badges=("Bird", "Americas"),
+        )
+    )
+
+    options = list_legal_association_options(state=state, player_id=0, strength=5)
+    breeding_options = [item for item in options if item.get("project_id") == "P123_BirdBreeding"]
+    assert {item["project_level"] for item in breeding_options} == {
+        "left_level",
+        "middle_level",
+        "right_level",
+    }
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            card_name="association",
+            details={
+                "task_kind": "conservation_project",
+                "project_id": "P123_BirdBreeding",
+                "project_level": "left_level",
+            },
+        ),
+    )
+
+    assert "P123_BirdBreeding" in player.supported_conservation_projects
+    assert state.conservation_project_slots["P123_BirdBreeding"]["left_level"] == 0
+    assert player.conservation == 2
+    assert player.reputation == 3
+    assert all(card.card_type != "conservation_project" for card in player.hand)
+
+
+def test_species_and_habitat_diversity_use_5_4_3_thresholds_and_5_3_2_rewards():
+    state = setup_game(seed=60431, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "sponsors", "association"]
+    state.opening_setup.base_conservation_projects = [
+        SetupCardRef(data_id="P101_SpeciesDiversity", title="SPECIES DIVERSITY"),
+        SetupCardRef(data_id="P102_HabitatDiversity", title="HABITAT DIVERSITY"),
+    ]
+    state.opening_setup.two_player_blocked_project_levels = []
+    state.conservation_project_slots = {
+        "P101_SpeciesDiversity": {
+            "left_level": None,
+            "middle_level": None,
+            "right_level": None,
+        },
+        "P102_HabitatDiversity": {
+            "left_level": None,
+            "middle_level": None,
+            "right_level": None,
+        },
+    }
+
+    _seed_project_icons(player, "P101_SpeciesDiversity", 3)
+    options = list_legal_association_options(state=state, player_id=0, strength=5)
+    species = [item for item in options if item.get("project_id") == "P101_SpeciesDiversity"]
+    assert {item["project_level"] for item in species} == {"right_level"}
+    assert species[0]["required_icons"] == 3
+    assert species[0]["conservation_gain"] == 2
+
+    player.zoo_cards = []
+    _seed_project_icons(player, "P102_HabitatDiversity", 4)
+    options = list_legal_association_options(state=state, player_id=0, strength=5)
+    habitat = [item for item in options if item.get("project_id") == "P102_HabitatDiversity"]
+    assert {item["project_level"] for item in habitat} == {"middle_level", "right_level"}
+    middle = next(item for item in habitat if item["project_level"] == "middle_level")
+    right = next(item for item in habitat if item["project_level"] == "right_level")
+    assert middle["required_icons"] == 4
+    assert middle["conservation_gain"] == 3
+    assert right["required_icons"] == 3
+    assert right["conservation_gain"] == 2
+
+
+def test_special_conservation_project_requirement_values():
+    state = setup_game(seed=6044, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.universities.add("science_2")
+    player.zoo_cards = [
+        AnimalCard(
+            name="aquatic-rock-small",
+            cost=0,
+            size=2,
+            appeal=0,
+            conservation=0,
+            badges=("Water", "Rock", "Science"),
+            required_water_adjacency=1,
+            required_rock_adjacency=1,
+        ),
+        AnimalCard(
+            name="aquatic-rock-small-2",
+            cost=0,
+            size=2,
+            appeal=0,
+            conservation=0,
+            badges=("Water", "Rock", "Science"),
+            required_water_adjacency=1,
+            required_rock_adjacency=1,
+        ),
+        AnimalCard(
+            name="small-third",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            badges=("Science",),
+        ),
+        AnimalCard(
+            name="large-one",
+            cost=0,
+            size=4,
+            appeal=0,
+            conservation=0,
+            badges=("Science",),
+        ),
+        AnimalCard(
+            name="large-two",
+            cost=0,
+            size=5,
+            appeal=0,
+            conservation=0,
+            badges=("Science",),
+        ),
+    ]
+
+    assert _project_requirement_value(player, "P128_Aquatic") == 4
+    assert _project_requirement_value(player, "P129_Geological") == 4
+    assert _project_requirement_value(player, "P130_SmallAnimals") == 3
+    assert _project_requirement_value(player, "P131_LargeAnimals") == 2
+    assert _project_requirement_value(player, "P132_Research") == 7
+
+
+def test_association_upgraded_can_support_display_conservation_project_and_pay_display_cost():
+    state = setup_game(seed=6045, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "sponsors", "association"]
+    player.action_upgraded["association"] = True
+    player.reputation = 3
+    player.zoo_cards = [
+        AnimalCard(name="small-1", cost=0, size=2, appeal=0, conservation=0, badges=()),
+        AnimalCard(name="small-2", cost=0, size=1, appeal=0, conservation=0, badges=()),
+    ]
+    project_card = _make_conservation_project_hand_card(
+        SetupCardRef(data_id="P130_SmallAnimals", title="SMALL ANIMALS"),
+        "display-project-130",
+    )
+    state.zoo_display[0] = project_card
+    money_before = player.money
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            card_name="association",
+            details={
+                "task_kind": "conservation_project",
+                "project_id": "P130_SmallAnimals",
+                "project_level": "right_level",
+            },
+        ),
+    )
+
+    assert state.conservation_project_slots["P130_SmallAnimals"]["right_level"] == 0
+    assert player.conservation == 2
+    assert player.money == money_before - 1
+    assert all(card.instance_id != "display-project-130" for card in state.zoo_display)
 
 
 def test_association_conservation_project_slot_is_blocked_if_occupied():

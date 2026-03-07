@@ -39,7 +39,7 @@ def _take_card_by_number_from_deck(state, number: int) -> AnimalCard:
     raise AssertionError(f"Card #{number} not found in known zones")
 
 
-def test_sponsors_play_from_hand_uses_level_cost_and_immediate_effect():
+def test_sponsors_play_from_hand_is_free_and_applies_immediate_effect():
     state = setup_game(seed=701, player_names=["P1", "P2"])
     player = state.players[0]
     state.current_player = 0
@@ -67,10 +67,87 @@ def test_sponsors_play_from_hand_uses_level_cost_and_immediate_effect():
         ),
     )
 
-    # pay level 4, then card #220 immediate +3 money
-    assert player.money == money_before - 4 + 3
+    # Sponsor cards from hand are free; card #220 immediate effect gives +3 money.
+    assert player.money == money_before + 3
     assert any(card.number == 220 and card.card_type == "sponsor" for card in player.zoo_cards)
     assert state.break_progress == 0
+
+
+def test_sponsorship_cards_231_to_235_use_level_3_but_cost_0_and_do_not_count_their_own_badge():
+    state = setup_game(seed=7011, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["animals", "cards", "build", "sponsors", "association"]  # strength 4
+
+    sponsor_233 = _take_card_by_number_from_deck(state, 233)
+    player.hand = [sponsor_233]
+    player.zoo_cards = [
+        AnimalCard(
+            name="Bird Animal",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            badges=("Bird",),
+            instance_id="bird-animal",
+        )
+    ]
+    money_before = player.money
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            card_name="sponsors",
+            details={
+                "use_break_ability": False,
+                "sponsor_selections": [
+                    {
+                        "source": "hand",
+                        "source_index": 0,
+                        "card_instance_id": sponsor_233.instance_id,
+                    }
+                ],
+            },
+        ),
+    )
+
+    snapshot = _player_icon_snapshot(player)
+    assert player.money == money_before
+    assert player.appeal == 1
+    assert snapshot["categories"]["Bird"] == 1
+
+
+def test_sponsor_238_self_triggers_bird_money_when_played_from_hand():
+    state = setup_game(seed=7012, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["animals", "cards", "build", "sponsors", "association"]  # strength 4
+
+    sponsor_238 = _take_card_by_number_from_deck(state, 238)
+    player.hand = [sponsor_238]
+    money_before = player.money
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            card_name="sponsors",
+            details={
+                "use_break_ability": False,
+                "sponsor_selections": [
+                    {
+                        "source": "hand",
+                        "source_index": 0,
+                        "card_instance_id": sponsor_238.instance_id,
+                    }
+                ],
+            },
+        ),
+    )
+
+    assert player.money == money_before + 3
+    assert any(card.number == 238 for card in player.zoo_cards)
 
 
 def test_sponsors_break_alternative_upgraded_gives_double_money():
@@ -190,8 +267,8 @@ def test_break_income_applies_sponsor_income_effects(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda _: "1")
     _resolve_break(state)
 
-    # appeal income 5 + sponsor220 income 3 + sponsor231 (3 primate icons incl. sponsor231 itself) income 6
-    assert player.money == 14
+    # appeal income 5 + sponsor220 income 3 + sponsor231 (2 primate icons, sponsor card itself does not count) income 3
+    assert player.money == 11
     assert player.conservation == 1
     assert player.x_tokens == 1
 
@@ -437,6 +514,8 @@ def test_playing_sponsor_243_places_unique_building():
     player.money = 20
     player.action_order = ["animals", "cards", "build", "association", "sponsors"]  # sponsors strength=5
     sponsor_243 = _take_card_by_number_from_deck(state, 243)
+    legal = _list_legal_sponsor_unique_building_cells(state=state, player=player, sponsor_number=243)
+    assert legal
     player.hand = [sponsor_243]
 
     apply_action(
@@ -453,6 +532,12 @@ def test_playing_sponsor_243_places_unique_building():
                         "card_instance_id": sponsor_243.instance_id,
                     }
                 ],
+                "sponsor_unique_building_selections": [
+                    {
+                        "card_instance_id": sponsor_243.instance_id,
+                        "cells": [list(cell) for cell in legal[0]],
+                    }
+                ],
             },
         ),
     )
@@ -460,11 +545,102 @@ def test_playing_sponsor_243_places_unique_building():
     assert any(item.sponsor_number == 243 for item in player.sponsor_buildings)
 
 
+def test_sponsor_243_requires_explicit_unique_building_selection():
+    state = setup_game(seed=715, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.money = 20
+    player.action_order = ["animals", "cards", "build", "association", "sponsors"]
+    legal = _list_legal_sponsor_unique_building_cells(state=state, player=player, sponsor_number=243)
+    assert len(legal) > 1
+    sponsor_243 = AnimalCard(
+        name="Unique Build Sponsor",
+        cost=4,
+        size=0,
+        appeal=0,
+        conservation=0,
+        card_type="sponsor",
+        number=243,
+        instance_id="s243-test",
+    )
+    player.hand = [sponsor_243]
+
+    with pytest.raises(
+        ValueError,
+        match="Sponsor #243 requires explicit sponsor_unique_building_selections when multiple placements exist.",
+    ):
+        apply_action(
+            state,
+            Action(
+                ActionType.MAIN_ACTION,
+                card_name="sponsors",
+                details={
+                    "use_break_ability": False,
+                    "sponsor_selections": [
+                        {
+                            "source": "hand",
+                            "source_index": 0,
+                            "card_instance_id": sponsor_243.instance_id,
+                        }
+                    ],
+                },
+            ),
+        )
+
+    assert player.hand == [sponsor_243]
+    assert player.zoo_cards == []
+
+
+def test_sponsor_227_requires_explicit_mode():
+    state = setup_game(seed=716, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.money = 20
+    player.action_order = ["animals", "cards", "build", "association", "sponsors"]
+    sponsor_227 = AnimalCard(
+        name="WAZA",
+        cost=4,
+        size=0,
+        appeal=0,
+        conservation=0,
+        card_type="sponsor",
+        number=227,
+        instance_id="s227-test",
+    )
+    player.hand = [sponsor_227]
+
+    with pytest.raises(
+        ValueError,
+        match="Sponsor #227 requires explicit sponsor_227_mode",
+    ):
+        apply_action(
+            state,
+            Action(
+                ActionType.MAIN_ACTION,
+                card_name="sponsors",
+                details={
+                    "use_break_ability": False,
+                    "sponsor_selections": [
+                        {
+                            "source": "hand",
+                            "source_index": 0,
+                            "card_instance_id": sponsor_227.instance_id,
+                        }
+                    ],
+                },
+            ),
+        )
+
+    assert player.hand == [sponsor_227]
+    assert player.zoo_cards == []
+
+
 def test_final_score_includes_sponsor_endgame_bonus():
     state = setup_game(seed=711, player_names=["P1", "P2"])
     player = state.players[0]
     player.appeal = 10
     player.conservation = 0
+    player.final_scoring_cards = []
     player.zoo_cards = [
         AnimalCard(
             name="QuarantineLab",

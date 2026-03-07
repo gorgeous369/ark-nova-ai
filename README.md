@@ -1,16 +1,16 @@
 # ark-nova-ai
 
-Current focus: **Ark Nova base game AI** (official rules baseline).
+Current focus: **Ark Nova base game PVP rules/runtime** with explicit action details for future RL integration.
 
 ## What is in this repository now
 
-- `main.py`: Python playable prototype (simplified, not yet full official rules).
+- `main.py`: Python playable PVP prototype with explicit per-action detail payloads.
 - `arknova_engine/base_game.py`: animals+cards+build+association+sponsors+x-token+break official-flow engine.
 - `arknova_engine/actions/`: separated implementations for 6 actions (`cards`, `build`, `animals`, `association`, `sponsors`, `x-token`).
 - `third_party/tabletopgames_arknova/`: integrated open-source Ark Nova baseline from `jbargu/TabletopGames` (MIT).
 - `docs/base_game_requirements.md`: implementation checklist for full base-game correctness.
 - `tools/extract_rulebook_text.py`: utility to extract text from `ark-nova-rulebook.pdf`.
-- `docs/open_source_engines.md`: candidate repository comparison.
+- `docs/open_source_engines.md`: candidate repository comparison for rules/reference engines.
 - `arknova_engine/site_cards.py`: parser/fetcher for public card data.
 - `tools/fetch_cards.py`: generates local card dataset JSON.
 - `arknova_engine/site_maps.py`: parser/fetcher for public map data.
@@ -33,24 +33,6 @@ python3 main.py
 
 ```bash
 .venv/bin/pytest -q
-```
-
-## Extract rulebook text
-
-```bash
-.venv/bin/python tools/extract_rulebook_text.py
-```
-
-## Fetch card dataset (Fan Hub)
-
-```bash
-.venv/bin/python tools/fetch_cards.py
-```
-
-## Fetch map dataset (Fan Hub)
-
-```bash
-.venv/bin/python tools/fetch_maps.py
 ```
 
 ## Create map tile template (machine-readable)

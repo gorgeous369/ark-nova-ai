@@ -130,7 +130,7 @@ def setup_game_state(
 ) -> Any:
     rng = random.Random(seed)
     if player_names is None:
-        player_names = ["HeuristicAI", "RandomAI"]
+        player_names = ["Player1", "Player2"]
     if len(player_names) != 2:
         raise ValueError("This prototype currently supports exactly 2 players.")
     manual_players = manual_opening_draft_player_names or set()
