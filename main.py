@@ -515,6 +515,7 @@ class PlayerState:
     deck: List[AnimalCard] = field(default_factory=list)
     discard: List[AnimalCard] = field(default_factory=list)
     pouched_cards: List[AnimalCard] = field(default_factory=list)
+    pouched_cards_by_host: Dict[str, List[AnimalCard]] = field(default_factory=dict)
     final_scoring_cards: List[SetupCardRef] = field(default_factory=list)
     partner_zoos: Set[str] = field(default_factory=set)
     universities: Set[str] = field(default_factory=set)
@@ -808,6 +809,18 @@ def _map_rule_worker_gain_rewards(state: GameState) -> List[Dict[str, Any]]:
 def _current_donation_cost(state: GameState) -> int:
     idx = min(state.donation_progress, len(DONATION_COST_TRACK) - 1)
     return DONATION_COST_TRACK[idx]
+
+
+def _association_task_strength_cost(player: PlayerState, task_kind: str) -> int:
+    if task_kind == "reputation":
+        return 2
+    if task_kind == "partner_zoo":
+        return 3
+    if task_kind == "university":
+        return 4
+    if task_kind == "conservation_project":
+        return 4 if _player_has_sponsor(player, 203) else 5
+    raise ValueError(f"Unsupported association task kind '{task_kind}'.")
 
 
 def _association_workers_needed(player: PlayerState, task_kind: str) -> int:
@@ -1542,19 +1555,27 @@ def _cards_pending_discard_action_label(cards: Sequence[AnimalCard]) -> str:
     return "discard " + ", ".join(f"#{card.number} {card.name}" for card in cards)
 
 
-def _animal_effect_sell_choice_action_label(cards: Sequence[AnimalCard]) -> str:
+def _animal_effect_card_choice_action_label(prefix: str, cards: Sequence[AnimalCard]) -> str:
     if not cards:
-        return "sell []"
+        return f"{prefix} []"
     refs = [f"#{card.number} {card.name}" if int(card.number) >= 0 else card.name for card in cards]
-    return "sell [" + ", ".join(refs) + "]"
+    return f"{prefix} [" + ", ".join(refs) + "]"
+
+
+def _animal_effect_sell_choice_action_label(cards: Sequence[AnimalCard]) -> str:
+    return _animal_effect_card_choice_action_label("sell", cards)
+
+
+def _animal_effect_pouch_choice_action_label(cards: Sequence[AnimalCard]) -> str:
+    return _animal_effect_card_choice_action_label("pouch", cards)
 
 
 def _enumerate_animals_effect_choice_variants(
     player: PlayerState,
     plays: Sequence[Dict[str, Any]],
 ) -> List[Tuple[Dict[str, Any], str]]:
-    variants: List[Tuple[List[Dict[str, Any]], List[str], List[AnimalCard]]] = [([], [], list(player.hand))]
-    has_sell_choice = False
+    variants: List[Tuple[Dict[str, List[Dict[str, Any]]], List[str], List[AnimalCard]]] = [({}, [], list(player.hand))]
+    has_choice = False
 
     for play_index, play in enumerate(plays):
         card_instance_id = str(play.get("card_instance_id") or "").strip()
@@ -1565,7 +1586,7 @@ def _enumerate_animals_effect_choice_variants(
             for next_play in plays[play_index + 1 :]
             if str(next_play.get("card_instance_id") or "").strip()
         }
-        next_variants: List[Tuple[List[Dict[str, Any]], List[str], List[AnimalCard]]] = []
+        next_variants: List[Tuple[Dict[str, List[Dict[str, Any]]], List[str], List[AnimalCard]]] = []
         for queued_choices, labels, current_hand in variants:
             played_index = next(
                 (idx for idx, hand_card in enumerate(current_hand) if hand_card.instance_id == card_instance_id),
@@ -1576,49 +1597,67 @@ def _enumerate_animals_effect_choice_variants(
             hand_after_play = list(current_hand)
             played_card = hand_after_play.pop(played_index)
             effect = resolve_card_effect(played_card)
-            if effect.code != "sell_hand_cards":
-                next_variants.append((list(queued_choices), list(labels), hand_after_play))
+            if effect.code not in {"sell_hand_cards", "pouch_hand_for_appeal"}:
+                next_variants.append((copy.deepcopy(queued_choices), list(labels), hand_after_play))
                 continue
 
-            has_sell_choice = True
-            sell_limit = max(0, int(effect.value))
-            sellable_cards = [
+            has_choice = True
+            choice_limit = max(0, int(effect.value))
+            selectable_cards = [
                 hand_card
                 for hand_card in hand_after_play
                 if hand_card.instance_id not in reserved_future_ids
             ]
-            capped_limit = min(sell_limit, len(sellable_cards))
-            for sell_count in range(capped_limit + 1):
-                for sold_cards in combinations(sellable_cards, sell_count):
-                    sold_ids = {card.instance_id for card in sold_cards}
+            detail_key = "sell_hand_card_choices" if effect.code == "sell_hand_cards" else "pouch_hand_card_choices"
+            choice_label_fn = (
+                _animal_effect_sell_choice_action_label
+                if effect.code == "sell_hand_cards"
+                else _animal_effect_pouch_choice_action_label
+            )
+            capped_limit = min(choice_limit, len(selectable_cards))
+            for choice_count in range(capped_limit + 1):
+                for picked_cards in combinations(selectable_cards, choice_count):
+                    picked_ids = {card.instance_id for card in picked_cards}
                     next_hand = [
-                        hand_card for hand_card in hand_after_play if hand_card.instance_id not in sold_ids
+                        hand_card for hand_card in hand_after_play if hand_card.instance_id not in picked_ids
                     ]
+                    updated_choices = copy.deepcopy(queued_choices)
+                    updated_choices.setdefault(detail_key, []).append(
+                        {"card_instance_ids": [card.instance_id for card in picked_cards]}
+                    )
                     next_variants.append(
                         (
-                            list(queued_choices) + [{"card_instance_ids": [card.instance_id for card in sold_cards]}],
-                            list(labels) + [_animal_effect_sell_choice_action_label(sold_cards)],
+                            updated_choices,
+                            list(labels) + [choice_label_fn(picked_cards)],
                             next_hand,
                         )
                     )
         variants = next_variants
 
-    if not has_sell_choice:
+    if not has_choice:
         return [({}, "")]
 
     deduped: List[Tuple[Dict[str, Any], str]] = []
-    seen_keys: Set[Tuple[Tuple[str, ...], ...]] = set()
+    seen_keys: Set[Tuple[Tuple[str, Tuple[Tuple[str, ...], ...]], ...]] = set()
     for queued_choices, labels, _ in variants:
         key = tuple(
-            tuple(str(card_instance_id).strip() for card_instance_id in list(choice.get("card_instance_ids") or []))
-            for choice in queued_choices
+            sorted(
+                (
+                    str(detail_key),
+                    tuple(
+                        tuple(str(card_instance_id).strip() for card_instance_id in list(choice.get("card_instance_ids") or []))
+                        for choice in list(choice_list or [])
+                    ),
+                )
+                for detail_key, choice_list in queued_choices.items()
+            )
         )
         if key in seen_keys:
             continue
         seen_keys.add(key)
         deduped.append(
             (
-                {"sell_hand_card_choices": copy.deepcopy(queued_choices)},
+                copy.deepcopy(queued_choices),
                 " ; ".join(label for label in labels if label),
             )
         )
@@ -1645,6 +1684,118 @@ def _enumerate_pending_cards_discard_actions(player: PlayerState, discard_target
             )
         )
     return actions
+
+
+def _append_card_instance_choice_queue(raw_value: Any, queue: List[List[str]]) -> None:
+    if isinstance(raw_value, dict):
+        ids = [str(item).strip() for item in list(raw_value.get("card_instance_ids") or []) if str(item).strip()]
+        queue.append(ids)
+        return
+    if not isinstance(raw_value, (list, tuple)):
+        return
+    if raw_value and all(isinstance(item, str) for item in raw_value):
+        queue.append([str(item).strip() for item in raw_value if str(item).strip()])
+        return
+    for item in raw_value:
+        if isinstance(item, dict):
+            ids = [
+                str(raw).strip()
+                for raw in list(item.get("card_instance_ids") or [])
+                if str(raw).strip()
+            ]
+            queue.append(ids)
+        elif isinstance(item, (list, tuple)):
+            queue.append([str(raw).strip() for raw in item if str(raw).strip()])
+
+
+def _normalized_concrete_sponsors_details_for_dedup(details: Dict[str, Any]) -> str:
+    normalized = copy.deepcopy(details or {})
+    for key in ("base_strength", "effective_strength", "action_label", "concrete"):
+        normalized.pop(key, None)
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _normalized_concrete_association_details_for_dedup(details: Dict[str, Any]) -> str:
+    normalized = copy.deepcopy(details or {})
+    for key in ("base_strength", "effective_strength", "action_label", "concrete"):
+        normalized.pop(key, None)
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _normalized_concrete_build_details_for_dedup(details: Dict[str, Any]) -> str:
+    normalized = copy.deepcopy(details or {})
+    for key in ("base_strength", "effective_strength", "action_label", "concrete"):
+        normalized.pop(key, None)
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _dedupe_dominated_concrete_sponsors_actions(actions: Sequence[Action]) -> List[Action]:
+    deduped: List[Action] = []
+    kept_indices: Dict[str, int] = {}
+    for action in actions:
+        if action.type != ActionType.MAIN_ACTION or str(action.card_name or "") != "sponsors":
+            deduped.append(action)
+            continue
+        details = dict(action.details or {})
+        if not bool(details.get("concrete")) or bool(details.get("use_break_ability")):
+            deduped.append(action)
+            continue
+        key = _normalized_concrete_sponsors_details_for_dedup(details)
+        existing_index = kept_indices.get(key)
+        if existing_index is None:
+            kept_indices[key] = len(deduped)
+            deduped.append(action)
+            continue
+        existing_action = deduped[existing_index]
+        if int(action.value or 0) < int(existing_action.value or 0):
+            deduped[existing_index] = action
+    return deduped
+
+
+def _dedupe_dominated_concrete_build_actions(actions: Sequence[Action]) -> List[Action]:
+    deduped: List[Action] = []
+    kept_indices: Dict[str, int] = {}
+    for action in actions:
+        if action.type != ActionType.MAIN_ACTION or str(action.card_name or "") != "build":
+            deduped.append(action)
+            continue
+        details = dict(action.details or {})
+        if not bool(details.get("concrete")):
+            deduped.append(action)
+            continue
+        key = _normalized_concrete_build_details_for_dedup(details)
+        existing_index = kept_indices.get(key)
+        if existing_index is None:
+            kept_indices[key] = len(deduped)
+            deduped.append(action)
+            continue
+        existing_action = deduped[existing_index]
+        if int(action.value or 0) < int(existing_action.value or 0):
+            deduped[existing_index] = action
+    return deduped
+
+
+def _dedupe_dominated_concrete_association_actions(actions: Sequence[Action]) -> List[Action]:
+    deduped: List[Action] = []
+    kept_indices: Dict[str, int] = {}
+    for action in actions:
+        if action.type != ActionType.MAIN_ACTION or str(action.card_name or "") != "association":
+            deduped.append(action)
+            continue
+        details = dict(action.details or {})
+        if not bool(details.get("concrete")):
+            deduped.append(action)
+            continue
+        key = _normalized_concrete_association_details_for_dedup(details)
+        existing_index = kept_indices.get(key)
+        if existing_index is None:
+            kept_indices[key] = len(deduped)
+            deduped.append(action)
+            continue
+        existing_action = deduped[existing_index]
+        if int(action.value or 0) < int(existing_action.value or 0):
+            deduped[existing_index] = action
+    return deduped
 
 
 def _enumerate_pending_decision_actions(
@@ -1733,14 +1884,106 @@ def _enumerate_concrete_association_actions(
     if not options:
         return []
 
+    if bool(player.action_upgraded["association"]):
+        actions: List[Action] = []
+
+        def _recurse(
+            simulated_state: GameState,
+            remaining_strength: int,
+            used_task_kinds: Set[str],
+            task_sequence: List[Dict[str, Any]],
+            label_parts: List[str],
+        ) -> None:
+            simulated_player = simulated_state.players[player_id]
+            next_options = [
+                option
+                for option in list_legal_association_options(
+                    state=simulated_state,
+                    player_id=player_id,
+                    strength=remaining_strength,
+                )
+                if str(option.get("task_kind") or "") not in used_task_kinds
+            ]
+            for option in next_options:
+                reward_variants = [({}, "")]
+                if str(option.get("task_kind") or "") == "conservation_project":
+                    reward_variants = _map_left_track_reward_variants_for_option(
+                        state=simulated_state,
+                        player=simulated_player,
+                        player_id=player_id,
+                        option=option,
+                    )
+
+                for reward_details, reward_label in reward_variants:
+                    next_state = copy.deepcopy(simulated_state)
+                    next_player = next_state.players[player_id]
+                    task_request = _association_task_request_from_option(option, reward_details)
+                    task_label = _association_task_label(option, reward_label)
+                    _apply_association_selected_option(
+                        state=next_state,
+                        player=next_player,
+                        player_id=player_id,
+                        selected=copy.deepcopy(option),
+                        effect_details=task_request.get("map_left_track_choice")
+                        if isinstance(task_request.get("map_left_track_choice"), dict)
+                        else None,
+                        allow_interactive=False,
+                    )
+                    next_sequence = list(task_sequence) + [task_request]
+                    next_labels = list(label_parts) + [task_label]
+                    action_label = " + ".join(next_labels)
+                    base_details = {
+                        "association_task_sequence": copy.deepcopy(next_sequence),
+                    }
+                    actions.append(
+                        _make_concrete_action(
+                            template_action,
+                            label=action_label,
+                            extra_details=base_details,
+                        )
+                    )
+                    donation_cost = _current_donation_cost(next_state)
+                    if int(next_player.money) >= donation_cost:
+                        donation_details = copy.deepcopy(base_details)
+                        donation_details["make_donation"] = True
+                        actions.append(
+                            _make_concrete_action(
+                                template_action,
+                                label=f"{action_label} + donation(cost={donation_cost})",
+                                extra_details=donation_details,
+                            )
+                        )
+                    strength_cost = int(
+                        option.get(
+                            "strength_cost",
+                            _association_task_strength_cost(
+                                simulated_player,
+                                str(option.get("task_kind") or ""),
+                            ),
+                        )
+                    )
+                    remaining_after = remaining_strength - strength_cost
+                    if remaining_after <= 0:
+                        continue
+                    _recurse(
+                        next_state,
+                        remaining_after,
+                        used_task_kinds | {str(option.get("task_kind") or "")},
+                        next_sequence,
+                        next_labels,
+                    )
+
+        _recurse(
+            copy.deepcopy(state),
+            strength,
+            set(),
+            [],
+            [],
+        )
+        return actions
+
     actions: List[Action] = []
-    donation_cost = _current_donation_cost(state) if bool(player.action_upgraded["association"]) else None
-    can_donate = donation_cost is not None and int(player.money) >= int(donation_cost)
     for option in options:
-        base_details: Dict[str, Any] = {
-            "association_option_index": int(option["index"]) - 1,
-        }
-        label = str(option.get("description") or "")
         reward_variants = [({}, "")]
         if str(option.get("task_kind") or "") == "conservation_project":
             reward_variants = _map_left_track_reward_variants_for_option(
@@ -1751,22 +1994,17 @@ def _enumerate_concrete_association_actions(
             )
 
         for reward_details, reward_label in reward_variants:
-            resolved_label = label
-            if reward_label:
-                resolved_label = f"{label} | {reward_label}"
-            details = dict(base_details)
-            details.update(copy.deepcopy(reward_details))
-            actions.append(_make_concrete_action(template_action, label=resolved_label, extra_details=details))
-            if can_donate:
-                donation_details = dict(details)
-                donation_details["make_donation"] = True
-                actions.append(
-                    _make_concrete_action(
-                        template_action,
-                        label=f"{resolved_label} + donation(cost={donation_cost})",
-                        extra_details=donation_details,
-                    )
+            task_request = _association_task_request_from_option(option, reward_details)
+            details = {
+                "association_task_sequence": [task_request],
+            }
+            actions.append(
+                _make_concrete_action(
+                    template_action,
+                    label=_association_task_label(option, reward_label),
+                    extra_details=details,
                 )
+            )
     return actions
 
 
@@ -1945,6 +2183,9 @@ def legal_actions(
 
         if card_name:
             concrete.append(_make_concrete_action(action))
+    concrete = _dedupe_dominated_concrete_sponsors_actions(concrete)
+    concrete = _dedupe_dominated_concrete_build_actions(concrete)
+    concrete = _dedupe_dominated_concrete_association_actions(concrete)
     return concrete
 
 
@@ -3250,10 +3491,28 @@ def _validate_card_zones(state: GameState) -> None:
         raise ValueError("Card zone integrity error: " + "; ".join(duplicates))
 
 
-def _upgrade_one_action_card(player: PlayerState) -> bool:
+def _pouch_cards_under_host(
+    player: PlayerState,
+    *,
+    host_card_instance_id: str,
+    cards: Sequence[AnimalCard],
+) -> None:
+    if not cards:
+        return
+    player.pouched_cards.extend(cards)
+    host_key = str(host_card_instance_id or "").strip()
+    if not host_key:
+        return
+    player.pouched_cards_by_host.setdefault(host_key, []).extend(cards)
+
+
+def _upgrade_one_action_card(player: PlayerState, *, interactive: bool = True) -> bool:
     upgradeable = [action for action in MAIN_ACTION_CARDS if not bool(player.action_upgraded.get(action, False))]
     if not upgradeable:
         return False
+    if not interactive:
+        player.action_upgraded[upgradeable[0]] = True
+        return True
 
     print(f"{player.name} reached reputation milestone: choose 1 action card to upgrade.")
     for idx, action in enumerate(upgradeable, start=1):
@@ -3289,6 +3548,7 @@ def _apply_map_effect_code(
     *,
     source: str,
     effect_details: Optional[Dict[str, Any]] = None,
+    allow_interactive: bool = True,
 ) -> None:
     code = str(effect_code).strip().lower()
     effect_details = dict(effect_details or {})
@@ -3418,7 +3678,7 @@ def _apply_map_effect_code(
         return
 
     if code == "upgrade_action_card":
-        upgraded = _upgrade_one_action_card(player)
+        upgraded = _upgrade_one_action_card(player, interactive=allow_interactive)
         state.effect_log.append(f"{source}:{player.name}:{code}:upgraded={1 if upgraded else 0}")
         return
 
@@ -3432,6 +3692,7 @@ def _apply_map_worker_gain_rewards(
     gained_workers: int,
     *,
     source: str,
+    allow_interactive: bool = True,
 ) -> None:
     if gained_workers <= 0:
         return
@@ -3448,6 +3709,7 @@ def _apply_map_worker_gain_rewards(
                 player_id=player_id,
                 effect_code=effect_code,
                 source=source,
+                allow_interactive=allow_interactive,
             )
 
 
@@ -3458,6 +3720,7 @@ def _gain_workers(
     player_id: int,
     amount: int,
     source: str,
+    allow_interactive: bool = True,
 ) -> int:
     if amount <= 0:
         return 0
@@ -3471,6 +3734,7 @@ def _gain_workers(
             player_id=player_id,
             gained_workers=gained,
             source=source,
+            allow_interactive=allow_interactive,
         )
     return gained
 
@@ -3484,6 +3748,7 @@ def _apply_map_threshold_rewards(
     thresholds: Sequence[Dict[str, Any]],
     claimed_thresholds: Set[int],
     source_prefix: str,
+    allow_interactive: bool = True,
 ) -> None:
     for item in thresholds:
         threshold = int(item.get("count", 0))
@@ -3499,6 +3764,7 @@ def _apply_map_threshold_rewards(
             player_id=player_id,
             effect_code=effect_code,
             source=f"{source_prefix}_{threshold}",
+            allow_interactive=allow_interactive,
         )
 
 
@@ -3506,6 +3772,8 @@ def _apply_map_partner_threshold_rewards(
     state: GameState,
     player: PlayerState,
     player_id: int,
+    *,
+    allow_interactive: bool = True,
 ) -> None:
     _apply_map_threshold_rewards(
         state=state,
@@ -3515,6 +3783,7 @@ def _apply_map_partner_threshold_rewards(
         thresholds=_map_rule_partner_thresholds(state),
         claimed_thresholds=player.claimed_partner_zoo_thresholds,
         source_prefix="map_partner_threshold",
+        allow_interactive=allow_interactive,
     )
 
 
@@ -3522,6 +3791,8 @@ def _apply_map_university_threshold_rewards(
     state: GameState,
     player: PlayerState,
     player_id: int,
+    *,
+    allow_interactive: bool = True,
 ) -> None:
     _apply_map_threshold_rewards(
         state=state,
@@ -3531,6 +3802,7 @@ def _apply_map_university_threshold_rewards(
         thresholds=_map_rule_university_thresholds(state),
         claimed_thresholds=player.claimed_university_thresholds,
         source_prefix="map_university_threshold",
+        allow_interactive=allow_interactive,
     )
 
 
@@ -3689,6 +3961,8 @@ def _on_map_conservation_project_supported(
     player: PlayerState,
     player_id: int,
     effect_details: Optional[Dict[str, Any]] = None,
+    *,
+    allow_interactive: bool = True,
 ) -> None:
     unlocks = _map_rule_left_track_unlocks(state)
     idx = int(player.map_left_track_unlocked_count)
@@ -3708,6 +3982,7 @@ def _on_map_conservation_project_supported(
             effect_code=effect_code,
             source=f"map_left_track_unlock_{idx + 1}",
             effect_details=effect_details,
+            allow_interactive=allow_interactive,
         )
 
 
@@ -3807,9 +4082,15 @@ def _maybe_apply_map_completion_reward(
     )
 
 
-def _apply_reputation_milestone_reward(state: GameState, player: PlayerState, milestone: int) -> None:
+def _apply_reputation_milestone_reward(
+    state: GameState,
+    player: PlayerState,
+    milestone: int,
+    *,
+    allow_interactive: bool = True,
+) -> None:
     if milestone == 5:
-        _upgrade_one_action_card(player)
+        _upgrade_one_action_card(player, interactive=allow_interactive)
         return
     if milestone == 8:
         player_id = state.players.index(player)
@@ -3819,6 +4100,7 @@ def _apply_reputation_milestone_reward(state: GameState, player: PlayerState, mi
             player_id=player_id,
             amount=1,
             source="reputation_milestone_8",
+            allow_interactive=allow_interactive,
         )
         return
     if milestone in {10, 13}:
@@ -3832,7 +4114,13 @@ def _apply_reputation_milestone_reward(state: GameState, player: PlayerState, mi
         return
 
 
-def _increase_reputation(state: GameState, player: PlayerState, amount: int) -> None:
+def _increase_reputation(
+    state: GameState,
+    player: PlayerState,
+    amount: int,
+    *,
+    allow_interactive: bool = True,
+) -> None:
     _increase_reputation_impl(
         state=state,
         player=player,
@@ -3841,7 +4129,12 @@ def _increase_reputation(state: GameState, player: PlayerState, amount: int) -> 
         reputation_cap_without_upgrade=9,
         reputation_cap_with_upgrade=15,
         milestone_values=[5, 8, 10, 11, 12, 13, 14, 15],
-        apply_milestone_reward_fn=_apply_reputation_milestone_reward,
+        apply_milestone_reward_fn=lambda milestone_state, milestone_player, milestone: _apply_reputation_milestone_reward(
+            milestone_state,
+            milestone_player,
+            milestone,
+            allow_interactive=allow_interactive,
+        ),
     )
 
 
@@ -4933,6 +5226,7 @@ def _perform_animals_action_effect(
     queued_hypnosis_targets: List[str] = []
     queued_pilfering_choices: List[Dict[str, Any]] = []
     queued_sell_hand_card_choices: List[List[str]] = []
+    queued_pouch_hand_card_choices: List[List[str]] = []
     raw_clever_targets = details.get("clever_targets")
     if isinstance(raw_clever_targets, (list, tuple)):
         for item in raw_clever_targets:
@@ -4960,28 +5254,8 @@ def _perform_animals_action_effect(
         queued_pilfering_choices = [
             item for item in raw_pilfering_choices if isinstance(item, dict)
         ]
-    raw_sell_hand_card_choices = details.get("sell_hand_card_choices")
-    if isinstance(raw_sell_hand_card_choices, dict):
-        ids = [str(item).strip() for item in list(raw_sell_hand_card_choices.get("card_instance_ids") or []) if str(item).strip()]
-        queued_sell_hand_card_choices.append(ids)
-    elif isinstance(raw_sell_hand_card_choices, (list, tuple)):
-        if raw_sell_hand_card_choices and all(isinstance(item, str) for item in raw_sell_hand_card_choices):
-            queued_sell_hand_card_choices.append(
-                [str(item).strip() for item in raw_sell_hand_card_choices if str(item).strip()]
-            )
-        else:
-            for item in raw_sell_hand_card_choices:
-                if isinstance(item, dict):
-                    ids = [
-                        str(raw).strip()
-                        for raw in list(item.get("card_instance_ids") or [])
-                        if str(raw).strip()
-                    ]
-                    queued_sell_hand_card_choices.append(ids)
-                elif isinstance(item, (list, tuple)):
-                    queued_sell_hand_card_choices.append(
-                        [str(raw).strip() for raw in item if str(raw).strip()]
-                    )
+    _append_card_instance_choice_queue(details.get("sell_hand_card_choices"), queued_sell_hand_card_choices)
+    _append_card_instance_choice_queue(details.get("pouch_hand_card_choices"), queued_pouch_hand_card_choices)
 
     def _choose_action_for_clever() -> str:
         while queued_clever_targets:
@@ -5207,32 +5481,31 @@ def _perform_animals_action_effect(
             if max_sell <= 0:
                 return 0
             sold_indices: List[int] = []
-            if interactive_effect_prompts:
+            if queued_sell_hand_card_choices:
+                requested_ids = queued_sell_hand_card_choices.pop(0)
+                if len(requested_ids) > max_sell:
+                    raise ValueError(f"sell_hand_card_choices can contain at most {max_sell} card(s).")
+                if len(set(requested_ids)) != len(requested_ids):
+                    raise ValueError("sell_hand_card_choices card_instance_ids must be unique.")
+                for requested_id in requested_ids:
+                    matching_index = next(
+                        (idx for idx, hand_card in enumerate(player.hand) if hand_card.instance_id == requested_id),
+                        None,
+                    )
+                    if matching_index is None:
+                        raise ValueError("sell_hand_card_choices selected card is not in hand.")
+                    sold_indices.append(matching_index)
+            elif interactive_effect_prompts:
                 sold_indices = _prompt_sell_hand_cards_for_human(
                     player,
                     max_sell=max_sell,
                     money_each=money_each,
                     effect_name="Sell hand cards",
                 )
-            else:
-                if queued_sell_hand_card_choices:
-                    requested_ids = queued_sell_hand_card_choices.pop(0)
-                    if len(requested_ids) > max_sell:
-                        raise ValueError(f"sell_hand_card_choices can contain at most {max_sell} card(s).")
-                    if len(set(requested_ids)) != len(requested_ids):
-                        raise ValueError("sell_hand_card_choices card_instance_ids must be unique.")
-                    for requested_id in requested_ids:
-                        matching_index = next(
-                            (idx for idx, hand_card in enumerate(player.hand) if hand_card.instance_id == requested_id),
-                            None,
-                        )
-                        if matching_index is None:
-                            raise ValueError("sell_hand_card_choices selected card is not in hand.")
-                        sold_indices.append(matching_index)
-                elif max_sell > 0:
-                    raise ValueError(
-                        "sell_hand_card_choices are required when an animal effect allows selling hand cards."
-                    )
+            elif max_sell > 0:
+                raise ValueError(
+                    "sell_hand_card_choices are required when an animal effect allows selling hand cards."
+                )
             if len(set(sold_indices)) != len(sold_indices):
                 raise ValueError("Selected sell-hand card indices must be unique.")
             if any(idx < 0 or idx >= len(player.hand) for idx in sold_indices):
@@ -5244,6 +5517,52 @@ def _perform_animals_action_effect(
             if money_each > 0:
                 player.money += len(sold_cards) * money_each
             return len(sold_cards)
+
+        def _effect_pouch_hand_cards(limit: int, appeal_each: int) -> int:
+            max_pouch = min(max(0, limit), len(player.hand))
+            if max_pouch <= 0:
+                return 0
+            pouched_indices: List[int] = []
+            if queued_pouch_hand_card_choices:
+                requested_ids = queued_pouch_hand_card_choices.pop(0)
+                if len(requested_ids) > max_pouch:
+                    raise ValueError(f"pouch_hand_card_choices can contain at most {max_pouch} card(s).")
+                if len(set(requested_ids)) != len(requested_ids):
+                    raise ValueError("pouch_hand_card_choices card_instance_ids must be unique.")
+                for requested_id in requested_ids:
+                    matching_index = next(
+                        (idx for idx, hand_card in enumerate(player.hand) if hand_card.instance_id == requested_id),
+                        None,
+                    )
+                    if matching_index is None:
+                        raise ValueError("pouch_hand_card_choices selected card is not in hand.")
+                    pouched_indices.append(matching_index)
+            elif interactive_effect_prompts:
+                pouched_indices = _prompt_pouch_hand_cards_for_human(
+                    player,
+                    max_pouch=max_pouch,
+                    appeal_each=appeal_each,
+                    effect_name="Pouch cards",
+                )
+            elif max_pouch > 0:
+                raise ValueError(
+                    "pouch_hand_card_choices are required when an animal effect allows pouching hand cards."
+                )
+            if len(set(pouched_indices)) != len(pouched_indices):
+                raise ValueError("Selected pouch-hand card indices must be unique.")
+            if any(idx < 0 or idx >= len(player.hand) for idx in pouched_indices):
+                raise ValueError("Selected pouch-hand card index is out of range.")
+            pouched_cards = [player.hand[idx] for idx in sorted(pouched_indices)]
+            for idx in sorted(pouched_indices, reverse=True):
+                player.hand.pop(idx)
+            _pouch_cards_under_host(
+                player,
+                host_card_instance_id=card.instance_id,
+                cards=pouched_cards,
+            )
+            if appeal_each > 0:
+                player.appeal += len(pouched_cards) * appeal_each
+            return len(pouched_cards)
 
         def _effect_place_free_kiosk_or_pavilion(times: int) -> int:
             _ensure_player_map_initialized(state, player)
@@ -5869,6 +6188,7 @@ def _perform_animals_action_effect(
                 gain_money=_effect_gain_money,
                 take_display_cards=_effect_take_display_cards,
                 sell_hand_cards=_effect_sell_hand_cards,
+                pouch_hand_cards=_effect_pouch_hand_cards,
                 place_free_kiosk_or_pavilion=_effect_place_free_kiosk_or_pavilion,
                 add_multiplier_token=_effect_add_multiplier_token,
                 apply_venom=_effect_apply_venom,
@@ -5907,6 +6227,7 @@ def _perform_animals_action_effect(
             gain_money=_effect_gain_money,
             take_display_cards=_effect_take_display_cards,
             sell_hand_cards=_effect_sell_hand_cards,
+            pouch_hand_cards=_effect_pouch_hand_cards,
             place_free_kiosk_or_pavilion=_effect_place_free_kiosk_or_pavilion,
             add_multiplier_token=_effect_add_multiplier_token,
             apply_venom=_effect_apply_venom,
@@ -5974,6 +6295,7 @@ def list_legal_association_options(
             options.append(
                 {
                     "task_kind": "reputation",
+                    "strength_cost": _association_task_strength_cost(player, "reputation"),
                     "workers_needed": required,
                     "description": f"Gain 2 reputation (workers={required})",
                 }
@@ -5990,6 +6312,7 @@ def list_legal_association_options(
                         {
                             "task_kind": "partner_zoo",
                             "partner_zoo": partner,
+                            "strength_cost": _association_task_strength_cost(player, "partner_zoo"),
                             "workers_needed": required,
                             "description": f"Take partner zoo: {_partner_zoo_label(partner)} (workers={required})",
                         }
@@ -6005,12 +6328,13 @@ def list_legal_association_options(
                     {
                         "task_kind": "university",
                         "university": university,
+                        "strength_cost": _association_task_strength_cost(player, "university"),
                         "workers_needed": required,
                         "description": f"Take {_university_label(university)} (workers={required})",
                     }
                 )
 
-    conservation_strength_requirement = 4 if _player_has_sponsor(player, 203) else 5
+    conservation_strength_requirement = _association_task_strength_cost(player, "conservation_project")
     if strength >= conservation_strength_requirement:
         required = _task_workers_or_none("conservation_project")
         if required is not None:
@@ -6061,6 +6385,7 @@ def list_legal_association_options(
                         "project_id": project.data_id,
                         "project_title": project.title,
                         "project_level": level_name,
+                        "strength_cost": conservation_strength_requirement,
                         "required_icons": needed_icons,
                         "icon_value": icon_value,
                         "icon_reduction_used": icon_reduction_used,
@@ -6115,6 +6440,260 @@ def list_legal_association_options(
     return options
 
 
+def _association_task_request_from_option(
+    option: Dict[str, Any],
+    reward_details: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    task_kind = str(option.get("task_kind") or "").strip()
+    request: Dict[str, Any] = {"task_kind": task_kind}
+    if task_kind == "partner_zoo":
+        request["partner_zoo"] = str(option.get("partner_zoo") or "")
+    elif task_kind == "university":
+        request["university"] = str(option.get("university") or "")
+    elif task_kind == "conservation_project":
+        request["project_id"] = str(option.get("project_id") or "")
+        request["project_level"] = str(option.get("project_level") or "")
+        if option.get("project_from_hand_index") is not None:
+            request["project_from_hand_index"] = int(option["project_from_hand_index"])
+        if option.get("project_from_display_index") is not None:
+            request["project_from_display_index"] = int(option["project_from_display_index"])
+    if isinstance(reward_details, dict):
+        map_left_track_choice = reward_details.get("map_left_track_choice")
+        if isinstance(map_left_track_choice, dict):
+            request["map_left_track_choice"] = copy.deepcopy(map_left_track_choice)
+    return request
+
+
+def _association_task_label(option: Dict[str, Any], reward_label: str = "") -> str:
+    label = str(option.get("description") or "")
+    if reward_label:
+        return f"{label} | {reward_label}"
+    return label
+
+
+def _resolve_association_requested_option(
+    options: Sequence[Dict[str, Any]],
+    details: Dict[str, Any],
+) -> Dict[str, Any]:
+    if not options:
+        has_explicit_task = (
+            details.get("association_option_index") is not None
+            or bool(str(details.get("task_kind") or "").strip())
+            or bool(details.get("association_task_sequence"))
+        )
+        if bool(details.get("make_donation")) and not has_explicit_task:
+            raise ValueError("Donation must be combined with another association task.")
+        if has_explicit_task:
+            raise ValueError("Requested association task is not legal.")
+        raise ValueError("No legal association tasks are available.")
+
+    selected_idx_raw = details.get("association_option_index")
+    if selected_idx_raw is not None:
+        selected_idx = int(selected_idx_raw)
+        if selected_idx < 0 or selected_idx >= len(options):
+            raise ValueError("association_option_index is out of range.")
+        return dict(options[selected_idx])
+
+    task_kind = str(details.get("task_kind") or "").strip()
+    if not task_kind:
+        if len(options) == 1:
+            return dict(options[0])
+        raise ValueError("Explicit association task details are required when multiple legal options exist.")
+
+    selected = next(
+        (
+            option
+            for option in options
+            if option.get("task_kind") == task_kind
+            and (
+                task_kind != "partner_zoo"
+                or option.get("partner_zoo") == details.get("partner_zoo")
+            )
+            and (
+                task_kind != "university"
+                or option.get("university") == details.get("university")
+            )
+            and (
+                task_kind != "conservation_project"
+                or (
+                    option.get("project_id") == details.get("project_id")
+                    and (
+                        not details.get("project_level")
+                        or option.get("project_level") == details.get("project_level")
+                    )
+                    and (
+                        details.get("project_from_hand_index") is None
+                        or option.get("project_from_hand_index") == int(details.get("project_from_hand_index"))
+                    )
+                    and (
+                        details.get("project_from_display_index") is None
+                        or option.get("project_from_display_index") == int(details.get("project_from_display_index"))
+                    )
+                )
+            )
+        ),
+        None,
+    )
+    if (
+        selected is None
+        and task_kind == "conservation_project"
+        and details.get("project_id")
+        and not details.get("project_level")
+    ):
+        project_id = details.get("project_id")
+        candidates = [
+            option
+            for option in options
+            if option.get("task_kind") == "conservation_project"
+            and option.get("project_id") == project_id
+        ]
+        if len(candidates) == 1:
+            selected = candidates[0]
+        elif len(candidates) > 1:
+            raise ValueError("project_level is required when multiple legal conservation project levels exist.")
+    if selected is None:
+        raise ValueError("Requested association task is not legal.")
+    return dict(selected)
+
+
+def _apply_association_selected_option(
+    state: GameState,
+    player: PlayerState,
+    *,
+    player_id: int,
+    selected: Dict[str, Any],
+    effect_details: Optional[Dict[str, Any]] = None,
+    allow_interactive: bool = True,
+) -> None:
+    upgraded = bool(player.action_upgraded["association"])
+    task_kind = str(selected.get("task_kind") or "").strip()
+    if not task_kind:
+        raise ValueError("Association task kind is required.")
+
+    workers_needed = _association_workers_needed(player, task_kind)
+    if player.workers < workers_needed:
+        raise ValueError("Not enough active association workers.")
+
+    if task_kind == "reputation":
+        _increase_reputation(state=state, player=player, amount=2, allow_interactive=allow_interactive)
+    elif task_kind == "partner_zoo":
+        partner = str(selected.get("partner_zoo") or "")
+        if not upgraded and len(player.partner_zoos) >= 2:
+            raise ValueError("Association side I can hold at most 2 partner zoos.")
+        if partner not in state.available_partner_zoos:
+            raise ValueError("Selected partner zoo is not currently available.")
+        state.available_partner_zoos.remove(partner)
+        player.partner_zoos.add(partner)
+        _apply_map_partner_threshold_rewards(
+            state=state,
+            player=player,
+            player_id=player_id,
+            allow_interactive=allow_interactive,
+        )
+    elif task_kind == "university":
+        university = str(selected.get("university") or "")
+        if university not in state.available_universities:
+            raise ValueError("Selected university is not currently available.")
+        state.available_universities.remove(university)
+        player.universities.add(university)
+        hand_limit_target = UNIVERSITY_HAND_LIMIT_SET.get(university, 0)
+        if hand_limit_target > 0:
+            player.hand_limit = max(player.hand_limit, hand_limit_target)
+        rep_gain = UNIVERSITY_REPUTATION_GAIN.get(university, 0)
+        if rep_gain > 0:
+            _increase_reputation(
+                state=state,
+                player=player,
+                amount=rep_gain,
+                allow_interactive=allow_interactive,
+            )
+        _apply_map_university_threshold_rewards(
+            state=state,
+            player=player,
+            player_id=player_id,
+            allow_interactive=allow_interactive,
+        )
+    elif task_kind == "conservation_project":
+        project_id = str(selected.get("project_id") or "")
+        if not project_id:
+            raise ValueError("Missing project_id for conservation project task.")
+        release_repeat_allowed = _player_has_sponsor(player, 224) and _is_release_into_wild_project(project_id)
+        if project_id in player.supported_conservation_projects and not release_repeat_allowed:
+            raise ValueError("Conservation project already supported by this player.")
+        project_from_hand_index_raw = selected.get("project_from_hand_index")
+        project_from_display_index_raw = selected.get("project_from_display_index")
+        if project_from_hand_index_raw is not None and project_from_display_index_raw is not None:
+            raise ValueError("Conservation project cannot come from both hand and display.")
+        if project_from_hand_index_raw is not None:
+            project_from_hand_index = int(project_from_hand_index_raw)
+            if project_from_hand_index < 0 or project_from_hand_index >= len(player.hand):
+                raise ValueError("Conservation project hand index is out of range.")
+            raw_project = player.hand[project_from_hand_index]
+            if raw_project.card_type != "conservation_project":
+                raise ValueError("Selected hand card is not a conservation project.")
+            project_ref = _project_ref_from_card(raw_project)
+            if project_ref.data_id != project_id:
+                raise ValueError("Selected hand conservation project does not match requested project.")
+            player.hand.pop(project_from_hand_index)
+            _ensure_conservation_project_slots(state, project_id)
+        elif project_from_display_index_raw is not None:
+            if not upgraded:
+                raise ValueError("Only upgraded Association can support conservation projects from display.")
+            project_from_display_index = int(project_from_display_index_raw)
+            accessible = min(_reputation_display_limit(player.reputation), len(state.zoo_display))
+            if project_from_display_index < 0 or project_from_display_index >= accessible:
+                raise ValueError("Conservation project display index is out of reputation range.")
+            raw_project = state.zoo_display[project_from_display_index]
+            if raw_project.card_type != "conservation_project":
+                raise ValueError("Selected display card is not a conservation project.")
+            project_ref = _project_ref_from_card(raw_project)
+            if project_ref.data_id != project_id:
+                raise ValueError("Selected display conservation project does not match requested project.")
+            display_extra_cost = int(selected.get("project_display_extra_cost", project_from_display_index + 1))
+            if player.money < display_extra_cost:
+                raise ValueError("Insufficient money for display conservation project additional cost.")
+            player.money -= display_extra_cost
+            state.zoo_display.pop(project_from_display_index)
+            _replenish_zoo_display(state)
+            _ensure_conservation_project_slots(state, project_id)
+        project_level = str(selected.get("project_level") or "")
+        if project_level not in {"left_level", "middle_level", "right_level"}:
+            raise ValueError("Missing or invalid project_level for conservation project task.")
+        slots = state.conservation_project_slots.get(project_id)
+        if slots is None:
+            raise ValueError("Conservation project slot does not exist.")
+        owner = slots.get(project_level)
+        if owner is not None:
+            raise ValueError("Selected conservation project slot is already occupied.")
+        slots[project_level] = player_id
+        player.supported_conservation_projects.add(project_id)
+        player.conservation += int(selected.get("conservation_gain", 0))
+        reputation_gain = int(selected.get("reputation_gain", 0))
+        if reputation_gain > 0:
+            _increase_reputation(
+                state=state,
+                player=player,
+                amount=reputation_gain,
+                allow_interactive=allow_interactive,
+            )
+        if release_repeat_allowed:
+            player.conservation += 1
+        if bool(selected.get("icon_reduction_used")):
+            _consume_breeding_icon_reduction(player)
+        player.supported_conservation_project_actions += 1
+        _on_map_conservation_project_supported(
+            state=state,
+            player=player,
+            player_id=player_id,
+            effect_details=effect_details,
+            allow_interactive=allow_interactive,
+        )
+    else:
+        raise ValueError(f"Unsupported association task kind '{task_kind}'.")
+
+    _spend_association_workers(player=player, task_kind=task_kind, workers_needed=workers_needed)
+
+
 def _perform_association_action_effect(
     state: GameState,
     player: PlayerState,
@@ -6123,202 +6702,66 @@ def _perform_association_action_effect(
     player_id: int = 0,
 ) -> None:
     details = details or {}
-    upgraded = player.action_upgraded["association"]
-    options = list_legal_association_options(state=state, player_id=player_id, strength=strength)
+    upgraded = bool(player.action_upgraded["association"])
     make_donation = bool(details.get("make_donation"))
-    donation_cost: Optional[int] = None
+    if make_donation and not upgraded:
+        raise ValueError("Donation is only available with upgraded Association action.")
+
+    performed_any_task = False
+    sequence_raw = details.get("association_task_sequence")
+    if sequence_raw is not None:
+        if not isinstance(sequence_raw, list):
+            raise ValueError("association_task_sequence must be a list.")
+        task_sequence = [dict(item) for item in sequence_raw if isinstance(item, dict)]
+        if not task_sequence:
+            raise ValueError("association_task_sequence must include at least one task.")
+        if len(task_sequence) > 1 and not upgraded:
+            raise ValueError("Only upgraded Association can perform multiple tasks.")
+        remaining_strength = int(strength)
+        used_task_kinds: Set[str] = set()
+        for task_details in task_sequence:
+            task_kind = str(task_details.get("task_kind") or "").strip()
+            if not task_kind:
+                raise ValueError("Association task sequence entries require task_kind.")
+            if task_kind in used_task_kinds:
+                raise ValueError("Upgraded Association tasks must all be different.")
+            options = list_legal_association_options(state=state, player_id=player_id, strength=remaining_strength)
+            selected = _resolve_association_requested_option(options, task_details)
+            strength_cost = int(selected.get("strength_cost", _association_task_strength_cost(player, task_kind)))
+            if strength_cost > remaining_strength:
+                raise ValueError("Association task sequence exceeds available strength.")
+            _apply_association_selected_option(
+                state=state,
+                player=player,
+                player_id=player_id,
+                selected=selected,
+                effect_details=task_details.get("map_left_track_choice")
+                if isinstance(task_details.get("map_left_track_choice"), dict)
+                else None,
+            )
+            remaining_strength -= strength_cost
+            used_task_kinds.add(task_kind)
+            performed_any_task = True
+    else:
+        options = list_legal_association_options(state=state, player_id=player_id, strength=strength)
+        selected = _resolve_association_requested_option(options, details)
+        _apply_association_selected_option(
+            state=state,
+            player=player,
+            player_id=player_id,
+            selected=selected,
+            effect_details=details.get("map_left_track_choice")
+            if isinstance(details.get("map_left_track_choice"), dict)
+            else None,
+        )
+        performed_any_task = True
+
     if make_donation:
-        if not upgraded:
-            raise ValueError("Donation is only available with upgraded Association action.")
+        if not performed_any_task:
+            raise ValueError("Donation must be combined with another association task.")
         donation_cost = _current_donation_cost(state)
         if player.money < donation_cost:
             raise ValueError("Insufficient money for donation.")
-
-    selected: Optional[Dict[str, Any]] = None
-    selected_idx_raw = details.get("association_option_index")
-    if selected_idx_raw is not None:
-        selected_idx = int(selected_idx_raw)
-        if selected_idx < 0 or selected_idx >= len(options):
-            raise ValueError("association_option_index is out of range.")
-        selected = options[selected_idx]
-    else:
-        task_kind = str(details.get("task_kind") or "").strip()
-        if task_kind:
-            selected = next(
-                (
-                    option
-                    for option in options
-                    if option.get("task_kind") == task_kind
-                    and (
-                        task_kind != "partner_zoo"
-                        or option.get("partner_zoo") == details.get("partner_zoo")
-                    )
-                    and (
-                        task_kind != "university"
-                        or option.get("university") == details.get("university")
-                    )
-                    and (
-                        task_kind != "conservation_project"
-                        or (
-                            option.get("project_id") == details.get("project_id")
-                            and (
-                                not details.get("project_level")
-                                or option.get("project_level") == details.get("project_level")
-                            )
-                        )
-                    )
-                ),
-                None,
-            )
-            if (
-                selected is None
-                and task_kind == "conservation_project"
-                and details.get("project_id")
-                and not details.get("project_level")
-            ):
-                project_id = details.get("project_id")
-                candidates = [
-                    option
-                    for option in options
-                    if option.get("task_kind") == "conservation_project"
-                    and option.get("project_id") == project_id
-                ]
-                if len(candidates) == 1:
-                    selected = candidates[0]
-                elif len(candidates) > 1:
-                    raise ValueError(
-                        "project_level is required when multiple legal conservation project levels exist."
-                    )
-            if selected is None:
-                raise ValueError("Requested association task is not legal.")
-        else:
-            if len(options) == 1:
-                selected = options[0]
-            else:
-                if make_donation:
-                    raise ValueError("Donation must be combined with another association task.")
-                raise ValueError(
-                    "Explicit association task details are required when multiple legal options exist."
-                )
-
-    workers_needed = 0
-    if selected is not None:
-        task_kind = str(selected.get("task_kind"))
-        workers_needed = _association_workers_needed(player, task_kind)
-        if player.workers < workers_needed:
-            raise ValueError("Not enough active association workers.")
-
-        if task_kind == "reputation":
-            _increase_reputation(state=state, player=player, amount=2)
-        elif task_kind == "partner_zoo":
-            partner = str(selected.get("partner_zoo") or "")
-            if not bool(player.action_upgraded.get("association", False)) and len(player.partner_zoos) >= 2:
-                raise ValueError("Association side I can hold at most 2 partner zoos.")
-            if partner not in state.available_partner_zoos:
-                raise ValueError("Selected partner zoo is not currently available.")
-            state.available_partner_zoos.remove(partner)
-            player.partner_zoos.add(partner)
-            _apply_map_partner_threshold_rewards(
-                state=state,
-                player=player,
-                player_id=player_id,
-            )
-        elif task_kind == "university":
-            university = str(selected.get("university") or "")
-            if university not in state.available_universities:
-                raise ValueError("Selected university is not currently available.")
-            state.available_universities.remove(university)
-            player.universities.add(university)
-            hand_limit_target = UNIVERSITY_HAND_LIMIT_SET.get(university, 0)
-            if hand_limit_target > 0:
-                player.hand_limit = max(player.hand_limit, hand_limit_target)
-            rep_gain = UNIVERSITY_REPUTATION_GAIN.get(university, 0)
-            if rep_gain > 0:
-                _increase_reputation(state=state, player=player, amount=rep_gain)
-            _apply_map_university_threshold_rewards(
-                state=state,
-                player=player,
-                player_id=player_id,
-            )
-        elif task_kind == "conservation_project":
-            project_id = str(selected.get("project_id") or "")
-            if not project_id:
-                raise ValueError("Missing project_id for conservation project task.")
-            release_repeat_allowed = _player_has_sponsor(player, 224) and _is_release_into_wild_project(project_id)
-            if project_id in player.supported_conservation_projects and not release_repeat_allowed:
-                raise ValueError("Conservation project already supported by this player.")
-            project_from_hand_index_raw = selected.get("project_from_hand_index")
-            project_from_display_index_raw = selected.get("project_from_display_index")
-            if project_from_hand_index_raw is not None and project_from_display_index_raw is not None:
-                raise ValueError("Conservation project cannot come from both hand and display.")
-            if project_from_hand_index_raw is not None:
-                project_from_hand_index = int(project_from_hand_index_raw)
-                if project_from_hand_index < 0 or project_from_hand_index >= len(player.hand):
-                    raise ValueError("Conservation project hand index is out of range.")
-                raw_project = player.hand[project_from_hand_index]
-                if raw_project.card_type != "conservation_project":
-                    raise ValueError("Selected hand card is not a conservation project.")
-                project_ref = _project_ref_from_card(raw_project)
-                if project_ref.data_id != project_id:
-                    raise ValueError("Selected hand conservation project does not match requested project.")
-                player.hand.pop(project_from_hand_index)
-                _ensure_conservation_project_slots(state, project_id)
-            elif project_from_display_index_raw is not None:
-                if not upgraded:
-                    raise ValueError("Only upgraded Association can support conservation projects from display.")
-                project_from_display_index = int(project_from_display_index_raw)
-                accessible = min(_reputation_display_limit(player.reputation), len(state.zoo_display))
-                if project_from_display_index < 0 or project_from_display_index >= accessible:
-                    raise ValueError("Conservation project display index is out of reputation range.")
-                raw_project = state.zoo_display[project_from_display_index]
-                if raw_project.card_type != "conservation_project":
-                    raise ValueError("Selected display card is not a conservation project.")
-                project_ref = _project_ref_from_card(raw_project)
-                if project_ref.data_id != project_id:
-                    raise ValueError("Selected display conservation project does not match requested project.")
-                display_extra_cost = int(selected.get("project_display_extra_cost", project_from_display_index + 1))
-                if player.money < display_extra_cost:
-                    raise ValueError("Insufficient money for display conservation project additional cost.")
-                player.money -= display_extra_cost
-                state.zoo_display.pop(project_from_display_index)
-                _replenish_zoo_display(state)
-                _ensure_conservation_project_slots(state, project_id)
-            project_level = str(selected.get("project_level") or "")
-            if project_level not in {"left_level", "middle_level", "right_level"}:
-                raise ValueError("Missing or invalid project_level for conservation project task.")
-            slots = state.conservation_project_slots.get(project_id)
-            if slots is None:
-                raise ValueError("Conservation project slot does not exist.")
-            owner = slots.get(project_level)
-            if owner is not None:
-                raise ValueError("Selected conservation project slot is already occupied.")
-            slots[project_level] = player_id
-            player.supported_conservation_projects.add(project_id)
-            player.conservation += int(selected.get("conservation_gain", 0))
-            reputation_gain = int(selected.get("reputation_gain", 0))
-            if reputation_gain > 0:
-                _increase_reputation(state=state, player=player, amount=reputation_gain)
-            if release_repeat_allowed:
-                player.conservation += 1
-            if bool(selected.get("icon_reduction_used")):
-                _consume_breeding_icon_reduction(player)
-            player.supported_conservation_project_actions += 1
-            _on_map_conservation_project_supported(
-                state=state,
-                player=player,
-                player_id=player_id,
-                effect_details=details.get("map_left_track_choice")
-                if isinstance(details.get("map_left_track_choice"), dict)
-                else None,
-            )
-        else:
-            raise ValueError(f"Unsupported association task kind '{task_kind}'.")
-
-        _spend_association_workers(player=player, task_kind=task_kind, workers_needed=workers_needed)
-
-    if donation_cost is not None:
-        if selected is None:
-            raise ValueError("Donation must be combined with another association task.")
         player.money -= donation_cost
         player.conservation += 1
         state.donation_progress += 1
@@ -6750,11 +7193,17 @@ def _apply_sponsor_passive_triggers_on_card_play(
                 _rotate_action_card_to_slot_1(owner, owner.action_order[-1])
         if owner_is_actor and 212 in sponsor_numbers:
             australia_icons = int(played_icon_counts.get("australia", 0))
+            pouch_host = next((card for card in owner.zoo_cards if card.number == 212), None)
             pouched = 0
             for _ in range(australia_icons):
                 if not owner.hand:
                     break
-                owner.pouched_cards.append(owner.hand.pop(0))
+                pouched_card = owner.hand.pop(0)
+                _pouch_cards_under_host(
+                    owner,
+                    host_card_instance_id=getattr(pouch_host, "instance_id", ""),
+                    cards=[pouched_card],
+                )
                 owner.appeal += 2
                 pouched += 1
             if pouched > 0:
@@ -7485,10 +7934,15 @@ def _format_card_line(card: AnimalCard) -> str:
     req_label = req_icons if req_icons else "-"
     effect = resolve_card_effect(card)
     effect_label = effect.code if effect.code != "none" else "-"
-    cost = _sponsor_play_cost(card) if card.card_type == "sponsor" else card.cost
+    if card.card_type == "sponsor":
+        return (
+            f"{card_no} [{card.card_type}] {card.name} "
+            f"(level={_sponsor_level(card)}, appeal={card.appeal}, rep={card.reputation_gain}, "
+            f"cons={card.conservation}, req={req_label}, effect={effect_label}, id={card.instance_id})"
+        )
     return (
         f"{card_no} [{card.card_type}] {card.name} "
-        f"(cost={cost}, size={card.size}, appeal={card.appeal}, rep={card.reputation_gain}, "
+        f"(cost={card.cost}, size={card.size}, appeal={card.appeal}, rep={card.reputation_gain}, "
         f"cons={card.conservation}, req={req_label}, effect={effect_label}, id={card.instance_id})"
     )
 
@@ -7603,19 +8057,20 @@ def _prompt_action_to_slot_1_target_for_human(player: PlayerState, *, reason: st
         print("Please enter a valid number.")
 
 
-def _prompt_sell_hand_cards_for_human(
+def _prompt_choose_hand_cards_for_human(
     player: PlayerState,
     *,
-    max_sell: int,
-    money_each: int,
+    max_choose: int,
     effect_name: str,
+    action_label: str,
+    reward_label: str,
 ) -> List[int]:
-    if max_sell <= 0 or not player.hand:
+    if max_choose <= 0 or not player.hand:
         return []
-    print(f"{effect_name}: choose 0-{max_sell} hand card(s) to sell for {money_each} money each.")
+    print(f"{effect_name}: choose 0-{max_choose} hand card(s) {reward_label}.")
     for idx, card in enumerate(player.hand, start=1):
         print(f"{idx}. {_format_card_line_for_player(card, player)}")
-    prompt = f"Select up to {max_sell} card index{'es' if max_sell != 1 else ''} to sell (blank=0): "
+    prompt = f"Select up to {max_choose} card index{'es' if max_choose != 1 else ''} to {action_label} (blank=0): "
     while True:
         raw = input(prompt).strip()
         if raw == "":
@@ -7623,8 +8078,8 @@ def _prompt_sell_hand_cards_for_human(
         tokens = raw.replace(",", " ").split()
         if not tokens:
             return []
-        if len(tokens) > max_sell:
-            print(f"Choose at most {max_sell} card(s).")
+        if len(tokens) > max_choose:
+            print(f"Choose at most {max_choose} card(s).")
             continue
         if any(not token.isdigit() for token in tokens):
             print("Please enter valid numbers separated by spaces.")
@@ -7637,6 +8092,38 @@ def _prompt_sell_hand_cards_for_human(
             print("One or more card indices are out of range.")
             continue
         return [value - 1 for value in picked]
+
+
+def _prompt_sell_hand_cards_for_human(
+    player: PlayerState,
+    *,
+    max_sell: int,
+    money_each: int,
+    effect_name: str,
+) -> List[int]:
+    return _prompt_choose_hand_cards_for_human(
+        player,
+        max_choose=max_sell,
+        effect_name=effect_name,
+        action_label="sell",
+        reward_label=f"to sell for {money_each} money each",
+    )
+
+
+def _prompt_pouch_hand_cards_for_human(
+    player: PlayerState,
+    *,
+    max_pouch: int,
+    appeal_each: int,
+    effect_name: str,
+) -> List[int]:
+    return _prompt_choose_hand_cards_for_human(
+        player,
+        max_choose=max_pouch,
+        effect_name=effect_name,
+        action_label="pouch",
+        reward_label=f"to place under this card for {appeal_each} appeal each",
+    )
 
 
 def _resolve_selected_sponsor_cards_from_details(
@@ -7880,6 +8367,8 @@ def _prevalidate_main_action_details(
     if chosen == "association":
         options = list_legal_association_options(state=state, player_id=player_id, strength=strength)
         has_explicit_selection = (
+            bool(details.get("association_task_sequence"))
+            or
             details.get("association_option_index") is not None
             or bool(str(details.get("task_kind") or "").strip())
         )

@@ -68,6 +68,26 @@ def test_legal_actions_expand_each_main_action_by_available_x_spend():
         assert spends == [0, 1, 2]
 
 
+def test_format_card_line_shows_sponsor_level_instead_of_zero_cost():
+    sponsor = AnimalCard(
+        "SPONSORSHIP: VULTURES",
+        3,
+        0,
+        0,
+        0,
+        card_type="sponsor",
+        required_icons=(("bird", 1),),
+        number=233,
+        instance_id="s-233",
+    )
+
+    rendered = main._format_card_line(sponsor)
+
+    assert "level=3" in rendered
+    assert "cost=" not in rendered
+    assert "size=0" not in rendered
+
+
 def test_state_legal_actions_expand_x_targets_when_state_is_provided():
     state = setup_game(seed=242, player_names=["P1", "P2"])
     player = state.players[state.current_player]
@@ -750,6 +770,189 @@ def test_sell_hand_cards_effect_expands_animals_legal_actions_into_card_subsets(
     assert player.money == 13
     assert [card.instance_id for card in player.hand] == ["keep-b"]
     assert {card.instance_id for card in state.zoo_discard} >= {"keep-a", "keep-c"}
+
+
+def test_pouch_effect_expands_animals_legal_actions_and_moves_cards_under_host():
+    state = setup_game(seed=293, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.money = 5
+    player.hand = [
+        AnimalCard(
+            "Poucher",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Pouch 1",
+            ability_text="You may place 1 card(s) from your hand under this card to gain 2",
+            instance_id="poucher",
+        ),
+        AnimalCard("Keep A", 0, 1, 0, 0, card_type="sponsor", instance_id="keep-a"),
+    ]
+    player.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    player.enclosures = [Enclosure(size=1, origin=(0, 0))]
+
+    actions = legal_actions(player, state=state, player_id=0)
+    animal_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "animals"
+        and "Poucher" in str((action.details or {}).get("action_label") or "")
+    ]
+
+    assert len(animal_actions) == 2
+    assert {
+        tuple(choice.get("card_instance_ids") or [])
+        for action in animal_actions
+        for choice in list((action.details or {}).get("pouch_hand_card_choices") or [])
+    } == {(), ("keep-a",)}
+
+    chosen = next(
+        action
+        for action in animal_actions
+        if [tuple(choice.get("card_instance_ids") or []) for choice in list((action.details or {}).get("pouch_hand_card_choices") or [])]
+        == [("keep-a",)]
+    )
+
+    apply_action(state, chosen)
+
+    assert player.appeal == 2
+    assert player.hand == []
+    assert [card.instance_id for card in player.pouched_cards] == ["keep-a"]
+    assert [card.instance_id for card in player.pouched_cards_by_host["poucher"]] == ["keep-a"]
+    assert all(card.instance_id != "keep-a" for card in state.zoo_discard)
+
+
+def test_concrete_sell_choice_does_not_prompt_again_when_interactive(monkeypatch):
+    state = setup_game(seed=294, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.money = 5
+    player.hand = [
+        AnimalCard(
+            "Seller",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Sun Bathing 1",
+            ability_text="You may sell up to 1 card(s) from your hand for 4",
+            instance_id="seller",
+        ),
+        AnimalCard("Keep A", 0, 1, 0, 0, card_type="sponsor", instance_id="keep-a"),
+    ]
+    player.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    player.enclosures = [Enclosure(size=1, origin=(0, 0))]
+
+    actions = legal_actions(player, state=state, player_id=0)
+    chosen = next(
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "animals"
+        and [tuple(choice.get("card_instance_ids") or []) for choice in list((action.details or {}).get("sell_hand_card_choices") or [])]
+        == [("keep-a",)]
+    )
+
+    monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(AssertionError("unexpected prompt")))
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            value=chosen.value,
+            card_name=chosen.card_name,
+            details={**dict(chosen.details or {}), "_interactive": True},
+        ),
+    )
+
+    assert player.money == 9
+    assert player.hand == []
+    assert {card.instance_id for card in state.zoo_discard} >= {"keep-a"}
+
+
+def test_sponsors_concrete_actions_prune_higher_x_duplicates_with_same_payload():
+    state = setup_game(seed=295, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.x_tokens = 2
+    player.action_order = ["cards", "build", "sponsors", "animals", "association"]
+    player.hand = [
+        AnimalCard("SPONSORSHIP: LIONS", 3, 0, 0, 0, card_type="sponsor", required_icons=(("predator", 1),), number=234, instance_id="s-234")
+    ]
+    player.zoo_cards = [
+        AnimalCard("Predator Host", 0, 2, 0, 0, badges=("Predator",), card_type="animal", instance_id="predator-host")
+    ]
+
+    actions = legal_actions(player, state=state, player_id=0)
+    sponsor_play_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "sponsors"
+        and not bool((action.details or {}).get("use_break_ability"))
+    ]
+
+    assert len(sponsor_play_actions) == 1
+    assert sponsor_play_actions[0].value in {None, 0}
+    assert "SPONSORSHIP: LIONS" in str(sponsor_play_actions[0])
+
+
+def test_association_concrete_actions_prune_higher_x_duplicates_with_same_payload():
+    state = setup_game(seed=296, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.x_tokens = 1
+    player.money = 20
+    player.workers = 1
+    player.action_upgraded["association"] = True
+    player.action_order = ["cards", "build", "animals", "sponsors", "association"]
+
+    actions = legal_actions(player, state=state, player_id=0)
+    association_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "association"
+    ]
+
+    assert association_actions
+    assert all(int(action.value or 0) == 0 for action in association_actions)
+
+
+def test_build_concrete_actions_prune_higher_x_duplicates_but_keep_new_size_options():
+    state = setup_game(seed=297, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.x_tokens = 1
+    player.money = 50
+    player.action_order = ["build", "animals", "cards", "sponsors", "association"]
+
+    actions = legal_actions(player, state=state, player_id=0)
+    build_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "build"
+    ]
+
+    assert any(int(action.value or 0) == 1 for action in build_actions)
+
+    duplicate_small_builds = [
+        action
+        for action in build_actions
+        if int(action.value or 0) == 1
+        and (
+            (action.details or {}).get("selections", [{}])[0].get("building_type")
+            in {"SIZE_1", "KIOSK", "PAVILION"}
+        )
+    ]
+    assert duplicate_small_builds == []
+
+    size2_actions = [
+        action
+        for action in build_actions
+        if (action.details or {}).get("selections", [{}])[0].get("building_type") == "SIZE_2"
+    ]
+    assert size2_actions
+    assert any(int(action.value or 0) == 1 for action in size2_actions)
 
 
 def test_playing_venom_animal_marks_leftmost_actions_of_higher_appeal_zoo():

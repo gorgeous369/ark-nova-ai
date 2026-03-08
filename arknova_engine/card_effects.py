@@ -18,6 +18,7 @@ DiscardPusher = Callable[[Sequence[Any]], None]
 MoneyGainer = Callable[[int], None]
 DisplayTaker = Callable[[int, str, bool], int]
 HandSeller = Callable[[int, int], int]
+HandPoucher = Callable[[int, int], int]
 FreeSmallBuilder = Callable[[int], int]
 MultiplierAdder = Callable[[str], bool]
 TokenApplier = Callable[[int], int]
@@ -169,7 +170,7 @@ def resolve_card_effect(card: Any) -> ResolvedCardEffect:
     pouch = _extract_int_from_title("Pouch", title)
     if pouch is not None:
         return ResolvedCardEffect(
-            code="discard_hand_for_money",
+            code="pouch_hand_for_appeal",
             value=pouch,
             target="2",
             raw_title=title,
@@ -315,6 +316,7 @@ def apply_animal_effect(
     gain_money: Optional[MoneyGainer] = None,
     take_display_cards: Optional[DisplayTaker] = None,
     sell_hand_cards: Optional[HandSeller] = None,
+    pouch_hand_cards: Optional[HandPoucher] = None,
     place_free_kiosk_or_pavilion: Optional[FreeSmallBuilder] = None,
     add_multiplier_token: Optional[MultiplierAdder] = None,
     apply_venom: Optional[TokenApplier] = None,
@@ -450,12 +452,12 @@ def apply_animal_effect(
         messages.append(f"effect[sell_hand_cards] sold={sold}")
         return messages
 
-    if effect.code == "discard_hand_for_money":
-        if sell_hand_cards is None:
-            messages.append("effect[discard_hand_for_money] unsupported(no_callback)")
+    if effect.code == "pouch_hand_for_appeal":
+        if pouch_hand_cards is None:
+            messages.append("effect[pouch_hand_for_appeal] unsupported(no_callback)")
             return messages
-        sold = sell_hand_cards(max(0, effect.value), max(0, int(effect.target or "0")))
-        messages.append(f"effect[discard_hand_for_money] discarded={sold}")
+        pouched = pouch_hand_cards(max(0, effect.value), max(0, int(effect.target or "0")))
+        messages.append(f"effect[pouch_hand_for_appeal] pouched={pouched}")
         return messages
 
     if effect.code == "digging_cycle":

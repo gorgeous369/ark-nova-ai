@@ -31,13 +31,15 @@ def test_resolve_card_effect_for_sprint_and_hunter():
     assert hunter_effect.value == 2
 
 
-def test_resolve_card_effect_for_snapping_and_sun_bathing_and_multiplier():
+def test_resolve_card_effect_for_snapping_and_sun_bathing_pouch_and_multiplier():
     snapping = _make_card(ability_title="Snapping 2", ability_text="2x: Gain any 1 card from the display. You may replenish in between.")
     sun_bathing = _make_card(ability_title="Sun Bathing 3", ability_text="You may sell up to 3 card(s) from your hand for 4")
+    pouch = _make_card(ability_title="Pouch 1", ability_text="You may place 1 card(s) from your hand under this card to gain 2")
     multiplier = _make_card(ability_title="Multiplier: Sponsors", ability_text="Place 1")
 
     s = resolve_card_effect(snapping)
     b = resolve_card_effect(sun_bathing)
+    p = resolve_card_effect(pouch)
     m = resolve_card_effect(multiplier)
 
     assert s.code == "take_display_cards"
@@ -45,6 +47,9 @@ def test_resolve_card_effect_for_snapping_and_sun_bathing_and_multiplier():
     assert s.target == "replenish_each"
     assert b.code == "sell_hand_cards"
     assert b.value == 3
+    assert p.code == "pouch_hand_for_appeal"
+    assert p.value == 1
+    assert p.target == "2"
     assert m.code == "multiplier_token"
     assert m.target == "sponsors"
 
