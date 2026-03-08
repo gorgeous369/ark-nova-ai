@@ -56,6 +56,24 @@ def test_setup_game_opening_information_is_seed_deterministic():
     assert state_1.players[1].final_scoring_cards == state_2.players[1].final_scoring_cards
 
 
+def test_selected_base_conservation_projects_are_removed_from_public_zoo_card_zones():
+    state = setup_game(seed=42, player_names=["P1", "P2"])
+    selected_numbers = {int(project.data_id[1:4]) for project in state.opening_setup.base_conservation_projects}
+
+    public_zones = [state.zoo_deck, state.zoo_display, state.zoo_discard]
+    player_zones = [player.hand for player in state.players]
+    all_zones = public_zones + player_zones
+
+    leaked = [
+        (card.number, card.name)
+        for zone in all_zones
+        for card in zone
+        if str(getattr(card, "card_type", "") or "") == "conservation_project" and int(card.number) in selected_numbers
+    ]
+
+    assert leaked == []
+
+
 def test_cp_5_and_8_random_tiles_are_shared_while_5coins_is_repeatable():
     state = setup_game(seed=1234, player_names=["P1", "P2"])
     p0 = state.players[0]
@@ -63,7 +81,8 @@ def test_cp_5_and_8_random_tiles_are_shared_while_5coins_is_repeatable():
 
     p0.conservation = 5
     p1.conservation = 5
-    random_tile = state.shared_conservation_bonus_tiles[5][0]
+    state.shared_conservation_bonus_tiles[5] = ["10_money", "partner_zoo"]
+    random_tile = "10_money"
 
     state.claim_conservation_reward(player_id=0, threshold=5, reward=random_tile)
     assert random_tile not in state.shared_conservation_bonus_tiles[5]

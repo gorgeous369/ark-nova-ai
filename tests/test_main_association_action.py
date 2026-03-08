@@ -483,6 +483,9 @@ def test_association_conservation_project_slot_is_blocked_if_occupied():
         ),
     )
     assert state.conservation_project_slots[project_id][target_level] == 0
+    assert state.pending_decision_kind == "conservation_reward"
+    reward_actions = legal_actions(state.players[0], state=state, player_id=0)
+    apply_action(state, next(action for action in reward_actions if action.type == ActionType.PENDING_DECISION))
 
     state.current_player = 1
     p1.action_order = ["cards", "animals", "build", "sponsors", "association"]  # strength=5
@@ -548,14 +551,14 @@ def test_upgraded_association_strength_7_unlocks_reputation_plus_display_project
 
     assert not any(
         int(action.value or 0) <= 1
-        and "Gain 2 reputation" in str(action)
-        and "Support conservation project (display[2]): P130_SmallAnimals" in str(action)
+        and "rep+2" in str(action)
+        and "proj display[2] P130" in str(action)
         for action in association_actions
     )
     assert any(
         int(action.value or 0) == 2
-        and "Gain 2 reputation" in str(action)
-        and "Support conservation project (display[2]): P130_SmallAnimals" in str(action)
+        and "rep+2" in str(action)
+        and "proj display[2] P130" in str(action)
         for action in association_actions
     )
 
@@ -626,9 +629,9 @@ def test_upgraded_association_strength_7_includes_university_partner_and_donatio
 
     assert any(
         int(action.value or 0) == 2
-        and "Take partner zoo:" in str(action)
-        and "Take University(" in str(action)
-        and "+ donation(cost=2)" in str(action)
+        and "partner(" in str(action)
+        and "uni(" in str(action)
+        and "+ donate(2)" in str(action)
         for action in association_actions
     )
 

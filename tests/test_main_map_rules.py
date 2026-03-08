@@ -45,6 +45,25 @@ def test_map_left_track_unlock_is_immediate_and_recurs_each_break_step5():
     assert any("map_break_step5:P1:draw_1_card_deck_or_reputation_range" in line for line in state.effect_log)
 
 
+def test_map_left_track_unlock_can_choose_any_remaining_reward_by_index():
+    state = setup_game(seed=702, player_names=["P1", "P2"])
+    p0 = state.players[0]
+
+    money_before = p0.money
+    _on_map_conservation_project_supported(
+        state=state,
+        player=p0,
+        player_id=0,
+        effect_details={"unlock_index": 5},
+    )
+
+    assert p0.money == money_before + 12
+    assert p0.map_left_track_unlocked_count == 1
+    assert 5 in p0.map_left_track_claimed_indices
+    assert p0.map_left_track_unlocked_effects == []
+    assert any("map_left_track_unlock_6:P1:gain_12_coins" in line for line in state.effect_log)
+
+
 def test_map_partner_and_university_threshold_rewards_trigger_once(monkeypatch):
     state = setup_game(seed=703, player_names=["P1", "P2"])
     p0 = state.players[0]

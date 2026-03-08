@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 
 import main
@@ -12,6 +14,8 @@ from main import (
     SetupCardRef,
     _rank_scores,
     _perform_animals_action_effect,
+    _prompt_break_discard_indices,
+    _prompt_opening_draft_indices,
     _resolve_break,
     _prompt_sponsors_action_details_for_human,
     _resolve_manual_opening_drafts,
@@ -86,6 +90,325 @@ def test_format_card_line_shows_sponsor_level_instead_of_zero_cost():
     assert "level=3" in rendered
     assert "cost=" not in rendered
     assert "size=0" not in rendered
+
+
+def test_conservation_space_2_pending_offers_upgrade_and_activate_worker_choices():
+    state = setup_game(seed=2041, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    money_before = p0.money
+    p0.conservation = 2
+
+    started = main._maybe_begin_conservation_reward_pending(
+        state,
+        player_id=0,
+        resume_kind="turn_finalize",
+    )
+
+    assert started is True
+    assert state.pending_decision_kind == "conservation_reward"
+
+    actions = legal_actions(p0, state=state, player_id=0)
+    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
+
+    assert "cons[2] | activate worker" in labels
+    assert any(label.startswith("cons[2] | upgrade(") for label in labels)
+
+    worker_action = next(action for action in actions if (action.details or {}).get("reward") == "activate_association_worker")
+    apply_action(state, worker_action)
+
+    assert p0.workers == 2
+    assert p0.money == money_before
+    assert state.pending_decision_kind == ""
+    assert state.current_player == 1
+
+
+def test_conservation_space_5_pending_expands_choiceful_bonus_tiles():
+    state = setup_game(seed=2042, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    p0.conservation = 5
+    p0.claimed_conservation_reward_spaces.add(2)
+    p0.hand.clear()
+    p0.hand.append(
+        AnimalCard(
+            "ORNITHOLOGIST",
+            4,
+            0,
+            0,
+            0,
+            card_type="sponsor",
+            number=238,
+            instance_id="s-238",
+        )
+    )
+    state.shared_conservation_bonus_tiles[5] = [
+        "size_3_enclosure",
+        "partner_zoo",
+        "university",
+        "x2_multiplier",
+        "sponsor_card",
+        "10_money",
+        "2_reputation",
+        "3_x_tokens",
+        "3_cards",
+    ]
+
+    started = main._maybe_begin_conservation_reward_pending(
+        state,
+        player_id=0,
+        resume_kind="turn_finalize",
+    )
+
+    assert started is True
+    actions = legal_actions(p0, state=state, player_id=0)
+    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
+
+    assert "cons[5] | +5 money" in labels
+    assert any("free enclosure_3" in label for label in labels)
+    assert any("tile(partner(" in label for label in labels)
+    assert any("tile(uni(" in label for label in labels)
+    assert any("tile(x2->" in label for label in labels)
+    assert any("play sponsor<=5 hand[1] #238 ORNITHOLOGIST" in label for label in labels)
+    assert "cons[5] | +10 money" in labels
+    assert "cons[5] | +2 reputation" in labels
+    assert "cons[5] | +3 x-tokens" in labels
+    assert "cons[5] | draw 3 deck" in labels
+
+
+def test_conservation_space_5_reputation_reward_expands_reputation_milestone_upgrade_choices():
+    state = setup_game(seed=2044, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    p0.conservation = 5
+    p0.claimed_conservation_reward_spaces.add(2)
+    p0.reputation = 4
+    state.shared_conservation_bonus_tiles[5] = ["2_reputation"]
+
+    started = main._maybe_begin_conservation_reward_pending(
+        state,
+        player_id=0,
+        resume_kind="turn_finalize",
+    )
+
+    assert started is True
+    actions = legal_actions(p0, state=state, player_id=0)
+    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
+
+    assert "cons[5] | +2 reputation ; rep5 upgrade(build)" in labels
+
+    chosen = next(
+        action
+        for action in actions
+        if (action.details or {}).get("action_label") == "cons[5] | +2 reputation ; rep5 upgrade(build)"
+    )
+    apply_action(state, chosen)
+
+    assert p0.reputation == 6
+    assert p0.action_upgraded["build"] is True
+    assert state.pending_decision_kind == ""
+    assert state.current_player == 1
+
+
+def test_conservation_space_2_activate_worker_expands_map_worker_reward_choices():
+    state = setup_game(seed=2045, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    p0.conservation = 2
+    state.map_rules["worker_gain_rewards"] = [{"effect": "upgrade_action_card"}]
+
+    started = main._maybe_begin_conservation_reward_pending(
+        state,
+        player_id=0,
+        resume_kind="turn_finalize",
+    )
+
+    assert started is True
+    actions = legal_actions(p0, state=state, player_id=0)
+    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
+
+    assert "cons[2] | activate worker ; worker-reward(build)" in labels
+
+    chosen = next(
+        action
+        for action in actions
+        if (action.details or {}).get("action_label") == "cons[2] | activate worker ; worker-reward(build)"
+    )
+    apply_action(state, chosen)
+
+    assert p0.workers == 2
+    assert p0.action_upgraded["build"] is True
+    assert state.pending_decision_kind == ""
+    assert state.current_player == 1
+
+
+def test_conservation_space_5_partner_zoo_expands_map_threshold_reward_choices():
+    state = setup_game(seed=2046, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    p0.conservation = 5
+    p0.claimed_conservation_reward_spaces.add(2)
+    state.shared_conservation_bonus_tiles[5] = ["partner_zoo"]
+    state.map_rules["partner_zoo_threshold_rewards"] = [{"count": 1, "effect": "upgrade_action_card"}]
+
+    started = main._maybe_begin_conservation_reward_pending(
+        state,
+        player_id=0,
+        resume_kind="turn_finalize",
+    )
+
+    assert started is True
+    actions = legal_actions(p0, state=state, player_id=0)
+    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
+
+    assert "cons[5] | tile(partner(Africa)) ; partner-threshold-1(build)" in labels
+
+    chosen = next(
+        action
+        for action in actions
+        if (action.details or {}).get("action_label") == "cons[5] | tile(partner(Africa)) ; partner-threshold-1(build)"
+    )
+    apply_action(state, chosen)
+
+    assert "africa" in {value.lower() for value in p0.partner_zoos}
+    assert p0.action_upgraded["build"] is True
+    assert state.pending_decision_kind == ""
+    assert state.current_player == 1
+
+
+def test_break_conservation_rewards_pause_in_order_and_shared_tile_is_consumed():
+    state = setup_game(seed=2043, player_names=["P1", "P2"])
+    p0, p1 = state.players
+    state.break_trigger_player = 0
+    state.break_progress = state.break_max
+    state.shared_conservation_bonus_tiles[5] = ["10_money"]
+
+    for idx, player in enumerate((p0, p1), start=1):
+        player.conservation = 4
+        player.claimed_conservation_reward_spaces.add(2)
+        player.appeal = 0
+        player.hand.clear()
+        player.zoo_cards.append(
+            AnimalCard(
+                f"Medical-{idx}",
+                0,
+                0,
+                0,
+                0,
+                card_type="sponsor",
+                number=206,
+                instance_id=f"s-206-{idx}",
+            )
+        )
+
+    _resolve_break(state, use_pending=True)
+
+    assert state.pending_decision_kind == "conservation_reward"
+    assert state.pending_decision_player_id == 0
+
+    p0_actions = legal_actions(p0, state=state, player_id=0)
+    tile_action = next(action for action in p0_actions if (action.details or {}).get("reward") == "10_money")
+    apply_action(state, tile_action)
+
+    assert state.pending_decision_kind == "conservation_reward"
+    assert state.pending_decision_player_id == 1
+
+    p1_actions = legal_actions(p1, state=state, player_id=1)
+    p1_rewards = {str((action.details or {}).get("reward") or "") for action in p1_actions}
+
+    assert "10_money" not in p1_rewards
+    assert "5coins" in p1_rewards
+
+    money_action = next(action for action in p1_actions if (action.details or {}).get("reward") == "5coins")
+    apply_action(state, money_action)
+
+    assert state.pending_decision_kind == ""
+    assert state.break_progress == 0
+    assert state.break_trigger_player is None
+
+
+def test_player_snapshot_lists_only_in_zoo_animals_and_separates_pouched_cards(capsys):
+    state = setup_game(seed=1001, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.hand = []
+    state.zoo_display = []
+    wombat = AnimalCard(
+        "COMMON WOMBAT",
+        9,
+        2,
+        4,
+        0,
+        card_type="animal",
+        number=450,
+        badges=("Australia", "Herbivore"),
+        instance_id="wombat-host",
+    )
+    caracal = AnimalCard(
+        "CARACAL",
+        9,
+        2,
+        4,
+        0,
+        card_type="animal",
+        number=404,
+        badges=("Africa", "Predator"),
+        instance_id="caracal-zoo",
+    )
+    ornithologist = AnimalCard(
+        "ORNITHOLOGIST",
+        4,
+        0,
+        0,
+        0,
+        card_type="sponsor",
+        number=238,
+        instance_id="ornithologist-sponsor",
+    )
+    pouched = AnimalCard(
+        "GOLDEN EAGLE",
+        20,
+        5,
+        7,
+        0,
+        card_type="animal",
+        number=509,
+        badges=("Bird",),
+        instance_id="golden-eagle-pouched",
+    )
+    player.zoo_cards = [wombat, ornithologist, caracal]
+    player.pouched_cards = [pouched]
+    player.pouched_cards_by_host = {"wombat-host": [pouched]}
+
+    HumanPlayer()._print_player_snapshot(state, player)
+    output = capsys.readouterr().out
+
+    assert "Zoo animals:" in output
+    assert "#450 COMMON WOMBAT size=2 release=2-" in output
+    assert "#404 CARACAL size=2 release=2-" in output
+    assert "ORNITHOLOGIST" not in output
+    assert "Pouched cards (not in zoo):" in output
+    assert "#509 GOLDEN EAGLE under[COMMON WOMBAT]" in output
+
+
+def test_prompt_opening_draft_indices_uses_combination_choices(monkeypatch):
+    drafted_cards = [
+        AnimalCard(f"Card {idx}", idx, 1, 0, 0, number=400 + idx, instance_id=f"draft-{idx}")
+        for idx in range(8)
+    ]
+    monkeypatch.setattr("builtins.input", lambda _: "1")
+
+    kept = _prompt_opening_draft_indices("P1", drafted_cards)
+
+    assert kept == [0, 1, 2, 3]
+
+
+def test_prompt_break_discard_indices_uses_combination_choices(monkeypatch):
+    state = setup_game(seed=1002, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.hand = [
+        AnimalCard(f"Card {idx}", idx, 1, 0, 0, number=500 + idx, instance_id=f"hand-{idx}")
+        for idx in range(5)
+    ]
+    monkeypatch.setattr("builtins.input", lambda _: "1")
+
+    picked = _prompt_break_discard_indices(player, 2)
+
+    assert picked == [0, 1]
 
 
 def test_state_legal_actions_expand_x_targets_when_state_is_provided():
@@ -185,8 +508,16 @@ def test_break_resolves_at_9_and_triggering_player_gets_1_x_token(monkeypatch):
 
     apply_action(state, Action(ActionType.MAIN_ACTION, card_name="cards"))
     pending_action = legal_actions(player, state=state, player_id=state.current_player)[0]
-    monkeypatch.setattr("builtins.input", lambda _: "1")
     apply_action(state, pending_action)
+
+    while state.pending_decision_kind == "break_discard":
+        pending_player = state.players[state.pending_decision_player_id]
+        break_pending_actions = legal_actions(
+            pending_player,
+            state=state,
+            player_id=state.pending_decision_player_id,
+        )
+        apply_action(state, break_pending_actions[0])
 
     assert state.break_progress == 0
     assert player.x_tokens == 1
@@ -209,6 +540,74 @@ def test_human_cards_choice_keeps_selected_x_spend(monkeypatch):
     assert chosen.value == 1
 
 
+def test_cards_legal_actions_do_not_include_strength_above_five():
+    state = setup_game(seed=1451, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.action_order = ["build", "cards", "animals", "association", "sponsors"]
+    player.x_tokens = 5
+
+    abstract_actions = legal_actions(player)
+    abstract_card_actions = [
+        action
+        for action in abstract_actions
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "cards"
+    ]
+
+    assert abstract_card_actions
+    assert {int(action.details.get("effective_strength", 0)) for action in abstract_card_actions} == {2, 3, 4, 5}
+    assert all(int(action.details.get("effective_strength", 0)) <= 5 for action in abstract_card_actions)
+
+    concrete_actions = legal_actions(player, state=state, player_id=0)
+    concrete_card_actions = [
+        action
+        for action in concrete_actions
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "cards"
+    ]
+    assert concrete_card_actions
+    assert all("strength=6" not in str(action) for action in concrete_card_actions)
+    assert all(int(action.details.get("effective_strength", 0)) <= 5 for action in concrete_card_actions)
+
+
+def test_animals_legal_actions_do_not_include_strength_above_five():
+    state = setup_game(seed=1452, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.action_order = ["build", "cards", "animals", "association", "sponsors"]
+    player.x_tokens = 5
+    player.hand = [
+        AnimalCard(
+            "Simple Animal",
+            1,
+            1,
+            0,
+            0,
+            card_type="animal",
+            instance_id="simple-animal",
+        )
+    ]
+    player.enclosures = [Enclosure(size=1, origin=(0, 0))]
+
+    abstract_actions = legal_actions(player)
+    abstract_animal_actions = [
+        action
+        for action in abstract_actions
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "animals"
+    ]
+
+    assert abstract_animal_actions
+    assert {int(action.details.get("effective_strength", 0)) for action in abstract_animal_actions} == {3, 4, 5}
+    assert all(int(action.details.get("effective_strength", 0)) <= 5 for action in abstract_animal_actions)
+
+    concrete_actions = legal_actions(player, state=state, player_id=0)
+    concrete_animal_actions = [
+        action
+        for action in concrete_actions
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "animals"
+    ]
+    assert concrete_animal_actions
+    assert all("strength=6" not in str(action) for action in concrete_animal_actions)
+    assert all(int(action.details.get("effective_strength", 0)) <= 5 for action in concrete_animal_actions)
+
+
 def test_human_build_choice_keeps_selected_x_spend(monkeypatch):
     state = setup_game(seed=146, player_names=["P1", "P2"])
     player = state.players[0]
@@ -224,6 +623,142 @@ def test_human_build_choice_keeps_selected_x_spend(monkeypatch):
     assert chosen.type == ActionType.MAIN_ACTION
     assert chosen.card_name == "build"
     assert chosen.value == 1
+
+
+def test_state_legal_actions_expand_upgraded_build_into_ordered_concrete_sequences(monkeypatch):
+    state = setup_game(seed=1461, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    player.action_upgraded["build"] = True
+
+    option_a = {
+        "index": 1,
+        "building_type": "SIZE_1",
+        "building_label": "enclosure_1",
+        "cells": [(0, 0)],
+        "size": 1,
+        "cost": 2,
+        "placement_bonuses": [],
+    }
+    option_b = {
+        "index": 2,
+        "building_type": "PAVILION",
+        "building_label": "pavilion",
+        "cells": [(1, 0)],
+        "size": 1,
+        "cost": 2,
+        "placement_bonuses": [],
+    }
+
+    def _fake_list_legal_build_options(*, already_built_types=None, strength, **kwargs):
+        built = {item.name for item in set(already_built_types or set())}
+        options = []
+        if strength >= 1 and "SIZE_1" not in built:
+            options.append(copy.deepcopy(option_a))
+        if strength >= 1 and "PAVILION" not in built:
+            options.append(copy.deepcopy(option_b))
+        return options
+
+    monkeypatch.setattr(main, "list_legal_build_options", _fake_list_legal_build_options)
+    monkeypatch.setattr(main, "_perform_build_action_effect", lambda *args, **kwargs: None)
+
+    actions = legal_actions(player, state=state, player_id=0)
+    build_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "build"
+        and int(action.value or 0) == 0
+    ]
+
+    assert build_actions
+    assert all(bool((action.details or {}).get("concrete")) for action in build_actions)
+    assert any(len((action.details or {}).get("selections") or []) >= 2 for action in build_actions)
+    assert any(" ; then " in str(action) for action in build_actions if len((action.details or {}).get("selections") or []) >= 2)
+
+    def _selection_key(action: Action) -> tuple:
+        selections = list((action.details or {}).get("selections") or [])
+        return tuple(
+            (
+                str(selection.get("building_type") or ""),
+                tuple(tuple(cell) for cell in list(selection.get("cells") or [])),
+            )
+            for selection in selections
+        )
+
+    two_step_keys = [
+        _selection_key(action)
+        for action in build_actions
+        if len((action.details or {}).get("selections") or []) == 2
+    ]
+    assert any(key[::-1] in two_step_keys and key[::-1] != key for key in two_step_keys)
+
+
+def test_build_card_bonus_expands_to_reputation_range_display_and_deck(monkeypatch):
+    state = setup_game(seed=1462, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    player.reputation = 4
+    state.zoo_display = [
+        AnimalCard(f"Display {idx}", 0, 1, 0, 0, number=700 + idx, instance_id=f"display-{idx}")
+        for idx in range(1, 5)
+    ]
+
+    option = {
+        "index": 1,
+        "building_type": "SIZE_2",
+        "building_label": "enclosure_2",
+        "cells": [(4, 1), (5, 1)],
+        "size": 2,
+        "cost": 4,
+        "placement_bonuses": ["card_in_reputation_range"],
+    }
+
+    monkeypatch.setattr(main, "list_legal_build_options", lambda **kwargs: [copy.deepcopy(option)])
+
+    actions = legal_actions(player, state=state, player_id=0)
+    build_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "build" and int(action.value or 0) == 0
+    ]
+
+    assert [str(action) for action in build_actions] == [
+        "build(strength=2) | enclosure_2 cells=[(4,1),(5,1)] ; draw display[1] #701 Display 1",
+        "build(strength=2) | enclosure_2 cells=[(4,1),(5,1)] ; draw display[2] #702 Display 2",
+        "build(strength=2) | enclosure_2 cells=[(4,1),(5,1)] ; draw display[3] #703 Display 3",
+        "build(strength=2) | enclosure_2 cells=[(4,1),(5,1)] ; draw deck",
+    ]
+
+
+def test_build_card_bonus_uses_selected_display_choice():
+    state = setup_game(seed=1463, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.hand = []
+    player.reputation = 4
+    state.zoo_display = [
+        AnimalCard("Display 1", 0, 1, 0, 0, number=711, instance_id="display-1"),
+        AnimalCard("Display 2", 0, 1, 0, 0, number=712, instance_id="display-2"),
+        AnimalCard("Display 3", 0, 1, 0, 0, number=713, instance_id="display-3"),
+        AnimalCard("Display 4", 0, 1, 0, 0, number=714, instance_id="display-4"),
+    ]
+    state.zoo_deck = [
+        AnimalCard("Deck Fill", 0, 1, 0, 0, number=799, instance_id="deck-fill-1"),
+    ]
+
+    main._apply_build_placement_bonus(
+        state,
+        player,
+        "card_in_reputation_range",
+        {"build_card_bonus_choices": [{"draw_source": "display", "display_index": 1}]},
+        bonus_index=0,
+        allow_interactive=False,
+    )
+
+    assert [card.instance_id for card in player.hand] == ["display-2"]
+    assert [card.instance_id for card in state.zoo_display] == ["display-1", "display-3", "display-4", "deck-fill-1"]
 
 
 def test_human_association_choice_keeps_selected_x_spend(monkeypatch):
@@ -254,11 +789,49 @@ def test_manual_opening_draft_allows_user_to_choose_kept_cards(monkeypatch):
     assert p1.hand == []
     assert p1.discard == []
 
-    monkeypatch.setattr("builtins.input", lambda _: "1 2 3 4")
+    monkeypatch.setattr("builtins.input", lambda _: "1")
     _resolve_manual_opening_drafts(state, {"P1"})
 
     assert p1.opening_draft_kept_indices == [0, 1, 2, 3]
     assert [card.name for card in p1.hand] == [card.name for card in p1.opening_draft_drawn[:4]]
+
+
+def test_setup_manual_opening_draft_exposes_pending_keep_actions():
+    state = setup_game(
+        seed=78,
+        player_names=["P1", "P2"],
+        manual_opening_draft_player_names={"P1"},
+    )
+    p1 = state.players[0]
+
+    assert state.pending_decision_kind == "opening_draft_keep"
+    assert state.pending_decision_player_id == 0
+
+    actions = legal_actions(p1, state=state, player_id=0)
+    assert len(actions) == 70
+    assert all(action.type == ActionType.PENDING_DECISION for action in actions)
+    assert all((action.details or {}).get("pending_kind") == "opening_draft_keep" for action in actions)
+    assert all(len((action.details or {}).get("keep_card_instance_ids") or []) == 4 for action in actions)
+    assert (actions[0].details or {}).get("action_label") == "keep [1 2 3 4]"
+    assert (actions[-1].details or {}).get("action_label") == "keep [5 6 7 8]"
+
+
+def test_break_discard_pending_actions_use_index_combo_labels():
+    state = setup_game(seed=79, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.hand = [
+        AnimalCard(f"Card {idx}", idx, 1, 0, 0, number=600 + idx, instance_id=f"break-{idx}")
+        for idx in range(5)
+    ]
+    state.pending_decision_kind = "break_discard"
+    state.pending_decision_player_id = 0
+    state.pending_decision_payload = {"discard_target": 2}
+
+    actions = legal_actions(player, state=state, player_id=0)
+
+    assert len(actions) == 10
+    assert (actions[0].details or {}).get("action_label") == "discard [1 2]"
+    assert (actions[-1].details or {}).get("action_label") == "discard [4 5]"
 
 
 def test_sponsors_prompt_auto_falls_back_to_break_when_no_playable_card(monkeypatch):
@@ -385,14 +958,23 @@ def test_state_legal_actions_expand_project_support_with_map_unlock_draw_choices
         for action in actions
         if action.type == ActionType.MAIN_ACTION
         and action.card_name == "association"
-        and "P101_SpeciesDiversity" in str(action)
+        and "proj P101" in str(action)
     ]
 
-    assert len(project_actions) == 1
-    assert any("right_level: need>=3 -> +2 CP" in str(action) for action in project_actions)
-    assert any("unlock: draw display[1]" in str(action) for action in project_actions)
+    draw_actions = [action for action in project_actions if "unlock[1](draw display[" in str(action)]
+    free_enclosure_actions = [action for action in project_actions if "unlock[2](free:enclosure_2" in str(action)]
 
-    display_action = project_actions[0]
+    assert len(project_actions) > len(state.zoo_display)
+    assert all("right(+2CP)" in str(action) for action in project_actions)
+    assert len(draw_actions) == len(state.zoo_display)
+    assert free_enclosure_actions
+    assert any("unlock[3](+5 money)" in str(action) for action in project_actions)
+    assert any("unlock[4](play hand[" in str(action) for action in project_actions)
+    assert any("unlock[5](+1 worker)" in str(action) for action in project_actions)
+    assert any("unlock[6](+12 money)" in str(action) for action in project_actions)
+    assert any("unlock[7](+3 x-tokens)" in str(action) for action in project_actions)
+
+    display_action = draw_actions[0]
     expected_display_card = state.zoo_display[0]
     hand_before = len(player.hand)
     apply_action(state, display_action)
@@ -420,11 +1002,24 @@ def test_state_legal_actions_expand_build_to_concrete_selection():
     assert len(build_action.details["selections"]) == 1
 
 
-def test_state_legal_actions_keep_build_ii_parameterized():
+def test_state_legal_actions_expand_build_ii_to_concrete_actions(monkeypatch):
     state = setup_game(seed=284, player_names=["P1", "P2"])
     player = state.players[0]
     player.action_upgraded["build"] = True
     player.action_order = ["animals", "cards", "association", "sponsors", "build"]
+
+    option = {
+        "index": 1,
+        "building_type": "SIZE_1",
+        "building_label": "enclosure_1",
+        "cells": [(0, 0)],
+        "size": 1,
+        "cost": 2,
+        "placement_bonuses": [],
+    }
+
+    monkeypatch.setattr(main, "list_legal_build_options", lambda **kwargs: [copy.deepcopy(option)])
+    monkeypatch.setattr(main, "_perform_build_action_effect", lambda *args, **kwargs: None)
 
     actions = legal_actions(player, state=state, player_id=0)
     build_action = next(
@@ -433,8 +1028,88 @@ def test_state_legal_actions_keep_build_ii_parameterized():
         if action.type == ActionType.MAIN_ACTION and action.card_name == "build" and int(action.value or 0) == 0
     )
 
-    assert build_action.details.get("concrete") is not True
-    assert "selections" not in (build_action.details or {})
+    assert build_action.details.get("concrete") is True
+    assert build_action.details.get("selections") == [{"building_type": "SIZE_1", "cells": [[0, 0]]}]
+
+
+def test_state_legal_actions_build_ii_sequences_stop_at_two_buildings(monkeypatch):
+    state = setup_game(seed=384, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.action_upgraded["build"] = True
+    player.action_order = ["animals", "cards", "association", "sponsors", "build"]
+
+    options_by_type = {
+        "SIZE_1": {
+            "index": 1,
+            "building_type": "SIZE_1",
+            "building_label": "enclosure_1",
+            "cells": [(0, 0)],
+            "size": 1,
+            "cost": 2,
+            "placement_bonuses": [],
+        },
+        "KIOSK": {
+            "index": 2,
+            "building_type": "KIOSK",
+            "building_label": "kiosk",
+            "cells": [(1, 0)],
+            "size": 1,
+            "cost": 2,
+            "placement_bonuses": [],
+        },
+        "PAVILION": {
+            "index": 3,
+            "building_type": "PAVILION",
+            "building_label": "pavilion",
+            "cells": [(2, 0)],
+            "size": 1,
+            "cost": 2,
+            "placement_bonuses": [],
+        },
+    }
+
+    def fake_list_legal_build_options(*, already_built_types=None, **_kwargs):
+        built = already_built_types or set()
+        return [
+            copy.deepcopy(option)
+            for type_name, option in options_by_type.items()
+            if main.BuildingType[type_name] not in built
+        ]
+
+    monkeypatch.setattr(main, "list_legal_build_options", fake_list_legal_build_options)
+    monkeypatch.setattr(main, "_perform_build_action_effect", lambda *args, **kwargs: None)
+
+    actions = legal_actions(player, state=state, player_id=0)
+    build_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "build"
+    ]
+
+    assert build_actions
+    assert all(str(action).count(" ; then ") <= 1 for action in build_actions)
+    assert any(str(action).count(" ; then ") == 1 for action in build_actions)
+
+
+def test_build_ii_rejects_more_than_two_requested_selections():
+    state = setup_game(seed=385, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.action_upgraded["build"] = True
+
+    with pytest.raises(ValueError, match="at most two"):
+        main._perform_build_action_effect(
+            state=state,
+            player=player,
+            strength=5,
+            player_id=0,
+            details={
+                "selections": [
+                    {"building_type": "SIZE_1", "cells": [[0, 0]]},
+                    {"building_type": "KIOSK", "cells": [[1, 0]]},
+                    {"building_type": "PAVILION", "cells": [[2, 0]]},
+                ]
+            },
+        )
 
 
 def test_legal_actions_marks_sponsors_break_only_when_no_playable_sponsor():
@@ -513,7 +1188,7 @@ def test_break_resolves_in_rule_order_for_display_workers_and_temp_tokens(monkey
     p0.partner_zoos = {"asia"}
     p1.partner_zoos = {"asia"}
 
-    responses = iter(["4 5", "1"])
+    responses = iter(["10", "1"])
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
     _resolve_break(state)
 
@@ -662,7 +1337,8 @@ def test_cards_pending_discard_actions_use_card_instance_ids_and_finalize_turn()
     assert all(action.type == ActionType.PENDING_DECISION for action in pending_actions)
     assert all(action.details.get("pending_kind") == "cards_discard" for action in pending_actions)
     assert all(len(action.details.get("discard_card_instance_ids") or []) == 1 for action in pending_actions)
-    assert all("discard #" in str(action) for action in pending_actions)
+    assert all("discard [" in str(action) for action in pending_actions)
+    assert (pending_actions[0].details or {}).get("action_label") == "discard [1]"
 
     chosen = pending_actions[0]
     discard_id = chosen.details["discard_card_instance_ids"][0]
@@ -695,7 +1371,7 @@ def test_sell_hand_cards_effect_prompts_for_specific_cards(monkeypatch):
     ]
     player.enclosures = [Enclosure(size=1, origin=(0, 0))]
 
-    monkeypatch.setattr("builtins.input", lambda _: "1 2")
+    monkeypatch.setattr("builtins.input", lambda _: "4")
 
     _perform_animals_action_effect(
         state=state,
@@ -757,6 +1433,15 @@ def test_sell_hand_cards_effect_expands_animals_legal_actions_into_card_subsets(
         ("keep-a", "keep-c"),
         ("keep-b", "keep-c"),
     }
+    assert {str(action).split(" ; ", 1)[1] for action in animal_actions} == {
+        "sell []",
+        "sell [1]",
+        "sell [2]",
+        "sell [3]",
+        "sell [1 2]",
+        "sell [1 3]",
+        "sell [2 3]",
+    }
 
     chosen = next(
         action
@@ -807,6 +1492,10 @@ def test_pouch_effect_expands_animals_legal_actions_and_moves_cards_under_host()
         for action in animal_actions
         for choice in list((action.details or {}).get("pouch_hand_card_choices") or [])
     } == {(), ("keep-a",)}
+    assert {str(action).split(" ; ", 1)[1] for action in animal_actions} == {
+        "pouch []",
+        "pouch [1]",
+    }
 
     chosen = next(
         action
@@ -822,6 +1511,99 @@ def test_pouch_effect_expands_animals_legal_actions_and_moves_cards_under_host()
     assert [card.instance_id for card in player.pouched_cards] == ["keep-a"]
     assert [card.instance_id for card in player.pouched_cards_by_host["poucher"]] == ["keep-a"]
     assert all(card.instance_id != "keep-a" for card in state.zoo_discard)
+
+
+def test_boost_action_card_effect_expands_animals_legal_actions_and_applies_slot_choice():
+    state = setup_game(seed=2941, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.hand = [
+        AnimalCard(
+            "RACCOON",
+            11,
+            1,
+            4,
+            0,
+            card_type="animal",
+            badges=("Predator", "Bear", "America"),
+            ability_title="Boost: Association",
+            ability_text="After finishing this action, you may place your Association Action card",
+            number=415,
+            instance_id="raccoon",
+        )
+    ]
+    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    player.enclosures = [Enclosure(size=1, origin=(0, 0))]
+
+    actions = legal_actions(player, state=state, player_id=0)
+    animal_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "animals"
+        and "RACCOON" in str((action.details or {}).get("action_label") or "")
+    ]
+
+    assert len(animal_actions) == 3
+    assert {
+        tuple(choice.get("mode") for choice in list((action.details or {}).get("boost_action_choices") or []))
+        for action in animal_actions
+    } == {("skip",), ("slot1",), ("slot5",)}
+    assert {str(action).split(" ; ", 1)[1] for action in animal_actions} == {
+        "boost skip",
+        "boost association->1",
+        "boost association->5",
+    }
+
+    chosen = next(
+        action
+        for action in animal_actions
+        if [choice.get("mode") for choice in list((action.details or {}).get("boost_action_choices") or [])] == ["slot5"]
+    )
+    apply_action(state, chosen)
+
+    assert player.action_order == ["animals", "cards", "build", "sponsors", "association"]
+
+
+def test_petting_zoo_animals_only_generate_petting_zoo_placements():
+    state = setup_game(seed=2942, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.money = 20
+    player.hand = [
+        AnimalCard(
+            "HORSE",
+            7,
+            1,
+            0,
+            0,
+            reputation_gain=1,
+            card_type="animal",
+            badges=("Pet",),
+            ability_title="Petting Zoo Animal",
+            ability_text="Gain 3",
+            number=521,
+            instance_id="horse",
+        )
+    ]
+    player.action_order = ["cards", "animals", "build", "sponsors", "association"]
+    player.enclosures = [
+        Enclosure(size=2, origin=(0, 0), enclosure_type="standard"),
+        Enclosure(size=3, origin=(1, 0), enclosure_type="petting_zoo", animal_capacity=3),
+    ]
+
+    actions = legal_actions(player, state=state, player_id=0)
+    animal_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "animals"
+        and "HORSE" in str((action.details or {}).get("action_label") or "")
+    ]
+
+    assert animal_actions
+    assert all("petting_zoo" in str(action) for action in animal_actions)
+    assert all("E1" not in str(action) for action in animal_actions)
 
 
 def test_concrete_sell_choice_does_not_prompt_again_when_interactive(monkeypatch):
@@ -953,6 +1735,42 @@ def test_build_concrete_actions_prune_higher_x_duplicates_but_keep_new_size_opti
     ]
     assert size2_actions
     assert any(int(action.value or 0) == 1 for action in size2_actions)
+
+
+def test_animals_concrete_actions_prune_higher_x_duplicates_with_same_payload():
+    state = setup_game(seed=2971, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.x_tokens = 1
+    player.money = 30
+    player.action_order = ["build", "cards", "association", "animals", "sponsors"]
+    player.action_upgraded["animals"] = False
+    player.hand = [
+        AnimalCard(
+            "NEW ZEALAND SEA LION",
+            17,
+            3,
+            6,
+            0,
+            card_type="animal",
+            number=423,
+            instance_id="sea-lion",
+        )
+    ]
+    player.enclosures = [Enclosure(size=3, origin=(0, 0))]
+
+    actions = legal_actions(player, state=state, player_id=0)
+    animal_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "animals"
+        and "NEW ZEALAND SEA LION" in str(action)
+    ]
+
+    assert len(animal_actions) == 1
+    assert int(animal_actions[0].value or 0) == 0
+    assert "strength=4" in str(animal_actions[0])
+    assert "x=1" not in str(animal_actions[0])
 
 
 def test_playing_venom_animal_marks_leftmost_actions_of_higher_appeal_zoo():
@@ -1091,6 +1909,41 @@ def test_hypnosis_uses_target_action_card_and_rotates_target_card_to_slot_1(monk
     assert target.action_order[0] == "build"
 
 
+def test_hypnosis_can_target_another_player_when_actor_is_tied_for_highest_appeal(monkeypatch):
+    state = setup_game(seed=1881, player_names=["P1", "P2"])
+    actor = state.players[0]
+    tied_target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Hypnosis Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Hypnosis 3",
+            number=99031,
+            instance_id="hyp-tie-1",
+        )
+    ]
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    actor.appeal = 5
+    tied_target.appeal = 5
+    tied_target.action_order = ["cards", "build", "animals", "association", "sponsors"]
+
+    monkeypatch.setattr(main, "_prompt_build_action_details_for_human", lambda **kwargs: {"selections": []})
+    monkeypatch.setattr("builtins.input", lambda _: "2")
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0, "_interactive": True},
+    )
+
+    assert tied_target.action_order[0] == "build"
+
+
 def test_pilfering_takes_five_money_from_highest_appeal_target():
     state = setup_game(seed=189, player_names=["P1", "P2"])
     actor = state.players[0]
@@ -1123,6 +1976,76 @@ def test_pilfering_takes_five_money_from_highest_appeal_target():
 
     assert actor.money == 7
     assert target.money == 6
+
+
+def test_pilfering_can_target_tied_highest_other_player_when_actor_is_also_tied_highest():
+    state = setup_game(seed=1891, player_names=["P1", "P2"])
+    actor = state.players[0]
+    tied_target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Pilfer Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Pilfering 1",
+            number=99041,
+            instance_id="pilfer-tie-1",
+        )
+    ]
+    actor.money = 2
+    actor.appeal = 5
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    tied_target.appeal = 5
+    tied_target.money = 11
+    tied_target.hand = []
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0},
+    )
+
+    assert actor.money == 7
+    assert tied_target.money == 6
+
+
+def test_pilfering_has_no_effect_when_actor_is_unique_highest():
+    state = setup_game(seed=1892, player_names=["P1", "P2"])
+    actor = state.players[0]
+    target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Pilfer Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Pilfering 1",
+            number=99042,
+            instance_id="pilfer-high-1",
+        )
+    ]
+    actor.money = 2
+    actor.appeal = 6
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    target.appeal = 5
+    target.money = 11
+    money_before = actor.money
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0},
+    )
+
+    assert actor.money == money_before
+    assert target.money == 11
 
 
 def test_pilfering_noninteractive_requires_explicit_choice_when_both_losses_are_legal():
@@ -1160,7 +2083,7 @@ def test_pilfering_noninteractive_requires_explicit_choice_when_both_losses_are_
         )
 
 
-def test_pilfering_noninteractive_uses_explicit_card_choice():
+def test_pilfering_noninteractive_uses_explicit_card_loss_choice_and_random_card(monkeypatch):
     state = setup_game(seed=190, player_names=["P1", "P2"])
     actor = state.players[0]
     target = state.players[1]
@@ -1184,6 +2107,7 @@ def test_pilfering_noninteractive_uses_explicit_card_choice():
         AnimalCard("Expensive Animal", 12, 4, 3, 1, number=9910, instance_id="expensive"),
         AnimalCard("Cheap Animal", 1, 1, 0, 0, number=9911, instance_id="cheap"),
     ]
+    monkeypatch.setattr(main.random, "randrange", lambda upper: 1)
 
     _perform_animals_action_effect(
         state=state,
@@ -1192,7 +2116,7 @@ def test_pilfering_noninteractive_uses_explicit_card_choice():
         strength=3,
         details={
             "animals_sequence_index": 0,
-            "pilfering_choices": [{"choice": "card", "card_instance_id": "cheap"}],
+            "pilfering_choices": [{"choice": "card"}],
         },
     )
 
@@ -1202,7 +2126,87 @@ def test_pilfering_noninteractive_uses_explicit_card_choice():
     assert [card.instance_id for card in target.hand] == ["expensive"]
 
 
-def test_pilfering_interactive_target_can_choose_specific_card(monkeypatch):
+def test_pilfering_noninteractive_requires_explicit_target_when_multiple_players_are_tied_highest():
+    state = setup_game(seed=1901, player_names=["P1", "P2"])
+    state.players.append(copy.deepcopy(state.players[1]))
+    state.players[2].name = "P3"
+    actor = state.players[0]
+    target_a = state.players[1]
+    target_b = state.players[2]
+    actor.hand = [
+        AnimalCard(
+            "Pilfer Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Pilfering 1",
+            number=99051,
+            instance_id="pilfer-target-1",
+        )
+    ]
+    actor.money = 2
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    target_a.appeal = 5
+    target_a.money = 11
+    target_a.hand = []
+    target_b.appeal = 5
+    target_b.money = 8
+    target_b.hand = []
+
+    with pytest.raises(ValueError, match="multiple target players"):
+        _perform_animals_action_effect(
+            state=state,
+            player=actor,
+            player_id=0,
+            strength=3,
+            details={"animals_sequence_index": 0},
+        )
+
+    state = setup_game(seed=1901, player_names=["P1", "P2"])
+    state.players.append(copy.deepcopy(state.players[1]))
+    state.players[2].name = "P3"
+    actor = state.players[0]
+    target_a = state.players[1]
+    target_b = state.players[2]
+    actor.hand = [
+        AnimalCard(
+            "Pilfer Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Pilfering 1",
+            number=99051,
+            instance_id="pilfer-target-1",
+        )
+    ]
+    actor.money = 2
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    target_a.appeal = 5
+    target_a.money = 11
+    target_a.hand = []
+    target_b.appeal = 5
+    target_b.money = 8
+    target_b.hand = []
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={
+            "animals_sequence_index": 0,
+            "pilfering_choices": [{"target_player": "P3", "choice": "money"}],
+        },
+    )
+
+    assert actor.money == 7
+    assert target_a.money == 11
+    assert target_b.money == 3
+
+
+def test_pilfering_interactive_target_can_choose_card_loss_and_receive_random_card(monkeypatch):
     state = setup_game(seed=191, player_names=["P1", "P2"])
     actor = state.players[0]
     target = state.players[1]
@@ -1226,8 +2230,9 @@ def test_pilfering_interactive_target_can_choose_specific_card(monkeypatch):
         AnimalCard("Card B", 8, 3, 0, 0, number=9913, instance_id="card-b"),
     ]
 
-    responses = iter(["2", "2"])
+    responses = iter(["2"])
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
+    monkeypatch.setattr(main.random, "randrange", lambda upper: 1)
 
     _perform_animals_action_effect(
         state=state,
@@ -1283,6 +2288,44 @@ def test_pilfering_does_not_prompt_when_only_card_loss_is_available(monkeypatch)
     assert target.money == 4
     assert [card.instance_id for card in actor.hand] == ["only-card"]
     assert target.hand == []
+
+
+def test_pilfering_only_card_loss_with_multiple_cards_transfers_random_card(monkeypatch):
+    state = setup_game(seed=1921, player_names=["P1", "P2"])
+    actor = state.players[0]
+    target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Pilfer Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Pilfering 1",
+            number=99071,
+            instance_id="pilfer-card-choice-1",
+        )
+    ]
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    target.appeal = 5
+    target.money = 4
+    target.hand = [
+        AnimalCard("Card A", 2, 1, 0, 0, number=9915, instance_id="card-a"),
+        AnimalCard("Card B", 8, 3, 0, 0, number=9916, instance_id="card-b"),
+    ]
+
+    monkeypatch.setattr(main.random, "randrange", lambda upper: 1)
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0},
+    )
+
+    assert [card.instance_id for card in actor.hand] == ["card-b"]
+    assert [card.instance_id for card in target.hand] == ["card-a"]
 
 
 def test_game_ends_after_rest_of_round_when_score_reaches_100():

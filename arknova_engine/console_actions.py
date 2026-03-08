@@ -210,12 +210,14 @@ def prompt_build_action_details_for_human(
     player_id: int,
     list_legal_build_options_fn: Callable[..., List[Dict[str, Any]]],
     building_type_enum: Any,
+    reputation_display_limit_fn: Callable[[int], int],
 ) -> Dict[str, Any]:
     upgraded = bool(player.action_upgraded["build"])
     remaining_size = strength
     built_types: Set[Any] = set()
     selections: List[Dict[str, Any]] = []
     bonus_targets: List[str] = []
+    build_card_bonus_choices: List[Dict[str, Any]] = []
     build_step = 1
 
     print(
@@ -254,7 +256,12 @@ def prompt_build_action_details_for_human(
             raw_pick = input(prompt + ": ").strip()
             if raw_pick == "":
                 if not upgraded or selections:
-                    return {"selections": selections, "bonus_action_to_slot_1_targets": bonus_targets}
+                    return {
+                        "selections": selections,
+                        "bonus_action_to_slot_1_targets": bonus_targets,
+                        "build_card_bonus_choices": build_card_bonus_choices,
+                        "_allow_interactive": True,
+                    }
                 print("Build II requires at least one building if possible.")
                 continue
             if not raw_pick.isdigit():
@@ -284,11 +291,41 @@ def prompt_build_action_details_for_human(
                     bonus_targets.append(player.action_order[action_idx - 1])
                     break
                 print("Out of range, try again.")
+        if "card_in_reputation_range" in selected["placement_bonuses"]:
+            accessible = min(
+                reputation_display_limit_fn(int(getattr(player, "reputation", 0))),
+                len(getattr(state, "zoo_display", [])),
+            )
+            print("Placement bonus: take 1 card from reputation range or deck.")
+            for idx in range(accessible):
+                card = state.zoo_display[idx]
+                print(f"{idx + 1}. display[{idx + 1}] #{card.number} {card.name}")
+            print(f"{accessible + 1}. deck")
+            while True:
+                raw_choice = input(f"Select bonus card source [1-{accessible + 1}]: ").strip()
+                if not raw_choice.isdigit():
+                    print("Please enter a number.")
+                    continue
+                picked_choice = int(raw_choice)
+                if 1 <= picked_choice <= accessible:
+                    build_card_bonus_choices.append(
+                        {"draw_source": "display", "display_index": picked_choice - 1}
+                    )
+                    break
+                if picked_choice == accessible + 1:
+                    build_card_bonus_choices.append({"draw_source": "deck"})
+                    break
+                print("Out of range, try again.")
         if not upgraded or remaining_size <= 0:
             break
         build_step += 1
 
-    return {"selections": selections, "bonus_action_to_slot_1_targets": bonus_targets}
+    return {
+        "selections": selections,
+        "bonus_action_to_slot_1_targets": bonus_targets,
+        "build_card_bonus_choices": build_card_bonus_choices,
+        "_allow_interactive": True,
+    }
 
 
 def prompt_association_action_details_for_human(

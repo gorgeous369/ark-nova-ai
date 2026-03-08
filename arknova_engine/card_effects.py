@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 
 ActionMover = Callable[[str], None]
+BoostActionExecutor = Callable[[str], str]
 BreakAdvancer = Callable[[int], bool]
 DeckDrawer = Callable[[int], Sequence[Any]]
 DiscardPusher = Callable[[Sequence[Any]], None]
@@ -135,7 +136,7 @@ def resolve_card_effect(card: Any) -> ResolvedCardEffect:
         if target == "building":
             target = "build"
         if target in {"animals", "cards", "build", "association", "sponsors"}:
-            return ResolvedCardEffect(code="move_action_to_slot_1", target=target, raw_title=title, raw_text=text)
+            return ResolvedCardEffect(code="boost_action_card", target=target, raw_title=title, raw_text=text)
 
     if title.lower() == "clever":
         return ResolvedCardEffect(code="move_any_action_to_slot_1", raw_title=title, raw_text=text)
@@ -341,6 +342,7 @@ def apply_animal_effect(
     take_specific_base_project: Optional[SpecificProjectTaker] = None,
     symbiosis_copy: Optional[SymbiosisExecutor] = None,
     grant_camouflage_ignore: Optional[CamouflageGrant] = None,
+    boost_action_card: Optional[BoostActionExecutor] = None,
 ) -> List[str]:
     effect = resolve_card_effect(card)
     messages: List[str] = []
@@ -407,10 +409,13 @@ def apply_animal_effect(
         messages.append(f"effect[scavenge_from_discard] drew={drew} kept={kept} discarded={max(0, drew - kept)}")
         return messages
 
-    if effect.code == "move_action_to_slot_1":
-        if effect.target:
-            move_action_to_slot_1(effect.target)
-            messages.append(f"effect[{effect.code}] target={effect.target}")
+    if effect.code == "boost_action_card":
+        if effect.target and boost_action_card is not None:
+            result = str(boost_action_card(effect.target)).strip()
+            if result:
+                messages.append(f"effect[{effect.code}] target={effect.target} {result}")
+            else:
+                messages.append(f"effect[{effect.code}] target={effect.target}")
         return messages
 
     if effect.code == "move_any_action_to_slot_1":

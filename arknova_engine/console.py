@@ -2,8 +2,68 @@
 
 from __future__ import annotations
 
+from itertools import combinations
 import random
-from typing import Any, Callable, List, Set
+from typing import Any, Callable, List, Optional, Sequence, Set, Tuple
+
+
+def enumerate_index_combinations(
+    *,
+    total_items: int,
+    min_choose: int,
+    max_choose: Optional[int] = None,
+) -> List[Tuple[int, ...]]:
+    total = max(0, int(total_items))
+    lower = max(0, int(min_choose))
+    upper = total if max_choose is None else min(total, max(0, int(max_choose)))
+    if lower > upper:
+        return []
+    return [
+        choice
+        for choose_count in range(lower, upper + 1)
+        for choice in combinations(range(total), choose_count)
+    ]
+
+
+def prompt_card_combination_indices(
+    *,
+    title: str,
+    cards: Sequence[Any],
+    format_card_line: Callable[[Any], str],
+    min_choose: int,
+    max_choose: Optional[int],
+    action_label: str,
+    combination_header: Optional[str] = None,
+) -> List[int]:
+    choices = enumerate_index_combinations(
+        total_items=len(cards),
+        min_choose=min_choose,
+        max_choose=max_choose,
+    )
+    if not choices:
+        return []
+
+    print(title)
+    for idx, card in enumerate(cards, start=1):
+        print(f"{idx}. {format_card_line(card)}")
+
+    header = str(combination_header or f"{action_label.title()} combinations:").strip()
+    if header:
+        print(header)
+    for idx, choice in enumerate(choices, start=1):
+        label = ",".join(str(value + 1) for value in choice)
+        print(f"{idx}. {action_label} [{label}]")
+
+    while True:
+        raw = input(f"Select combination [1-{len(choices)}]: ").strip()
+        if not raw.isdigit():
+            print("Please enter a valid number.")
+            continue
+        picked = int(raw)
+        if not (1 <= picked <= len(choices)):
+            print("Index out of range, try again.")
+            continue
+        return list(choices[picked - 1])
 
 
 def prompt_opening_draft_indices(
@@ -12,26 +72,15 @@ def prompt_opening_draft_indices(
     drafted_cards: List[Any],
     format_card_line: Callable[[Any], str],
 ) -> List[int]:
-    print(f"\n{player_name} opening draft: choose 4 cards to keep from 8:")
-    for idx, card in enumerate(drafted_cards, start=1):
-        print(f"{idx}. {format_card_line(card)}")
-    while True:
-        raw = input("Enter 4 numbers separated by space (e.g. 1 3 6 8): ").strip()
-        parts = raw.split()
-        if len(parts) != 4:
-            print("Please enter exactly 4 numbers.")
-            continue
-        if not all(part.isdigit() for part in parts):
-            print("Only numbers are allowed.")
-            continue
-        chosen = [int(part) for part in parts]
-        if any(not (1 <= value <= len(drafted_cards)) for value in chosen):
-            print("Index out of range, try again.")
-            continue
-        if len(set(chosen)) != 4:
-            print("Please choose 4 different cards.")
-            continue
-        return sorted(value - 1 for value in chosen)
+    return prompt_card_combination_indices(
+        title=f"\n{player_name} opening draft: choose 4 cards to keep from 8:",
+        cards=drafted_cards,
+        format_card_line=format_card_line,
+        min_choose=4,
+        max_choose=4,
+        action_label="keep",
+        combination_header="Opening draft combinations:",
+    )
 
 
 def resolve_manual_opening_drafts(

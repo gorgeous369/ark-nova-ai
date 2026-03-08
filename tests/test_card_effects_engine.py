@@ -146,6 +146,26 @@ def test_apply_snapping_effect_takes_cards_from_display():
     assert any("effect[take_display_cards]" in msg for msg in messages)
 
 
+def test_apply_boost_action_card_effect_uses_callback():
+    played_card = _make_card(
+        ability_title="Boost: Association",
+        ability_text="After finishing this action, you may place your Association Action card",
+    )
+    boosted = []
+
+    messages = apply_animal_effect(
+        card=played_card,
+        move_action_to_slot_1=lambda _: None,
+        advance_break=lambda _: False,
+        draw_from_deck=lambda _: [],
+        push_to_discard=lambda _: None,
+        boost_action_card=lambda target: boosted.append(target) or "slot=5",
+    )
+
+    assert boosted == ["association"]
+    assert any("effect[boost_action_card] target=association slot=5" == msg for msg in messages)
+
+
 def test_apply_resistance_and_assertion_and_inventive_callbacks():
     card_resistance = _make_card(ability_title="Resistance")
     card_assertion = _make_card(ability_title="Assertion")

@@ -195,6 +195,16 @@ class BuildingType(Enum):
         return self.value[3]
 
 
+@lru_cache(maxsize=None)
+def _rotated_building_layout(building_type: BuildingType, rotation: Rotation) -> Tuple[HexTile, ...]:
+    layout = building_type.layout
+    steps_right = (int(rotation.value) // 60) % 6
+    rotated = layout
+    for _ in range(steps_right):
+        rotated = tuple(tile.rotate_right() for tile in rotated)
+    return rotated
+
+
 @dataclass
 class Building:
     type: BuildingType
@@ -204,34 +214,42 @@ class Building:
     empty_spaces: int = 0
 
     def __post_init__(self) -> None:
-        target_rotation = self.rotation
         self.empty_spaces = self.type.max_capacity
-        self.layout = [self.origin_hex.add(tile) for tile in self.type.layout]
-        self.rotation = Rotation.ROT_0
-        self.apply_rotation(target_rotation)
+        self.layout = [
+            self.origin_hex.add(tile) for tile in _rotated_building_layout(self.type, self.rotation)
+        ]
 
     def apply_rotation(self, new_rotation: Rotation) -> None:
-        diff = new_rotation.value - self.rotation.value
-        steps = abs(diff) // 60
-        if steps == 0:
+        if new_rotation == self.rotation:
             return
-        if diff < 0:
-            for _ in range(steps):
-                self.rotate_left()
-        else:
-            for _ in range(steps):
-                self.rotate_right()
+        self.layout = [
+            self.origin_hex.add(tile) for tile in _rotated_building_layout(self.type, new_rotation)
+        ]
         self.rotation = new_rotation
 
     def rotate_left(self) -> None:
-        self.layout = [
-            tile.subtract(self.origin_hex).rotate_left().add(self.origin_hex) for tile in self.layout
+        rotations = [
+            Rotation.ROT_0,
+            Rotation.ROT_60,
+            Rotation.ROT_120,
+            Rotation.ROT_180,
+            Rotation.ROT_240,
+            Rotation.ROT_300,
         ]
+        current_index = rotations.index(self.rotation)
+        self.apply_rotation(rotations[(current_index - 1) % len(rotations)])
 
     def rotate_right(self) -> None:
-        self.layout = [
-            tile.subtract(self.origin_hex).rotate_right().add(self.origin_hex) for tile in self.layout
+        rotations = [
+            Rotation.ROT_0,
+            Rotation.ROT_60,
+            Rotation.ROT_120,
+            Rotation.ROT_180,
+            Rotation.ROT_240,
+            Rotation.ROT_300,
         ]
+        current_index = rotations.index(self.rotation)
+        self.apply_rotation(rotations[(current_index + 1) % len(rotations)])
 
 
 @dataclass(frozen=True)

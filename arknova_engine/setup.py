@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import re
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 
@@ -104,6 +105,41 @@ def build_opening_setup_info(
     )
 
 
+def _project_number_from_data_id(data_id: str) -> Optional[int]:
+    match = re.search(r"P(\d+)_", str(data_id or ""))
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _remove_selected_base_projects_from_zoo_deck(
+    zoo_deck: List[Any],
+    selected_projects: Sequence[Any],
+) -> None:
+    selected_numbers = {
+        number
+        for number in (_project_number_from_data_id(getattr(project, "data_id", "")) for project in selected_projects)
+        if number is not None
+    }
+    if not selected_numbers:
+        return
+
+    remaining = set(selected_numbers)
+    filtered_deck: List[Any] = []
+    for card in zoo_deck:
+        card_type = str(getattr(card, "card_type", "") or "").strip().lower()
+        card_number = getattr(card, "number", None)
+        if (
+            card_type == "conservation_project"
+            and isinstance(card_number, int)
+            and card_number in remaining
+        ):
+            remaining.remove(card_number)
+            continue
+        filtered_deck.append(card)
+    zoo_deck[:] = filtered_deck
+
+
 def setup_game_state(
     *,
     seed: int,
@@ -150,6 +186,7 @@ def setup_game_state(
 
     final_scoring_deck = draw_final_scoring_cards_for_players_fn(players, rng)
     opening_setup = build_opening_setup_info_fn(rng)
+    _remove_selected_base_projects_from_zoo_deck(zoo_deck, opening_setup.base_conservation_projects)
     _, base_project_pool = load_base_setup_card_pools_fn()
     selected_project_ids = {project.data_id for project in opening_setup.base_conservation_projects}
     unused_base_projects = [project for project in base_project_pool if project.data_id not in selected_project_ids]
