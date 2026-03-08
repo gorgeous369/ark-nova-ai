@@ -11,6 +11,7 @@ from main import (
     _project_requirement_value,
     _resolve_break,
     apply_action,
+    legal_actions,
     list_legal_association_options,
     setup_game,
 )
@@ -516,6 +517,120 @@ def test_association_conservation_project_requires_icon_threshold():
                 details={"task_kind": "conservation_project", "project_id": project_id},
             ),
         )
+
+
+def test_upgraded_association_strength_7_unlocks_reputation_plus_display_project_sequence():
+    state = setup_game(seed=619, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "sponsors", "association"]
+    player.action_upgraded["association"] = True
+    player.x_tokens = 2
+    player.workers = 2
+    player.reputation = 1
+    player.money = 20
+    player.zoo_cards = [
+        AnimalCard(name="small-1", cost=0, size=1, appeal=0, conservation=0, badges=()),
+        AnimalCard(name="small-2", cost=0, size=1, appeal=0, conservation=0, badges=()),
+        AnimalCard(name="small-3", cost=0, size=2, appeal=0, conservation=0, badges=()),
+    ]
+    state.zoo_display[1] = _make_conservation_project_hand_card(
+        SetupCardRef(data_id="P130_SmallAnimals", title="SMALL ANIMALS"),
+        "display-project-130-seq",
+    )
+
+    actions = legal_actions(player, state=state, player_id=0)
+    association_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "association"
+    ]
+
+    assert not any(
+        int(action.value or 0) <= 1
+        and "Gain 2 reputation" in str(action)
+        and "Support conservation project (display[2]): P130_SmallAnimals" in str(action)
+        for action in association_actions
+    )
+    assert any(
+        int(action.value or 0) == 2
+        and "Gain 2 reputation" in str(action)
+        and "Support conservation project (display[2]): P130_SmallAnimals" in str(action)
+        for action in association_actions
+    )
+
+
+def test_upgraded_association_executes_multitask_sequence_with_donation():
+    state = setup_game(seed=620, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "sponsors", "association"]
+    player.action_upgraded["association"] = True
+    player.x_tokens = 2
+    player.workers = 2
+    player.money = 20
+    player.reputation = 1
+    project_id = state.opening_setup.base_conservation_projects[0].data_id
+    _seed_project_icons(player, project_id, 5)
+
+    options = list_legal_association_options(state=state, player_id=0, strength=7)
+    project_option = next(
+        option
+        for option in options
+        if option.get("task_kind") == "conservation_project"
+    )
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            value=2,
+            card_name="association",
+            details={
+                "association_task_sequence": [
+                    {"task_kind": "reputation"},
+                    {
+                        "task_kind": "conservation_project",
+                        "project_id": project_option["project_id"],
+                        "project_level": project_option["project_level"],
+                    },
+                ],
+                "make_donation": True,
+            },
+        ),
+    )
+
+    assert player.reputation == 3 + int(project_option.get("reputation_gain", 0))
+    assert player.conservation == int(project_option.get("conservation_gain", 0)) + 1
+    assert state.donation_progress == 1
+    assert player.workers == 0
+    assert project_option["project_id"] in player.supported_conservation_projects
+
+
+def test_upgraded_association_strength_7_includes_university_partner_and_donation_combos():
+    state = setup_game(seed=621, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "sponsors", "association"]
+    player.action_upgraded["association"] = True
+    player.x_tokens = 2
+    player.workers = 2
+    player.money = 20
+
+    actions = legal_actions(player, state=state, player_id=0)
+    association_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "association"
+    ]
+
+    assert any(
+        int(action.value or 0) == 2
+        and "Take partner zoo:" in str(action)
+        and "Take University(" in str(action)
+        and "+ donation(cost=2)" in str(action)
+        for action in association_actions
+    )
 
 
 def test_association_conservation_project_respects_two_player_blocked_level():
