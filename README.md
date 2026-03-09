@@ -90,45 +90,6 @@ Key reward-shaping flags:
 
 Checkpoints are written to `--output-dir` as `checkpoint_XXXX.pt`.
 
-## Data and utility scripts
-
-Fetch cards dataset:
-
-```bash
-.venv/bin/python tools/fetch_cards.py --output data/cards/cards.json
-```
-
-Fetch maps dataset:
-
-```bash
-.venv/bin/python tools/fetch_maps.py --output data/maps/maps.json
-```
-
-Fetch maps + images:
-
-```bash
-.venv/bin/python tools/fetch_maps.py --download-images --images-dir data/maps/images
-```
-
-Generate effect coverage TSV:
-
-```bash
-.venv/bin/python tools/report_card_effect_coverage.py
-```
-
-Create map tile template:
-
-```bash
-.venv/bin/python tools/create_map_tile_template.py \
-  --map-id m1a \
-  --map-name "Observation Tower (Alternative)" \
-  --image-name plan1a \
-  --image-path data/maps/images/plan1a.jpg \
-  --output data/maps/tiles/plan1a.tiles.json
-```
-
-See also: `docs/map_tile_annotation_workflow.md`.
-
 ## Scope caveat
 
 This is an actively developed prototype. Use `docs/base_game_requirements.md` as the current correctness checklist for remaining rule gaps and validation status.
