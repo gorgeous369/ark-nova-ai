@@ -100,6 +100,12 @@ def parse_args() -> argparse.Namespace:
         default="runs/self_play",
         help="Output directory for checkpoints",
     )
+    parser.add_argument(
+        "--resume-from",
+        type=str,
+        default="",
+        help="Checkpoint path to resume from",
+    )
     return parser.parse_args()
 
 
@@ -137,13 +143,19 @@ def main_cli() -> None:
         checkpoint_interval=args.checkpoint_interval,
     )
     output_dir = Path(args.output_dir)
+    resume_from = Path(args.resume_from) if str(args.resume_from).strip() else None
     print(
         "starting training: "
         f"algo={config.algo} updates={config.total_updates} "
         f"episodes_per_update={config.episodes_per_update} "
-        f"device={config.device} output_dir={output_dir}"
+        f"device={config.device} output_dir={output_dir} "
+        f"resume_from={resume_from if resume_from is not None else '-'}"
     )
-    train_self_play(config=config, output_dir=output_dir)
+    train_self_play(
+        config=config,
+        output_dir=output_dir,
+        resume_from=resume_from,
+    )
 
 
 if __name__ == "__main__":

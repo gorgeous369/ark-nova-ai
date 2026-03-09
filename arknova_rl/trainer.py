@@ -395,10 +395,54 @@ def _build_model_and_encoders(
     return model, obs_encoder, action_encoder
 
 
+def _load_torch_checkpoint(path: Path, *, device: torch.device) -> Dict[str, Any]:
+    load_kwargs: Dict[str, Any] = {
+        "map_location": device,
+    }
+    try:
+        checkpoint = torch.load(path, weights_only=False, **load_kwargs)
+    except TypeError:
+        checkpoint = torch.load(path, **load_kwargs)
+    if not isinstance(checkpoint, dict):
+        raise ValueError("Checkpoint payload must be a dict.")
+    return checkpoint
+
+
+def _restore_metrics(raw_metrics: Any) -> List[TrainUpdateMetrics]:
+    restored: List[TrainUpdateMetrics] = []
+    if not isinstance(raw_metrics, list):
+        return restored
+    for item in raw_metrics:
+        if not isinstance(item, dict):
+            continue
+        reason_counts_raw = item.get("terminal_reason_counts")
+        reason_counts: Dict[str, int] = {}
+        if isinstance(reason_counts_raw, dict):
+            reason_counts = {
+                str(key): int(value)
+                for key, value in reason_counts_raw.items()
+            }
+        restored.append(
+            TrainUpdateMetrics(
+                step_count=int(item.get("step_count", 0)),
+                episode_count=int(item.get("episode_count", 0)),
+                avg_completed_rounds=float(item.get("avg_completed_rounds", 0.0)),
+                avg_terminal_score_diff_abs=float(item.get("avg_terminal_score_diff_abs", 0.0)),
+                terminal_reason_counts=reason_counts,
+                policy_loss=float(item.get("policy_loss", 0.0)),
+                value_loss=float(item.get("value_loss", 0.0)),
+                entropy=float(item.get("entropy", 0.0)),
+                total_loss=float(item.get("total_loss", 0.0)),
+            )
+        )
+    return restored
+
+
 def train_self_play(
     *,
     config: PPOTrainConfig,
     output_dir: Path,
+    resume_from: Optional[Path] = None,
 ) -> List[TrainUpdateMetrics]:
     config.resolve_algo_flags()
     output_path = Path(output_dir)
@@ -414,8 +458,52 @@ def train_self_play(
     model, obs_encoder, action_encoder = _build_model_and_encoders(config=config, device=device)
     optimizer = torch.optim.Adam(model.parameters(), lr=float(config.learning_rate))
 
+    loaded_update = 0
     all_metrics: List[TrainUpdateMetrics] = []
-    for update_idx in range(1, config.total_updates + 1):
+    if resume_from is not None:
+        checkpoint_path = Path(resume_from)
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
+        checkpoint = _load_torch_checkpoint(checkpoint_path, device=device)
+        model_state = checkpoint.get("model_state_dict")
+        if not isinstance(model_state, dict):
+            raise ValueError("Checkpoint is missing model_state_dict.")
+        try:
+            model.load_state_dict(model_state)
+        except RuntimeError as exc:
+            raise ValueError(
+                "Checkpoint model_state_dict is incompatible with current model/observation dimensions."
+            ) from exc
+        optimizer_state = checkpoint.get("optimizer_state_dict")
+        if isinstance(optimizer_state, dict):
+            optimizer.load_state_dict(optimizer_state)
+        loaded_update = int(checkpoint.get("update", 0) or 0)
+        if loaded_update < 0:
+            loaded_update = 0
+        all_metrics = _restore_metrics(checkpoint.get("metrics"))
+        python_rng_state = checkpoint.get("python_rng_state")
+        if python_rng_state is not None:
+            try:
+                rng.setstate(python_rng_state)
+            except Exception:
+                pass
+        numpy_rng_state = checkpoint.get("numpy_rng_state")
+        if isinstance(numpy_rng_state, tuple) and len(numpy_rng_state) == 5:
+            try:
+                np.random.set_state(numpy_rng_state)
+            except Exception:
+                pass
+        torch_rng_state = checkpoint.get("torch_rng_state")
+        if isinstance(torch_rng_state, torch.Tensor):
+            torch.set_rng_state(torch_rng_state)
+        print(f"resuming from checkpoint: {checkpoint_path} (loaded_update={loaded_update})")
+
+    start_update = loaded_update + 1
+    end_update = loaded_update + int(config.total_updates)
+    if start_update > end_update:
+        return all_metrics
+
+    for update_idx in range(start_update, end_update + 1):
         rollout_steps, rollout_stats = _collect_rollout(
             model=model,
             obs_encoder=obs_encoder,
@@ -461,7 +549,7 @@ def train_self_play(
                 f"reasons={reason_text}"
             )
 
-        if update_idx % int(config.checkpoint_interval) == 0 or update_idx == config.total_updates:
+        if update_idx % int(config.checkpoint_interval) == 0 or update_idx == end_update:
             checkpoint_path = output_path / f"checkpoint_{update_idx:04d}.pt"
             torch.save(
                 {
@@ -470,6 +558,9 @@ def train_self_play(
                     "optimizer_state_dict": optimizer.state_dict(),
                     "config": asdict(config),
                     "metrics": [asdict(item) for item in all_metrics],
+                    "python_rng_state": rng.getstate(),
+                    "numpy_rng_state": np.random.get_state(),
+                    "torch_rng_state": torch.get_rng_state(),
                 },
                 checkpoint_path,
             )
