@@ -64,3 +64,23 @@ def test_observation_encoder_private_part_changes_with_own_hidden_faces():
     assert private_a.shape == private_b.shape
     assert not np.array_equal(private_a, private_b)
 
+
+def test_observation_encoder_public_part_changes_with_map_layout():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=704, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+
+    opp_a = state_a.players[1]
+    opp_b = state_b.players[1]
+    main._ensure_player_map_initialized(state_a, opp_a)
+    main._ensure_player_map_initialized(state_b, opp_b)
+    assert opp_b.zoo_map is not None
+    opp_b.zoo_map.add_building(
+        main.Building(main.BuildingType.KIOSK, main.HexTile(0, 0), main.Rotation.ROT_0)
+    )
+
+    public_a = encoder.encode_public_observation(main.build_public_observation(state_a, viewer_player_id=0))
+    public_b = encoder.encode_public_observation(main.build_public_observation(state_b, viewer_player_id=0))
+
+    assert public_a.shape == public_b.shape
+    assert not np.array_equal(public_a, public_b)

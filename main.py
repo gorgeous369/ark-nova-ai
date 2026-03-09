@@ -780,6 +780,23 @@ def _serialize_sponsor_building_public(sponsor_building: SponsorBuilding) -> Dic
     }
 
 
+def _serialize_map_building_public(building: Building) -> Dict[str, Any]:
+    return {
+        "building_type": str(building.type.name),
+        "subtype": str(building.type.subtype.value),
+        "origin": [int(building.origin_hex.x), int(building.origin_hex.y)],
+        "rotation": str(building.rotation.name),
+        "empty_spaces": int(building.empty_spaces),
+        "layout": [
+            [int(tile.x), int(tile.y)]
+            for tile in sorted(
+                building.layout,
+                key=lambda item: (int(item.x), int(item.y)),
+            )
+        ],
+    }
+
+
 def _build_public_player_observation(player: PlayerState, *, player_id: int) -> Dict[str, Any]:
     action_upgraded = {
         action: bool(player.action_upgraded.get(action, False))
@@ -807,6 +824,31 @@ def _build_public_player_observation(player: PlayerState, *, player_id: int) -> 
             str(item.label),
         ),
     )
+    zoo_map_grid: List[List[int]] = []
+    zoo_map_buildings: List[Dict[str, Any]] = []
+    if player.zoo_map is not None:
+        zoo_map_grid = [
+            [int(tile.x), int(tile.y)]
+            for tile in sorted(
+                player.zoo_map.grid,
+                key=lambda item: (int(item.x), int(item.y)),
+            )
+        ]
+        map_buildings = sorted(
+            player.zoo_map.buildings.values(),
+            key=lambda item: (
+                str(item.type.name),
+                int(item.origin_hex.x),
+                int(item.origin_hex.y),
+                str(item.rotation.name),
+                int(item.empty_spaces),
+                tuple((int(tile.x), int(tile.y)) for tile in item.layout),
+            ),
+        )
+        zoo_map_buildings = [
+            _serialize_map_building_public(building)
+            for building in map_buildings
+        ]
     return {
         "player_id": int(player_id),
         "name": str(player.name),
@@ -869,6 +911,11 @@ def _build_public_player_observation(player: PlayerState, *, player_id: int) -> 
             _serialize_sponsor_building_public(item)
             for item in sponsor_buildings
         ],
+        "zoo_map_present": bool(player.zoo_map is not None),
+        "zoo_map_grid_count": len(zoo_map_grid),
+        "zoo_map_grid": zoo_map_grid,
+        "zoo_map_building_count": len(zoo_map_buildings),
+        "zoo_map_buildings": zoo_map_buildings,
     }
 
 
@@ -951,6 +998,7 @@ def build_public_observation(state: GameState, *, viewer_player_id: int) -> Dict
 
     return {
         "viewer_player_id": int(viewer_player_id),
+        "map_image_name": str(state.map_image_name),
         "player_count": len(state.players),
         "current_player": int(state.current_player),
         "turn_index": int(state.turn_index),

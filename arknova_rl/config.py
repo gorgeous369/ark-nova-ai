@@ -30,6 +30,10 @@ class PPOTrainConfig:
 
     step_reward_scale: float = 0.2
     terminal_reward_scale: float = 1.0
+    endgame_trigger_reward: float = 2.0
+    endgame_speed_bonus: float = 2.0
+    terminal_win_bonus: float = 3.0
+    terminal_loss_penalty: float = 3.0
 
     checkpoint_interval: int = 20
     log_interval: int = 1
@@ -49,4 +53,3 @@ class PPOTrainConfig:
             return
         self.use_lstm = True
         self.use_centralized_value = True
-

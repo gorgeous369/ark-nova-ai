@@ -1,47 +1,61 @@
 # ark-nova-ai
 
-Current focus: **Ark Nova base game PVP rules/runtime** with explicit action details for future RL integration.
+Ark Nova prototype focused on:
 
-## What is in this repository now
+- rules-faithful 2-player game flow in Python
+- explicit action-detail payloads (for agent integration)
+- RL self-play training baseline (masked PPO / recurrent PPO / MAPPO)
 
-- `main.py`: Python playable PVP prototype with explicit per-action detail payloads.
-- `arknova_engine/base_game.py`: animals+cards+build+association+sponsors+x-token+break official-flow engine.
-- `arknova_engine/actions/`: separated implementations for 6 actions (`cards`, `build`, `animals`, `association`, `sponsors`, `x-token`).
-- `third_party/tabletopgames_arknova/`: integrated open-source Ark Nova baseline from `jbargu/TabletopGames` (MIT).
-- `docs/base_game_requirements.md`: implementation checklist for full base-game correctness.
-- `tools/extract_rulebook_text.py`: utility to extract text from `ark-nova-rulebook.pdf`.
-- `docs/open_source_engines.md`: candidate repository comparison for rules/reference engines.
-- `arknova_engine/site_cards.py`: parser/fetcher for public card data.
-- `tools/fetch_cards.py`: generates local card dataset JSON.
-- `arknova_engine/site_maps.py`: parser/fetcher for public map data.
-- `tools/fetch_maps.py`: generates local map dataset JSON.
+## Project status
 
-## Setup
+- Playable local 2-player loop exists (`main.py`).
+- Core game logic is split between `main.py` and `arknova_engine/`.
+- Automated test suite covers turn structure and many rule branches (`tests/`).
+- RL pipeline exists but is baseline-grade and still evolving.
+
+## Repository layout
+
+- `main.py`: primary runtime, CLI entry, legal action generation, action application.
+- `arknova_engine/`: extracted engine modules (setup, map model, scoring, card effects, action modules).
+- `arknova_rl/`: observation/action encoding, model, PPO-style trainer.
+- `tools/rl/train_self_play.py`: RL training entry point.
+- `tools/`: dataset and utility scripts (cards/maps fetch, map tile tools, effect coverage report).
+- `tests/`: pytest-based coverage.
+- `docs/`: rule extracts, implementation checklists, and workflows.
+
+## Quick start
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-## Run
+`requirements.txt` does not include PyTorch. Install `torch` separately if you want RL training.
+
+## Run local game
 
 ```bash
-python3 main.py
+.venv/bin/python main.py --seed 7
 ```
 
-## Test
+Useful flags:
+
+- `--quiet`: reduce turn-by-turn logs
+- `--marine-world`: include Marine World final scoring cards in setup pool
+
+## Run tests
 
 ```bash
 .venv/bin/pytest -q
 ```
 
-## RL Self-Play Training (MLP + LSTM)
+Run a focused file:
 
-The repository now includes a self-play baseline trainer with:
+```bash
+.venv/bin/pytest -q tests/test_main_association_action.py
+```
 
-- `masked_ppo`: masked PPO with flattened legal action candidates.
-- `recurrent_ppo`: recurrent PPO (shared policy, LSTM state encoder).
-- `mappo`: recurrent actor with centralized critic input.
+## RL self-play training
 
 Entry script:
 
@@ -53,15 +67,56 @@ Entry script:
   --output-dir runs/self_play_masked
 ```
 
-The trainer uses:
+Available algorithms:
 
-- public/private observation split (`build_public_observation`, `build_private_observation`)
-- concrete legal action flattening (`legal_actions(...)`)
-- action masking inside the policy head
+- `masked_ppo`
+- `recurrent_ppo`
+- `mappo`
 
-Note: RL training requires `torch`. Install your platform-specific PyTorch wheel before running the trainer.
+Key model-size flags:
 
-## Create map tile template (machine-readable)
+- `--hidden-size` (default `256`)
+- `--lstm-size` (default `128`)
+- `--action-hidden-size` (default `128`)
+
+Key reward-shaping flags:
+
+- `--step-reward-scale` (default `0.2`)
+- `--terminal-reward-scale` (default `1.0`)
+- `--endgame-trigger-reward` (default `2.0`)
+- `--endgame-speed-bonus` (default `2.0`)
+- `--terminal-win-bonus` (default `3.0`)
+- `--terminal-loss-penalty` (default `3.0`)
+
+Checkpoints are written to `--output-dir` as `checkpoint_XXXX.pt`.
+
+## Data and utility scripts
+
+Fetch cards dataset:
+
+```bash
+.venv/bin/python tools/fetch_cards.py --output data/cards/cards.json
+```
+
+Fetch maps dataset:
+
+```bash
+.venv/bin/python tools/fetch_maps.py --output data/maps/maps.json
+```
+
+Fetch maps + images:
+
+```bash
+.venv/bin/python tools/fetch_maps.py --download-images --images-dir data/maps/images
+```
+
+Generate effect coverage TSV:
+
+```bash
+.venv/bin/python tools/report_card_effect_coverage.py
+```
+
+Create map tile template:
 
 ```bash
 .venv/bin/python tools/create_map_tile_template.py \
@@ -72,4 +127,8 @@ Note: RL training requires `torch`. Install your platform-specific PyTorch wheel
   --output data/maps/tiles/plan1a.tiles.json
 ```
 
-See full workflow in `docs/map_tile_annotation_workflow.md`.
+See also: `docs/map_tile_annotation_workflow.md`.
+
+## Scope caveat
+
+This is an actively developed prototype. Use `docs/base_game_requirements.md` as the current correctness checklist for remaining rule gaps and validation status.

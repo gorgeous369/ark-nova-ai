@@ -79,6 +79,32 @@ def _terminal_score_diff(state: main.GameState, player_id: int) -> float:
     return actor_score - float(np.mean(other_scores))
 
 
+def _endgame_speed_bonus(*, state: main.GameState, config: PPOTrainConfig) -> float:
+    round_limit = int(getattr(state, "max_rounds", 0) or 0)
+    if round_limit <= 0:
+        return 0.0
+    completed_rounds = int(main._completed_rounds(state))
+    speed_ratio = max(0.0, 1.0 - (float(completed_rounds) / float(round_limit)))
+    return float(config.endgame_speed_bonus) * speed_ratio
+
+
+def _terminal_outcome(state: main.GameState, player_id: int) -> int:
+    actor_score = int(main._final_score_points(state, state.players[player_id]))
+    other_scores = [
+        int(main._final_score_points(state, player))
+        for idx, player in enumerate(state.players)
+        if idx != int(player_id)
+    ]
+    if not other_scores:
+        return 0
+    best_other = max(other_scores)
+    if actor_score > best_other:
+        return 1
+    if actor_score < best_other:
+        return -1
+    return 0
+
+
 def _to_tensor(array: np.ndarray, *, device: torch.device) -> torch.Tensor:
     return torch.as_tensor(array, dtype=torch.float32, device=device)
 
@@ -145,10 +171,18 @@ def _collect_rollout(
                 ) if next_hidden is not None else None
 
             before_diff = _progress_score_diff(state, actor_id)
+            endgame_was_triggered = state.endgame_trigger_player is not None
             chosen_action = legal[sampled_index]
             main.apply_action(state, chosen_action)
             after_diff = _progress_score_diff(state, actor_id)
             reward = (after_diff - before_diff) * float(config.step_reward_scale)
+            if (
+                not endgame_was_triggered
+                and state.endgame_trigger_player is not None
+                and int(state.endgame_trigger_player) == int(actor_id)
+            ):
+                reward += float(config.endgame_trigger_reward)
+                reward += _endgame_speed_bonus(state=state, config=config)
 
             step = RolloutStep(
                 sequence_key=(episode_idx, actor_id),
@@ -173,7 +207,13 @@ def _collect_rollout(
             terminal_diff = _terminal_score_diff(state, player_id)
             terminal_abs_diffs.append(abs(float(terminal_diff)))
             last_step_idx = sequence_indices[seq_key][-1]
-            rollout_steps[last_step_idx].reward += float(config.terminal_reward_scale) * float(terminal_diff)
+            terminal_reward = float(config.terminal_reward_scale) * float(terminal_diff)
+            outcome = _terminal_outcome(state, player_id)
+            if outcome > 0:
+                terminal_reward += float(config.terminal_win_bonus)
+            elif outcome < 0:
+                terminal_reward -= float(config.terminal_loss_penalty)
+            rollout_steps[last_step_idx].reward += terminal_reward
 
         episode_rounds.append(int(main._completed_rounds(state)))
         terminal_reason = str(state.forced_game_over_reason or "")

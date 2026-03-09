@@ -159,6 +159,11 @@ class ObservationEncoder:
         hand_hash_dim: int = 64,
         final_hash_dim: int = 32,
         draft_hash_dim: int = 32,
+        map_name_hash_dim: int = 16,
+        max_map_grid_cells: int = 64,
+        max_map_buildings: int = 48,
+        max_sponsor_buildings: int = 24,
+        max_sponsor_building_cells: int = 8,
     ) -> None:
         self.max_players = int(max_players)
         self.main_actions: Tuple[str, ...] = tuple(main.MAIN_ACTION_CARDS)
@@ -173,6 +178,143 @@ class ObservationEncoder:
         self.hand_hash_dim = int(hand_hash_dim)
         self.final_hash_dim = int(final_hash_dim)
         self.draft_hash_dim = int(draft_hash_dim)
+        self.map_name_hash_dim = int(map_name_hash_dim)
+        self.max_map_grid_cells = int(max_map_grid_cells)
+        self.max_map_buildings = int(max_map_buildings)
+        self.max_sponsor_buildings = int(max_sponsor_buildings)
+        self.max_sponsor_building_cells = int(max_sponsor_building_cells)
+        self.map_coord_min = -20
+        self.map_coord_max = 20
+        self.map_building_types: Tuple[str, ...] = tuple(
+            str(item.name).strip().lower()
+            for item in main.BuildingType
+        )
+        self.map_building_rotations: Tuple[str, ...] = tuple(
+            str(item.name).strip().lower()
+            for item in main.Rotation
+        )
+
+    def _coord_pair(self, raw_coord: Any) -> Optional[Tuple[int, int]]:
+        if not isinstance(raw_coord, (list, tuple)) or len(raw_coord) != 2:
+            return None
+        return (_safe_int(raw_coord[0], 0), _safe_int(raw_coord[1], 0))
+
+    def _norm_coord(self, value: Any) -> float:
+        low = int(self.map_coord_min)
+        high = int(self.map_coord_max)
+        if high <= low:
+            return 0.0
+        raw = _safe_int(value, 0)
+        clipped = max(low, min(high, raw))
+        return float(clipped - low) / float(high - low)
+
+    def _encode_map_name_hash(self, map_name: str) -> np.ndarray:
+        tokens = _tokenize_text(str(map_name or ""))
+        if not tokens:
+            tokens = ["map:unknown"]
+        return _hash_tokens(tokens, self.map_name_hash_dim)
+
+    def _encode_map_grid_slots(self, raw_cells: Sequence[Any]) -> List[float]:
+        cells: List[Tuple[int, int]] = []
+        for raw_cell in raw_cells:
+            parsed = self._coord_pair(raw_cell)
+            if parsed is not None:
+                cells.append(parsed)
+        cells = sorted(set(cells))
+        values: List[float] = []
+        for idx in range(self.max_map_grid_cells):
+            if idx >= len(cells):
+                values.extend([0.0, 0.0, 0.0])
+                continue
+            x_coord, y_coord = cells[idx]
+            values.extend([1.0, self._norm_coord(x_coord), self._norm_coord(y_coord)])
+        return values
+
+    def _encode_map_building_slots(self, raw_buildings: Sequence[Any]) -> List[float]:
+        entries: List[Tuple[str, Tuple[int, int], str, int]] = []
+        for raw in raw_buildings:
+            if not isinstance(raw, dict):
+                continue
+            origin = self._coord_pair(raw.get("origin"))
+            if origin is None:
+                continue
+            building_type = str(raw.get("building_type") or "").strip().lower()
+            rotation = str(raw.get("rotation") or "").strip().lower()
+            empty_spaces = _safe_int(raw.get("empty_spaces", 0), 0)
+            entries.append((building_type, origin, rotation, empty_spaces))
+        entries.sort(
+            key=lambda item: (
+                item[0],
+                int(item[1][0]),
+                int(item[1][1]),
+                item[2],
+                int(item[3]),
+            )
+        )
+
+        type_slot_dim = len(self.map_building_types) + 1
+        rotation_slot_dim = len(self.map_building_rotations) + 1
+        values: List[float] = []
+        for idx in range(self.max_map_buildings):
+            if idx >= len(entries):
+                values.extend([0.0] * (1 + type_slot_dim + rotation_slot_dim + 2 + 1))
+                continue
+            building_type, (origin_x, origin_y), rotation, empty_spaces = entries[idx]
+            values.append(1.0)
+            type_one_hot = [0.0] * type_slot_dim
+            type_index = (
+                self.map_building_types.index(building_type)
+                if building_type in self.map_building_types
+                else len(self.map_building_types)
+            )
+            type_one_hot[type_index] = 1.0
+            values.extend(type_one_hot)
+            rotation_one_hot = [0.0] * rotation_slot_dim
+            rotation_index = (
+                self.map_building_rotations.index(rotation)
+                if rotation in self.map_building_rotations
+                else len(self.map_building_rotations)
+            )
+            rotation_one_hot[rotation_index] = 1.0
+            values.extend(rotation_one_hot)
+            values.extend([self._norm_coord(origin_x), self._norm_coord(origin_y)])
+            values.append(_norm(empty_spaces, 5.0))
+        return values
+
+    def _encode_sponsor_building_slots(self, raw_buildings: Sequence[Any]) -> List[float]:
+        entries: List[Tuple[int, float, List[Tuple[int, int]]]] = []
+        for raw in raw_buildings:
+            if not isinstance(raw, dict):
+                continue
+            sponsor_number = _safe_int(raw.get("sponsor_number", 0), 0)
+            label = str(raw.get("label") or "").strip().lower()
+            label_norm = _norm(_stable_bucket(label, 2048), 2047.0)
+            cells: List[Tuple[int, int]] = []
+            for raw_cell in list(raw.get("cells") or []):
+                parsed = self._coord_pair(raw_cell)
+                if parsed is not None:
+                    cells.append(parsed)
+            cells = sorted(set(cells))
+            entries.append((sponsor_number, label_norm, cells))
+        entries.sort(key=lambda item: (int(item[0]), float(item[1]), tuple(item[2])))
+
+        values: List[float] = []
+        for idx in range(self.max_sponsor_buildings):
+            if idx >= len(entries):
+                values.extend([0.0] * (4 + self.max_sponsor_building_cells * 2))
+                continue
+            sponsor_number, label_norm, cells = entries[idx]
+            values.append(1.0)
+            values.append(_norm(sponsor_number, 600.0))
+            values.append(_norm(len(cells), float(max(1, self.max_sponsor_building_cells))))
+            values.append(label_norm)
+            for cell_idx in range(self.max_sponsor_building_cells):
+                if cell_idx >= len(cells):
+                    values.extend([0.0, 0.0])
+                    continue
+                x_coord, y_coord = cells[cell_idx]
+                values.extend([self._norm_coord(x_coord), self._norm_coord(y_coord)])
+        return values
 
     def _encode_current_player_one_hot(self, player_index: int) -> List[float]:
         return [
@@ -201,6 +343,9 @@ class ObservationEncoder:
         action_upgraded = dict(info.get("action_upgraded") or {})
         action_order = list(info.get("action_order") or [])
         association_workers = dict(info.get("association_workers_by_task") or {})
+        zoo_map_grid = list(info.get("zoo_map_grid") or [])
+        zoo_map_buildings = list(info.get("zoo_map_buildings") or [])
+        sponsor_buildings = list(info.get("sponsor_buildings") or [])
         vec: List[float] = [
             1.0 if player is not None else 0.0,
             _norm(info.get("money", 0), 250.0),
@@ -223,6 +368,10 @@ class ObservationEncoder:
             _norm(len(info.get("claimed_conservation_reward_spaces") or []), 3.0),
             _norm(len(info.get("claimed_reputation_milestones") or []), 8.0),
             1.0 if bool(info.get("map_completion_reward_claimed", False)) else 0.0,
+            1.0 if bool(info.get("zoo_map_present", False)) else 0.0,
+            _norm(info.get("zoo_map_grid_count", len(zoo_map_grid)), 80.0),
+            _norm(info.get("zoo_map_building_count", len(zoo_map_buildings)), 60.0),
+            _norm(len(sponsor_buildings), 30.0),
         ]
         for action_name in self.main_actions:
             vec.append(1.0 if bool(action_upgraded.get(action_name, False)) else 0.0)
@@ -233,6 +382,9 @@ class ObservationEncoder:
                 vec.append(0.0)
         for task_kind in self.association_tasks:
             vec.append(_norm(association_workers.get(task_kind, 0), 4.0))
+        vec.extend(self._encode_map_grid_slots(zoo_map_grid))
+        vec.extend(self._encode_map_building_slots(zoo_map_buildings))
+        vec.extend(self._encode_sponsor_building_slots(sponsor_buildings))
         return np.asarray(vec, dtype=np.float32)
 
     def encode_public_observation(self, public_obs: Dict[str, Any]) -> np.ndarray:
@@ -269,6 +421,7 @@ class ObservationEncoder:
             1.0 if info.get("endgame_trigger_player") is not None else 0.0,
             1.0 if info.get("break_trigger_player") is not None else 0.0,
         ]
+        vec.extend(self._encode_map_name_hash(str(info.get("map_image_name") or "")).tolist())
         vec.extend(self._encode_current_player_one_hot(_safe_int(info.get("current_player"), 0)))
         vec.extend(self._encode_pending_kind_one_hot(pending_kind))
         vec.extend(self._encode_pending_player_one_hot(pending_player))
@@ -384,4 +537,3 @@ class ObservationEncoder:
         local_vec = np.concatenate([public_vec, private_vec], axis=0).astype(np.float32)
         global_vec = public_vec.astype(np.float32)
         return local_vec, global_vec
-

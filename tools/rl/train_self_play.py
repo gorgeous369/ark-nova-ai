@@ -65,6 +65,30 @@ def parse_args() -> argparse.Namespace:
         help="Scale for terminal score-diff reward",
     )
     parser.add_argument(
+        "--endgame-trigger-reward",
+        type=float,
+        default=2.0,
+        help="Reward added when the acting player triggers endgame (reaches score threshold)",
+    )
+    parser.add_argument(
+        "--endgame-speed-bonus",
+        type=float,
+        default=2.0,
+        help="Additional bonus scaled by how early endgame is triggered",
+    )
+    parser.add_argument(
+        "--terminal-win-bonus",
+        type=float,
+        default=3.0,
+        help="Extra terminal reward for finishing above all opponents",
+    )
+    parser.add_argument(
+        "--terminal-loss-penalty",
+        type=float,
+        default=3.0,
+        help="Extra terminal penalty for finishing below the top opponent score",
+    )
+    parser.add_argument(
         "--checkpoint-interval",
         type=int,
         default=20,
@@ -106,6 +130,10 @@ def main_cli() -> None:
         action_hidden_size=args.action_hidden_size,
         step_reward_scale=args.step_reward_scale,
         terminal_reward_scale=args.terminal_reward_scale,
+        endgame_trigger_reward=args.endgame_trigger_reward,
+        endgame_speed_bonus=args.endgame_speed_bonus,
+        terminal_win_bonus=args.terminal_win_bonus,
+        terminal_loss_penalty=args.terminal_loss_penalty,
         checkpoint_interval=args.checkpoint_interval,
     )
     output_dir = Path(args.output_dir)
