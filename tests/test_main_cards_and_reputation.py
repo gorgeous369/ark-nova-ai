@@ -185,7 +185,7 @@ def test_reputation_milestones_grant_expected_rewards(monkeypatch):
     hand_before = len(p0.hand)
 
     monkeypatch.setattr("builtins.input", lambda _: "2")
-    _increase_reputation(state, p0, 11)  # 4 -> 15, crossing 5/8/10/11/12/13/14/15
+    _increase_reputation(state, p0, 11, allow_interactive=True)  # 4 -> 15, crossing 5/8/10/11/12/13/14/15
 
     assert p0.reputation == 15
     assert p0.action_upgraded["cards"] is True  # from reputation 5 milestone

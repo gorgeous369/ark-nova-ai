@@ -237,6 +237,7 @@ CONSERVATION_FIXED_MONEY_OPTION = "5coins"
 CONSERVATION_REWARD_THRESHOLDS: Tuple[int, int, int] = (2, 5, 8)
 CONSERVATION_SHARED_BONUS_THRESHOLDS: Tuple[int, int] = (5, 8)
 BREAK_TRACK_BY_PLAYERS: Dict[int, int] = {2: 9, 3: 12, 4: 15}
+MAX_GAME_ROUNDS: int = 50
 
 MAIN_ACTION_CARDS: Tuple[str, ...] = ("animals", "cards", "build", "association", "sponsors")
 _BUILD_ENUM_LEGAL_OPTION_CACHE: Dict[Tuple[str, str, int, Tuple[str, ...], bool, bool], List[Dict[str, Any]]] = {}
@@ -596,12 +597,17 @@ class GameState:
     score_end_threshold: int = 100
     endgame_trigger_player: Optional[int] = None
     endgame_trigger_turn_index: Optional[int] = None
+    max_rounds: int = MAX_GAME_ROUNDS
+    forced_game_over: bool = False
+    forced_game_over_reason: str = ""
 
     @property
     def total_turn_limit(self) -> int:
         return self.max_turns_per_player * len(self.players)
 
     def game_over(self) -> bool:
+        if bool(self.forced_game_over):
+            return True
         if self.endgame_trigger_player is not None:
             trigger_turn = int(self.endgame_trigger_turn_index or 0)
             return (
@@ -674,6 +680,339 @@ class GameState:
             self.claimed_conservation_bonus_tiles[threshold].append(reward)
 
         player.claimed_conservation_reward_spaces.add(threshold)
+
+
+def _validate_observation_viewer_id(state: GameState, viewer_player_id: int) -> None:
+    if int(viewer_player_id) < 0 or int(viewer_player_id) >= len(state.players):
+        raise ValueError("viewer_player_id is out of range.")
+
+
+def _serialize_setup_card_ref(card: SetupCardRef) -> Dict[str, str]:
+    return {
+        "data_id": str(card.data_id),
+        "title": str(card.title),
+    }
+
+
+def _serialize_animal_card_public(card: AnimalCard) -> Dict[str, Any]:
+    return {
+        "number": int(card.number),
+        "name": str(card.name),
+        "card_type": str(card.card_type),
+        "cost": int(card.cost),
+        "size": int(card.size),
+        "appeal": int(card.appeal),
+        "conservation": int(card.conservation),
+        "reputation_gain": int(card.reputation_gain),
+        "badges": [str(item) for item in tuple(card.badges)],
+        "required_water_adjacency": int(card.required_water_adjacency),
+        "required_rock_adjacency": int(card.required_rock_adjacency),
+        "required_icons": [
+            {"icon": str(icon), "count": int(count)}
+            for icon, count in tuple(card.required_icons)
+        ],
+        "ability_title": str(card.ability_title),
+        "effects": [
+            {"kind": str(kind), "value": str(value)}
+            for kind, value in tuple(card.effects)
+        ],
+        "reptile_house_size": (
+            int(card.reptile_house_size)
+            if card.reptile_house_size is not None
+            else None
+        ),
+        "large_bird_aviary_size": (
+            int(card.large_bird_aviary_size)
+            if card.large_bird_aviary_size is not None
+            else None
+        ),
+    }
+
+
+def _serialize_animal_card_private(card: AnimalCard) -> Dict[str, Any]:
+    card_view = _serialize_animal_card_public(card)
+    card_view["instance_id"] = str(card.instance_id)
+    card_view["ability_text"] = str(card.ability_text)
+    return card_view
+
+
+def _serialize_enclosure_public(enclosure: Enclosure) -> Dict[str, Any]:
+    return {
+        "size": int(enclosure.size),
+        "occupied": bool(enclosure.occupied),
+        "origin": (
+            [int(enclosure.origin[0]), int(enclosure.origin[1])]
+            if enclosure.origin is not None
+            else None
+        ),
+        "rotation": str(enclosure.rotation),
+        "enclosure_type": str(enclosure.enclosure_type),
+        "used_capacity": int(enclosure.used_capacity),
+        "animal_capacity": int(enclosure.animal_capacity),
+    }
+
+
+def _serialize_enclosure_object_public(enclosure_object: EnclosureObject) -> Dict[str, Any]:
+    return {
+        "size": int(enclosure_object.size),
+        "enclosure_type": str(enclosure_object.enclosure_type),
+        "adjacent_rock": int(enclosure_object.adjacent_rock),
+        "adjacent_water": int(enclosure_object.adjacent_water),
+        "animals_inside": int(enclosure_object.animals_inside),
+        "origin": [int(enclosure_object.origin[0]), int(enclosure_object.origin[1])],
+        "rotation": str(enclosure_object.rotation),
+    }
+
+
+def _serialize_sponsor_building_public(sponsor_building: SponsorBuilding) -> Dict[str, Any]:
+    return {
+        "sponsor_number": int(sponsor_building.sponsor_number),
+        "label": str(sponsor_building.label),
+        "cells": [
+            [int(cell[0]), int(cell[1])]
+            for cell in tuple(sponsor_building.cells)
+        ],
+    }
+
+
+def _build_public_player_observation(player: PlayerState, *, player_id: int) -> Dict[str, Any]:
+    action_upgraded = {
+        action: bool(player.action_upgraded.get(action, False))
+        for action in MAIN_ACTION_CARDS
+    }
+    association_workers = {
+        task: int(player.association_workers_by_task.get(task, 0))
+        for task in ASSOCIATION_TASK_KINDS
+    }
+    enclosure_objects = sorted(
+        player.enclosure_objects,
+        key=lambda item: (
+            int(item.origin[0]),
+            int(item.origin[1]),
+            int(item.size),
+            str(item.rotation),
+            str(item.enclosure_type),
+        ),
+    )
+    sponsor_buildings = sorted(
+        player.sponsor_buildings,
+        key=lambda item: (
+            int(item.sponsor_number),
+            tuple((int(x), int(y)) for x, y in tuple(item.cells)),
+            str(item.label),
+        ),
+    )
+    return {
+        "player_id": int(player_id),
+        "name": str(player.name),
+        "money": int(player.money),
+        "appeal": int(player.appeal),
+        "conservation": int(player.conservation),
+        "reputation": int(player.reputation),
+        "workers": int(player.workers),
+        "x_tokens": int(player.x_tokens),
+        "hand_limit": int(player.hand_limit),
+        "hand_count": len(player.hand),
+        "final_scoring_count": len(player.final_scoring_cards),
+        "action_order": [str(action) for action in list(player.action_order)],
+        "action_upgraded": action_upgraded,
+        "workers_on_association_board": int(player.workers_on_association_board),
+        "association_workers_by_task": association_workers,
+        "partner_zoos": sorted(str(item) for item in player.partner_zoos),
+        "universities": sorted(str(item) for item in player.universities),
+        "supported_conservation_projects": sorted(
+            str(item) for item in player.supported_conservation_projects
+        ),
+        "supported_conservation_project_actions": int(
+            player.supported_conservation_project_actions
+        ),
+        "claimed_conservation_reward_spaces": sorted(
+            int(item) for item in player.claimed_conservation_reward_spaces
+        ),
+        "claimed_reputation_milestones": sorted(
+            int(item) for item in player.claimed_reputation_milestones
+        ),
+        "map_left_track_unlocked_count": int(player.map_left_track_unlocked_count),
+        "map_left_track_claimed_indices": sorted(
+            int(item) for item in player.map_left_track_claimed_indices
+        ),
+        "map_left_track_unlocked_effects": [
+            str(item) for item in list(player.map_left_track_unlocked_effects)
+        ],
+        "claimed_partner_zoo_thresholds": sorted(
+            int(item) for item in player.claimed_partner_zoo_thresholds
+        ),
+        "claimed_university_thresholds": sorted(
+            int(item) for item in player.claimed_university_thresholds
+        ),
+        "map_completion_reward_claimed": bool(player.map_completion_reward_claimed),
+        "zoo_cards": [
+            _serialize_animal_card_public(card)
+            for card in list(player.zoo_cards)
+        ],
+        "zoo_cards_count": len(player.zoo_cards),
+        "pouched_cards_count": len(player.pouched_cards),
+        "enclosures": [
+            _serialize_enclosure_public(enclosure)
+            for enclosure in list(player.enclosures)
+        ],
+        "enclosure_objects": [
+            _serialize_enclosure_object_public(item)
+            for item in enclosure_objects
+        ],
+        "sponsor_buildings": [
+            _serialize_sponsor_building_public(item)
+            for item in sponsor_buildings
+        ],
+    }
+
+
+def _build_private_player_observation(player: PlayerState) -> Dict[str, Any]:
+    pouched_cards_by_host = {
+        str(host): [str(card.instance_id) for card in list(cards)]
+        for host, cards in sorted(
+            player.pouched_cards_by_host.items(),
+            key=lambda item: str(item[0]),
+        )
+    }
+    return {
+        "hand_count": len(player.hand),
+        "hand": [
+            _serialize_animal_card_private(card)
+            for card in list(player.hand)
+        ],
+        "final_scoring_count": len(player.final_scoring_cards),
+        "final_scoring_cards": [
+            _serialize_setup_card_ref(card)
+            for card in list(player.final_scoring_cards)
+        ],
+        "opening_draft_drawn_count": len(player.opening_draft_drawn),
+        "opening_draft_drawn": [
+            _serialize_animal_card_private(card)
+            for card in list(player.opening_draft_drawn)
+        ],
+        "opening_draft_kept_indices": [
+            int(idx) for idx in list(player.opening_draft_kept_indices)
+        ],
+        "pouched_cards": [
+            _serialize_animal_card_private(card)
+            for card in list(player.pouched_cards)
+        ],
+        "pouched_cards_by_host": pouched_cards_by_host,
+        "legacy_private_deck_count": len(player.deck),
+        "legacy_private_discard_count": len(player.discard),
+    }
+
+
+def build_public_observation(state: GameState, *, viewer_player_id: int) -> Dict[str, Any]:
+    _validate_observation_viewer_id(state, viewer_player_id)
+    conservation_project_slots: Dict[str, Dict[str, Optional[int]]] = {}
+    for project_id in sorted(state.conservation_project_slots):
+        levels_raw = state.conservation_project_slots.get(project_id) or {}
+        levels_snapshot: Dict[str, Optional[int]] = {}
+        for level_name in sorted(levels_raw):
+            owner = levels_raw[level_name]
+            levels_snapshot[str(level_name)] = None if owner is None else int(owner)
+        conservation_project_slots[str(project_id)] = levels_snapshot
+
+    opening_setup = state.opening_setup
+    opening_setup_snapshot = {
+        "conservation_space_2_fixed_options": [
+            str(option)
+            for option in list(opening_setup.conservation_space_2_fixed_options)
+        ],
+        "conservation_space_5_bonus_tiles": [
+            str(tile)
+            for tile in list(opening_setup.conservation_space_5_bonus_tiles)
+        ],
+        "conservation_space_8_bonus_tiles": [
+            str(tile)
+            for tile in list(opening_setup.conservation_space_8_bonus_tiles)
+        ],
+        "conservation_space_10_rule": str(opening_setup.conservation_space_10_rule),
+        "base_conservation_projects": [
+            _serialize_setup_card_ref(project)
+            for project in list(opening_setup.base_conservation_projects)
+        ],
+        "two_player_blocked_project_levels": [
+            {
+                "project_data_id": str(item.project_data_id),
+                "project_title": str(item.project_title),
+                "blocked_level": str(item.blocked_level),
+            }
+            for item in list(opening_setup.two_player_blocked_project_levels)
+        ],
+    }
+
+    return {
+        "viewer_player_id": int(viewer_player_id),
+        "player_count": len(state.players),
+        "current_player": int(state.current_player),
+        "turn_index": int(state.turn_index),
+        "break_progress": int(state.break_progress),
+        "break_max": int(state.break_max),
+        "break_trigger_player": (
+            None if state.break_trigger_player is None else int(state.break_trigger_player)
+        ),
+        "donation_progress": int(state.donation_progress),
+        "pending_decision_kind": str(state.pending_decision_kind),
+        "pending_decision_player_id": (
+            None
+            if state.pending_decision_player_id is None
+            else int(state.pending_decision_player_id)
+        ),
+        "endgame_trigger_player": (
+            None if state.endgame_trigger_player is None else int(state.endgame_trigger_player)
+        ),
+        "endgame_trigger_turn_index": (
+            None
+            if state.endgame_trigger_turn_index is None
+            else int(state.endgame_trigger_turn_index)
+        ),
+        "forced_game_over": bool(state.forced_game_over),
+        "forced_game_over_reason": str(state.forced_game_over_reason),
+        "zoo_deck_count": len(state.zoo_deck),
+        "zoo_discard_count": len(state.zoo_discard),
+        "zoo_display": [
+            _serialize_animal_card_public(card)
+            for card in list(state.zoo_display)
+        ],
+        "final_scoring_deck_count": len(state.final_scoring_deck),
+        "final_scoring_discard_count": len(state.final_scoring_discard),
+        "unused_base_conservation_projects_count": len(state.unused_base_conservation_projects),
+        "available_partner_zoos": sorted(str(item) for item in state.available_partner_zoos),
+        "available_universities": sorted(str(item) for item in state.available_universities),
+        "shared_conservation_bonus_tiles": {
+            int(threshold): [str(tile) for tile in list(tiles)]
+            for threshold, tiles in sorted(state.shared_conservation_bonus_tiles.items())
+        },
+        "claimed_conservation_bonus_tiles": {
+            int(threshold): [str(tile) for tile in list(tiles)]
+            for threshold, tiles in sorted(state.claimed_conservation_bonus_tiles.items())
+        },
+        "conservation_project_slots": conservation_project_slots,
+        "opening_setup": opening_setup_snapshot,
+        "players": [
+            _build_public_player_observation(player, player_id=player_id)
+            for player_id, player in enumerate(state.players)
+        ],
+    }
+
+
+def build_private_observation(state: GameState, *, viewer_player_id: int) -> Dict[str, Any]:
+    _validate_observation_viewer_id(state, viewer_player_id)
+    player = state.players[int(viewer_player_id)]
+    return {
+        "viewer_player_id": int(viewer_player_id),
+        "player": _build_private_player_observation(player),
+    }
+
+
+def build_player_observation(state: GameState, *, viewer_player_id: int) -> Dict[str, Any]:
+    return {
+        "public": build_public_observation(state, viewer_player_id=viewer_player_id),
+        "private": build_private_observation(state, viewer_player_id=viewer_player_id),
+    }
 
 
 def build_deck() -> List[AnimalCard]:
@@ -1118,6 +1457,14 @@ def draw_cards(player: PlayerState, n: int = 1) -> None:
 
 
 def _draw_from_zoo_deck(state: GameState, n: int) -> List[AnimalCard]:
+    if n <= 0:
+        return []
+    if n > len(state.zoo_deck):
+        _trigger_immediate_game_end(
+            state,
+            reason=f"deck_shortage(requested={int(n)},remaining={len(state.zoo_deck)})",
+        )
+        return []
     drawn: List[AnimalCard] = []
     for _ in range(n):
         if not state.zoo_deck:
@@ -1756,9 +2103,13 @@ def _enumerate_concrete_cards_actions(
     )
 
     for display_indices in display_subsets:
+        if len(display_indices) > draw_target:
+            continue
         max_deck_count = draw_target if not upgraded else max(0, draw_target - len(display_indices))
         deck_counts = [draw_target] if not upgraded else list(range(max_deck_count + 1))
         for from_deck_count in deck_counts:
+            if from_deck_count > len(state.zoo_deck):
+                continue
             preview_hand_size = len(player.hand) + len(display_indices) + from_deck_count
             if discard_target > preview_hand_size:
                 continue
@@ -2064,7 +2415,7 @@ def _gain_partner_zoo_reward(
     player_id: int,
     partner: str,
     effect_details: Optional[Dict[str, Any]] = None,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     normalized_partner = str(partner or "").strip().lower()
     if not normalized_partner:
@@ -2095,7 +2446,7 @@ def _gain_university_reward(
     player_id: int,
     university: str,
     effect_details: Optional[Dict[str, Any]] = None,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     normalized_university = str(university or "").strip().lower()
     if not normalized_university:
@@ -2268,9 +2619,27 @@ def _map_effect_choice_variants(
             label_prefix=label_prefix,
         )
 
+    if code == "gain_worker_1":
+        nested_variants: List[Tuple[Dict[str, Any], str]] = [({}, "")]
+        if detail_key != "worker_gain_effect_choices":
+            nested_variants = _enumerate_worker_gain_reward_variants(
+                state=state,
+                player=player,
+                player_id=player_id,
+                gained_workers=1,
+                detail_key="worker_gain_effect_choices",
+                label_prefix="worker-reward",
+            )
+        variants: List[Tuple[Dict[str, Any], str]] = []
+        for nested_details, nested_label in nested_variants:
+            label = f"{label_prefix}(+1 worker)"
+            if nested_label:
+                label = f"{label} ; {nested_label}"
+            variants.append(({detail_key: [copy.deepcopy(nested_details)]}, label))
+        return variants or [({detail_key: [{}]}, f"{label_prefix}(+1 worker)")]
+
     simple_labels = {
         "gain_5_coins": "+5 money",
-        "gain_worker_1": "+1 worker",
         "gain_12_coins": "+12 money",
         "gain_3_x_tokens": "+3 x-tokens",
         "gain_conservation_1": "+1 conservation",
@@ -2306,27 +2675,88 @@ def _enumerate_reputation_gain_followup_variants(
     player_id: int,
     amount: int,
 ) -> List[Tuple[Dict[str, Any], str]]:
-    _, _, milestones = _reputation_gain_target_and_milestones(player, amount)
-    variants: List[Tuple[Dict[str, Any], str]] = [({}, "")]
-    for milestone in milestones:
-        additions: List[Tuple[Dict[str, Any], str]] = [({}, "")]
+    new_rep, _, milestones = _reputation_gain_target_and_milestones(player, amount)
+    if not milestones:
+        return [({}, "")]
+
+    variants: List[Tuple[Dict[str, Any], str]] = []
+    simulated_player = copy.deepcopy(player)
+    simulated_player.reputation = int(new_rep)
+
+    def _recurse(
+        milestone_index: int,
+        current_player: PlayerState,
+        current_details: Dict[str, Any],
+        current_labels: List[str],
+    ) -> None:
+        if milestone_index >= len(milestones):
+            variants.append((copy.deepcopy(current_details), " ; ".join(part for part in current_labels if part)))
+            return
+
+        milestone = milestones[milestone_index]
         if milestone == 5:
-            additions = _enumerate_upgrade_action_card_choice_variants(
-                player,
-                detail_key="reputation_milestone_reward_choices",
-                label_prefix="rep5 upgrade",
-            )
-        elif milestone == 8:
+            upgradeable = [
+                action_name
+                for action_name in MAIN_ACTION_CARDS
+                if not bool(current_player.action_upgraded.get(action_name, False))
+            ]
+            if not upgradeable:
+                _recurse(milestone_index + 1, current_player, current_details, current_labels)
+                return
+            for action_name in upgradeable:
+                next_player = copy.deepcopy(current_player)
+                next_player.action_upgraded[action_name] = True
+                next_details = _merge_list_detail_fragments(
+                    current_details,
+                    {"reputation_milestone_reward_choices": [{"upgraded_action": action_name}]},
+                )
+                _recurse(
+                    milestone_index + 1,
+                    next_player,
+                    next_details,
+                    list(current_labels) + [f"rep5 upgrade({action_name})"],
+                )
+            return
+
+        if milestone == 8:
             additions = _enumerate_worker_gain_reward_variants(
                 state=state,
-                player=player,
+                player=current_player,
                 player_id=player_id,
                 gained_workers=1,
                 detail_key="reputation_milestone_reward_choices",
                 label_prefix="rep8 worker",
             )
-        variants = _cross_join_detail_label_variants(variants, additions)
-    return variants
+            if not additions:
+                _recurse(milestone_index + 1, current_player, current_details, current_labels)
+                return
+            for extra_details, extra_label in additions:
+                _recurse(
+                    milestone_index + 1,
+                    copy.deepcopy(current_player),
+                    _merge_list_detail_fragments(current_details, extra_details),
+                    list(current_labels) + ([extra_label] if extra_label else []),
+                )
+            return
+
+        _recurse(milestone_index + 1, current_player, current_details, current_labels)
+
+    _recurse(0, simulated_player, {}, [])
+
+    deduped: List[Tuple[Dict[str, Any], str]] = []
+    seen: Set[str] = set()
+    for details, label in variants:
+        key = json.dumps(
+            {"details": details, "label": label},
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((copy.deepcopy(details), str(label)))
+    return deduped or [({}, "")]
 
 
 def _enumerate_map_threshold_reward_variants(
@@ -2397,7 +2827,7 @@ def _apply_reputation_gain_with_details(
     player_id: int,
     amount: int,
     details: Optional[Dict[str, Any]] = None,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     details = details or {}
     if amount <= 0:
@@ -2558,31 +2988,71 @@ def _enumerate_conservation_reward_variants(
             continue
         if reward == "university":
             for university in _list_legal_conservation_reward_universities(state, player):
-                base_variant = [
-                    (
-                        {
-                            "reward": reward,
-                            "university": university,
-                        },
-                        f"tile({_compact_association_university_label(university)})",
-                    )
-                ]
+                base_details = {
+                    "reward": reward,
+                    "university": university,
+                }
+                base_label = f"tile({_compact_association_university_label(university)})"
+
                 simulated_player = copy.deepcopy(player)
                 simulated_player.universities.add(university)
-                base_variant = _cross_join_detail_label_variants(
-                    base_variant,
-                    _enumerate_map_threshold_reward_variants(
+                hand_limit_target = int(UNIVERSITY_HAND_LIMIT_SET.get(university, 0))
+                if hand_limit_target > 0:
+                    simulated_player.hand_limit = max(int(simulated_player.hand_limit), hand_limit_target)
+
+                rep_gain = int(UNIVERSITY_REPUTATION_GAIN.get(university, 0))
+                rep_followup_variants: List[Tuple[Dict[str, Any], str]] = [({}, "")]
+                if rep_gain > 0:
+                    rep_followup_variants = _enumerate_reputation_gain_followup_variants(
                         state=state,
                         player=simulated_player,
                         player_id=player_id,
-                        count=len(simulated_player.universities),
-                        thresholds=_map_rule_university_thresholds(state),
-                        claimed_thresholds=player.claimed_university_thresholds,
+                        amount=rep_gain,
+                    )
+
+                for rep_details, rep_label in rep_followup_variants:
+                    combined_details = _merge_list_detail_fragments(base_details, rep_details)
+                    label_parts = [base_label]
+                    if rep_label:
+                        label_parts.append(rep_label)
+
+                    simulated_state_after_rep = copy.deepcopy(state)
+                    simulated_player_after_rep = simulated_state_after_rep.players[player_id]
+                    simulated_player_after_rep.universities.add(university)
+                    if hand_limit_target > 0:
+                        simulated_player_after_rep.hand_limit = max(
+                            int(simulated_player_after_rep.hand_limit),
+                            hand_limit_target,
+                        )
+                    if rep_gain > 0:
+                        try:
+                            _apply_reputation_gain_with_details(
+                                state=simulated_state_after_rep,
+                                player=simulated_player_after_rep,
+                                player_id=player_id,
+                                amount=rep_gain,
+                                details=copy.deepcopy(rep_details),
+                                allow_interactive=False,
+                            )
+                        except ValueError:
+                            continue
+
+                    map_threshold_variants = _enumerate_map_threshold_reward_variants(
+                        state=simulated_state_after_rep,
+                        player=simulated_player_after_rep,
+                        player_id=player_id,
+                        count=len(simulated_player_after_rep.universities),
+                        thresholds=_map_rule_university_thresholds(simulated_state_after_rep),
+                        claimed_thresholds=simulated_player_after_rep.claimed_university_thresholds,
                         detail_key="map_threshold_effect_choices",
                         label_prefix="university-threshold-",
-                    ),
-                )
-                variants.extend(base_variant)
+                    )
+                    for threshold_details, threshold_label in map_threshold_variants:
+                        merged_details = _merge_list_detail_fragments(combined_details, threshold_details)
+                        merged_label_parts = list(label_parts)
+                        if threshold_label:
+                            merged_label_parts.append(threshold_label)
+                        variants.append((merged_details, " ; ".join(part for part in merged_label_parts if part)))
             continue
         if reward == "x2_multiplier":
             for action_name in MAIN_ACTION_CARDS:
@@ -2737,6 +3207,60 @@ def _enumerate_pending_opening_draft_actions(player: PlayerState, keep_target: i
     ]
 
 
+def _enumerate_followup_conservation_reward_variants(
+    state: GameState,
+    *,
+    player_id: int,
+) -> List[Tuple[List[Dict[str, Any]], str]]:
+    player = state.players[player_id]
+    while True:
+        threshold = _next_pending_conservation_reward_threshold(player)
+        if threshold is None:
+            return [([], "")]
+        threshold_variants = _enumerate_conservation_reward_variants(state, player, player_id, threshold)
+        if threshold_variants:
+            break
+        player.claimed_conservation_reward_spaces.add(int(threshold))
+
+    variants: List[Tuple[List[Dict[str, Any]], str]] = []
+    for details, label in threshold_variants:
+        next_state = copy.deepcopy(state)
+        next_player = next_state.players[player_id]
+        try:
+            _apply_conservation_reward_choice(
+                state=next_state,
+                player=next_player,
+                player_id=player_id,
+                threshold=threshold,
+                action=Action(ActionType.PENDING_DECISION, details=copy.deepcopy(details)),
+            )
+        except ValueError:
+            continue
+        for tail_choices, tail_label in _enumerate_followup_conservation_reward_variants(next_state, player_id=player_id):
+            head_choice = {"reward_threshold": int(threshold), **copy.deepcopy(details)}
+            choice_sequence = [head_choice] + copy.deepcopy(tail_choices)
+            head_label = _conservation_reward_action_label(threshold, label)
+            combined_label = head_label if not tail_label else f"{head_label} ; {tail_label}"
+            variants.append((choice_sequence, combined_label))
+
+    if not variants:
+        return [([], "")]
+    deduped: List[Tuple[List[Dict[str, Any]], str]] = []
+    seen: Set[str] = set()
+    for detail_list, label in variants:
+        key = json.dumps(
+            {"details": detail_list, "label": label},
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((copy.deepcopy(detail_list), str(label)))
+    return deduped
+
+
 def _enumerate_pending_conservation_reward_actions(
     state: GameState,
     player: PlayerState,
@@ -2745,24 +3269,52 @@ def _enumerate_pending_conservation_reward_actions(
     threshold = int(state.pending_decision_payload.get("threshold", 0))
     if threshold <= 0:
         return []
-    return [
-        Action(
-            ActionType.PENDING_DECISION,
-            details={
+
+    actions: List[Action] = []
+    for details, label in _enumerate_conservation_reward_variants(
+        state=state,
+        player=player,
+        player_id=player_id,
+        threshold=threshold,
+    ):
+        next_state = copy.deepcopy(state)
+        next_player = next_state.players[player_id]
+        try:
+            _apply_conservation_reward_choice(
+                state=next_state,
+                player=next_player,
+                player_id=player_id,
+                threshold=threshold,
+                action=Action(ActionType.PENDING_DECISION, details=copy.deepcopy(details)),
+            )
+        except ValueError:
+            continue
+
+        followup_variants = _enumerate_followup_conservation_reward_variants(next_state, player_id=player_id)
+        for chained_choices, chained_label in followup_variants:
+            action_label = _conservation_reward_action_label(threshold, label)
+            if chained_label:
+                action_label = f"{action_label} ; {chained_label}"
+            action_details: Dict[str, Any] = {
                 "concrete": True,
                 "pending_kind": "conservation_reward",
                 "reward_threshold": threshold,
-                "action_label": _conservation_reward_action_label(threshold, label),
+                "action_label": action_label,
                 **copy.deepcopy(details),
-            },
-        )
-        for details, label in _enumerate_conservation_reward_variants(
-            state=state,
-            player=player,
-            player_id=player_id,
-            threshold=threshold,
-        )
-    ]
+            }
+            if chained_choices:
+                action_details["chained_conservation_reward_choices"] = copy.deepcopy(chained_choices)
+            actions.append(Action(ActionType.PENDING_DECISION, details=action_details))
+
+    deduped: List[Action] = []
+    seen_keys: Set[str] = set()
+    for action in actions:
+        key = json.dumps(action.details or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(action)
+    return deduped
 
 
 def _append_card_instance_choice_queue(raw_value: Any, queue: List[List[str]]) -> None:
@@ -4010,6 +4562,33 @@ def _maybe_trigger_endgame(state: GameState, player_id: int) -> bool:
     return True
 
 
+def _trigger_immediate_game_end(state: GameState, *, reason: str) -> bool:
+    if bool(state.forced_game_over):
+        return False
+    state.forced_game_over = True
+    state.forced_game_over_reason = str(reason or "").strip() or "forced_game_over"
+    _clear_pending_decision(state)
+    state.effect_log.append(f"forced_game_over:{state.forced_game_over_reason}")
+    return True
+
+
+def _completed_rounds(state: GameState) -> int:
+    players = max(1, len(state.players))
+    return int(state.turn_index) // players
+
+
+def _maybe_trigger_round_limit_endgame(state: GameState) -> bool:
+    round_limit = int(getattr(state, "max_rounds", 0) or 0)
+    if round_limit <= 0 or bool(state.forced_game_over):
+        return False
+    if _completed_rounds(state) > round_limit:
+        return _trigger_immediate_game_end(
+            state,
+            reason=f"round_limit_exceeded(completed={_completed_rounds(state)},limit={round_limit})",
+        )
+    return False
+
+
 def _building_type_label(building_type: BuildingType) -> str:
     if building_type.name.startswith("SIZE_"):
         return f"enclosure_{building_type.name.split('_', 1)[1]}"
@@ -4986,7 +5565,7 @@ def _apply_map_effect_code(
     *,
     source: str,
     effect_details: Optional[Dict[str, Any]] = None,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     code = str(effect_code).strip().lower()
     effect_details = dict(effect_details or {})
@@ -5087,7 +5666,15 @@ def _apply_map_effect_code(
         return
 
     if code == "gain_worker_1":
-        _gain_workers(state=state, player=player, player_id=player_id, amount=1, source=source)
+        _gain_workers(
+            state=state,
+            player=player,
+            player_id=player_id,
+            amount=1,
+            source=source,
+            effect_details=effect_details,
+            allow_interactive=allow_interactive,
+        )
         return
 
     if code == "gain_12_coins":
@@ -5140,7 +5727,7 @@ def _apply_map_worker_gain_rewards(
     *,
     source: str,
     effect_details: Optional[Dict[str, Any]] = None,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     if gained_workers <= 0:
         return
@@ -5172,7 +5759,7 @@ def _gain_workers(
     amount: int,
     source: str,
     effect_details: Optional[Dict[str, Any]] = None,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> int:
     if amount <= 0:
         return 0
@@ -5202,7 +5789,7 @@ def _apply_map_threshold_rewards(
     claimed_thresholds: Set[int],
     source_prefix: str,
     effect_details: Optional[Dict[str, Any]] = None,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     effect_details = dict(effect_details or {})
     for item in thresholds:
@@ -5231,7 +5818,7 @@ def _apply_map_partner_threshold_rewards(
     player_id: int,
     *,
     effect_details: Optional[Dict[str, Any]] = None,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     _apply_map_threshold_rewards(
         state=state,
@@ -5252,7 +5839,7 @@ def _apply_map_university_threshold_rewards(
     player_id: int,
     *,
     effect_details: Optional[Dict[str, Any]] = None,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     _apply_map_threshold_rewards(
         state=state,
@@ -5465,7 +6052,7 @@ def _on_map_conservation_project_supported(
     player_id: int,
     effect_details: Optional[Dict[str, Any]] = None,
     *,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     remaining_unlocks = _remaining_map_left_track_unlocks(state, player)
     if not remaining_unlocks:
@@ -5605,7 +6192,7 @@ def _apply_reputation_milestone_reward(
     player: PlayerState,
     milestone: int,
     *,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     if milestone == 5:
         _upgrade_one_action_card(player, interactive=allow_interactive)
@@ -5637,7 +6224,7 @@ def _increase_reputation(
     player: PlayerState,
     amount: int,
     *,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     _increase_reputation_impl(
         state=state,
@@ -5673,11 +6260,15 @@ def _prompt_break_discard_indices(player: PlayerState, overflow: int) -> List[in
     )
 
 
-def _discard_down_to_limit(player: PlayerState) -> List[AnimalCard]:
+def _discard_down_to_limit(player: PlayerState, *, allow_interactive: bool = False) -> List[AnimalCard]:
     if len(player.hand) <= int(player.hand_limit):
         return []
     overflow = len(player.hand) - int(player.hand_limit)
-    picked_indices = _prompt_break_discard_indices(player, overflow)
+    if allow_interactive:
+        picked_indices = _prompt_break_discard_indices(player, overflow)
+    else:
+        # Non-interactive fallback: deterministically discard oldest hand cards.
+        picked_indices = list(range(overflow))
     picked_set = set(picked_indices)
     discarded = [card for idx, card in enumerate(player.hand) if idx in picked_set]
     for idx in sorted(picked_indices, reverse=True):
@@ -5895,6 +6486,7 @@ def _resolve_break(
     state: GameState,
     *,
     use_pending: bool = False,
+    allow_interactive: bool = False,
     resume_turn_player_id: Optional[int] = None,
     resume_turn_consumed_venom: bool = False,
 ) -> None:
@@ -5913,7 +6505,9 @@ def _resolve_break(
         return
 
     for player_id in _break_income_order(state):
-        state.zoo_discard.extend(_discard_down_to_limit(state.players[player_id]))
+        state.zoo_discard.extend(
+            _discard_down_to_limit(state.players[player_id], allow_interactive=allow_interactive)
+        )
     _resolve_break_remaining_stages(state)
 
 
@@ -5939,8 +6533,7 @@ def _perform_cards_action_effect(
     details = details or {}
     upgraded = player.action_upgraded["cards"]
     draw_target, discard_target, snap_allowed = _cards_table_values(strength, upgraded)
-
-    break_triggered = _advance_break_track(state, steps=2, trigger_player=player_id)
+    break_triggered = False
 
     snap_display_index_raw = details.get("snap_display_index")
     snap_display_index = int(snap_display_index_raw) if snap_display_index_raw is not None else None
@@ -5963,6 +6556,7 @@ def _perform_cards_action_effect(
             raise ValueError("Snap cannot be combined with normal draw choices.")
         if snap_display_index < 0 or snap_display_index >= len(state.zoo_display):
             raise ValueError("Snap display index out of range.")
+        break_triggered = _advance_break_track(state, steps=2, trigger_player=player_id)
         player.hand.append(state.zoo_display.pop(snap_display_index))
         _replenish_zoo_display(state)
         return break_triggered
@@ -5992,6 +6586,17 @@ def _perform_cards_action_effect(
     total_draw = len(from_display_indices) + from_deck_count
     if total_draw > draw_target:
         raise ValueError(f"Cards action can draw at most {draw_target} card(s).")
+    if from_deck_count > len(state.zoo_deck):
+        _trigger_immediate_game_end(
+            state,
+            reason=(
+                f"cards_draw_exceeds_deck(player={player.name},"
+                f"requested={int(from_deck_count)},remaining={len(state.zoo_deck)})"
+            ),
+        )
+        return break_triggered
+
+    break_triggered = _advance_break_track(state, steps=2, trigger_player=player_id)
 
     player.hand.extend(_take_display_cards(state, from_display_indices))
     player.hand.extend(_draw_from_zoo_deck(state, from_deck_count))
@@ -6806,9 +7411,15 @@ def _perform_animals_action_effect(
 ) -> None:
     details = details or {}
     upgraded = player.action_upgraded["animals"]
+    allow_interactive = bool(details.get("_allow_interactive", False) or details.get("_interactive", False))
 
     if upgraded and strength >= 5:
-        _increase_reputation(state=state, player=player, amount=1)
+        _increase_reputation(
+            state=state,
+            player=player,
+            amount=1,
+            allow_interactive=allow_interactive,
+        )
 
     if details.get("skip_animals_action"):
         return
@@ -6926,7 +7537,8 @@ def _perform_animals_action_effect(
 
         if len(player.action_order) == 1:
             return player.action_order[0]
-        raise ValueError("Clever requires explicit clever_targets when not prompting interactively.")
+        # Non-interactive fallback: deterministically pick the rightmost action card.
+        return player.action_order[-1]
 
     initial_hand = list(player.hand)
     resolved_cards: List[AnimalCard] = []
@@ -7046,7 +7658,12 @@ def _perform_animals_action_effect(
 
         player.money -= resolved_cost
         player.appeal += card.appeal
-        _increase_reputation(state=state, player=player, amount=card.reputation_gain)
+        _increase_reputation(
+            state=state,
+            player=player,
+            amount=card.reputation_gain,
+            allow_interactive=allow_interactive,
+        )
         player.conservation += card.conservation
         player.hand.remove(card)
         player.zoo_cards.append(card)
@@ -7062,6 +7679,7 @@ def _perform_animals_action_effect(
             played_by_player_id=player_id,
             played_card=card,
             details=details,
+            allow_interactive=allow_interactive,
         )
 
         def _effect_draw_from_deck(count: int) -> Sequence[AnimalCard]:
@@ -7138,7 +7756,7 @@ def _perform_animals_action_effect(
         def _effect_advance_break(steps: int) -> bool:
             triggered = _advance_break_track(state=state, steps=max(0, steps), trigger_player=player_id)
             if triggered:
-                _resolve_break(state)
+                _resolve_break(state, allow_interactive=interactive_effect_prompts)
             return triggered
 
         def _effect_gain_money(amount: int) -> None:
@@ -7375,9 +7993,8 @@ def _perform_animals_action_effect(
                     effect_name="Hypnosis",
                 )
             else:
-                raise ValueError(
-                    "Hypnosis requires explicit hypnosis_target_players when multiple target players are legal."
-                )
+                # Non-interactive fallback: deterministically pick the first legal target player.
+                target_id = int(sorted(target_ids)[0])
             target_player = state.players[target_id]
             available_actions = list(target_player.action_order[: max(0, max_slot)])
             if not available_actions:
@@ -7418,9 +8035,8 @@ def _perform_animals_action_effect(
                 if len(available_actions) == 1:
                     chosen_action = available_actions[0]
                 else:
-                    raise ValueError(
-                        "Hypnosis requires explicit hypnosis_targets when not prompting interactively."
-                    )
+                    # Non-interactive fallback: deterministically pick slot-1 action in available range.
+                    chosen_action = available_actions[0]
 
             if chosen_action is None:
                 raise ValueError("Hypnosis action selection failed.")
@@ -7533,16 +8149,15 @@ def _perform_animals_action_effect(
                     )
                 else:
                     if not queued_pilfering_choices:
-                        raise ValueError(
-                            "Pilfering requires explicit pilfering_choices when multiple target players are legal."
+                        target_id = int(sorted(int(item) for item in eligible_target_ids)[0])
+                    else:
+                        choice_payload = queued_pilfering_choices.pop(0)
+                        target_id = _resolve_target_player_id_from_payload(
+                            state,
+                            eligible_target_ids,
+                            effect_name="Pilfering",
+                            payload=choice_payload,
                         )
-                    choice_payload = queued_pilfering_choices.pop(0)
-                    target_id = _resolve_target_player_id_from_payload(
-                        state,
-                        eligible_target_ids,
-                        effect_name="Pilfering",
-                        payload=choice_payload,
-                    )
                 target_player = state.players[target_id]
                 can_take_money = int(target_player.money) >= 5
                 can_take_card = bool(target_player.hand)
@@ -7570,16 +8185,16 @@ def _perform_animals_action_effect(
                 elif can_take_money and can_take_card:
                     if choice_payload is None:
                         if not queued_pilfering_choices:
-                            raise ValueError(
-                                "Pilfering requires explicit pilfering_choices when both losses are legal."
-                            )
-                        choice_payload = queued_pilfering_choices.pop(0)
-                    choice, chosen_card_index = _resolve_pilfering_choice_from_details(
-                        target_player=target_player,
-                        choice_payload=choice_payload,
-                        can_take_money=can_take_money,
-                        can_take_card=can_take_card,
-                    )
+                            choice = "money"
+                        else:
+                            choice_payload = queued_pilfering_choices.pop(0)
+                    if choice_payload is not None:
+                        choice, chosen_card_index = _resolve_pilfering_choice_from_details(
+                            target_player=target_player,
+                            choice_payload=choice_payload,
+                            can_take_money=can_take_money,
+                            can_take_card=can_take_card,
+                        )
 
                 if choice == "money" and can_take_money:
                     target_player.money -= 5
@@ -8381,7 +8996,7 @@ def _apply_association_selected_option(
     player_id: int,
     selected: Dict[str, Any],
     effect_details: Optional[Dict[str, Any]] = None,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     upgraded = bool(player.action_upgraded["association"])
     task_kind = str(selected.get("task_kind") or "").strip()
@@ -8508,6 +9123,7 @@ def _perform_association_action_effect(
     player_id: int = 0,
 ) -> None:
     details = details or {}
+    allow_interactive = bool(details.get("_allow_interactive", False) or details.get("_interactive", False))
     upgraded = bool(player.action_upgraded["association"])
     make_donation = bool(details.get("make_donation"))
     if make_donation and not upgraded:
@@ -8544,6 +9160,7 @@ def _perform_association_action_effect(
                 effect_details=task_details.get("map_left_track_choice")
                 if isinstance(task_details.get("map_left_track_choice"), dict)
                 else None,
+                allow_interactive=allow_interactive,
             )
             remaining_strength -= strength_cost
             used_task_kinds.add(task_kind)
@@ -8559,6 +9176,7 @@ def _perform_association_action_effect(
             effect_details=details.get("map_left_track_choice")
             if isinstance(details.get("map_left_track_choice"), dict)
             else None,
+            allow_interactive=allow_interactive,
         )
         performed_any_task = True
 
@@ -8665,6 +9283,7 @@ def _place_free_building_of_type_if_possible(
     if player.zoo_map is None:
         return False
     details = details or {}
+    allow_interactive = bool(details.get("_allow_interactive", False) or details.get("_interactive", False))
 
     legal = player.zoo_map.legal_building_placements(
         is_build_upgraded=bool(player.action_upgraded["build"]),
@@ -8709,6 +9328,7 @@ def _place_free_building_of_type_if_possible(
             details=details,
             bonus_index=0,
             bonus_coord=bonus_coord,
+            allow_interactive=allow_interactive,
         )
     _apply_cover_money_from_sponsors_241_242(player, picked)
     resolved_player_id = player_id if player_id is not None else state.players.index(player)
@@ -8821,6 +9441,8 @@ def _finalize_sponsor_card_play(
     card: AnimalCard,
     details: Optional[Dict[str, Any]] = None,
 ) -> None:
+    details = details or {}
+    allow_interactive = bool(details.get("_allow_interactive", False) or details.get("_interactive", False))
     player.zoo_cards.append(card)
     messages = _apply_sponsor_immediate_effects(
         state=state,
@@ -8828,6 +9450,7 @@ def _finalize_sponsor_card_play(
         player_id=player_id,
         card=card,
         details=details,
+        allow_interactive=allow_interactive,
     )
     for message in messages:
         state.effect_log.append(f"{card.instance_id}: sponsor_{message}")
@@ -8836,6 +9459,7 @@ def _finalize_sponsor_card_play(
         played_by_player_id=player_id,
         played_card=card,
         details=details,
+        allow_interactive=allow_interactive,
     )
     if card.number in {215, 218}:
         player.sponsor_tokens_by_number[card.number] = player.sponsor_tokens_by_number.get(card.number, 0) + 2
@@ -8955,6 +9579,8 @@ def _apply_sponsor_passive_triggers_on_card_play(
     played_by_player_id: int,
     played_card: AnimalCard,
     details: Optional[Dict[str, Any]] = None,
+    *,
+    allow_interactive: bool = False,
 ) -> None:
     details = details or {}
     played_icon_counts = _card_icon_counts(played_card)
@@ -8969,7 +9595,12 @@ def _apply_sponsor_passive_triggers_on_card_play(
         science_icons = int(played_icon_counts.get("science", 0))
         if science_icons > 0:
             if owner_is_actor and 202 in sponsor_numbers:
-                _increase_reputation(state=state, player=owner, amount=science_icons)
+                _increase_reputation(
+                    state=state,
+                    player=owner,
+                    amount=science_icons,
+                    allow_interactive=allow_interactive,
+                )
             if owner_is_actor and 204 in sponsor_numbers:
                 owner.conservation += science_icons
             if 208 in sponsor_numbers:
@@ -9287,6 +9918,8 @@ def _apply_sponsor_immediate_effects(
     player_id: int,
     card: AnimalCard,
     details: Optional[Dict[str, Any]] = None,
+    *,
+    allow_interactive: bool = False,
 ) -> List[str]:
     details = details or {}
     number = int(card.number)
@@ -9310,7 +9943,12 @@ def _apply_sponsor_immediate_effects(
         taken = _take_one_card_from_deck_or_reputation_range(state, player)
         messages.append(f"immediate(draw_1_from_deck_or_reputation_range)={1 if taken else 0}")
     if number == 254:
-        _increase_reputation(state=state, player=player, amount=1)
+        _increase_reputation(
+            state=state,
+            player=player,
+            amount=1,
+            allow_interactive=allow_interactive,
+        )
         player.conservation += 1
         messages.append("immediate(+1_reputation,+1_conservation)")
 
@@ -9332,7 +9970,12 @@ def _apply_sponsor_immediate_effects(
         messages.append(f"immediate(science_x2_money)={gain}")
 
     if number == 205:
-        _increase_reputation(state=state, player=player, amount=2)
+        _increase_reputation(
+            state=state,
+            player=player,
+            amount=2,
+            allow_interactive=allow_interactive,
+        )
         player.conservation += 1
         messages.append("immediate(+2_reputation,+1_conservation)")
 
@@ -9408,7 +10051,12 @@ def _apply_sponsor_immediate_effects(
         messages.append("immediate(+1_x_token)")
 
     if number == 226:
-        _increase_reputation(state=state, player=player, amount=2)
+        _increase_reputation(
+            state=state,
+            player=player,
+            amount=2,
+            allow_interactive=allow_interactive,
+        )
         messages.append("immediate(+2_reputation)")
 
     if number == 227:
@@ -10236,6 +10884,11 @@ def _finalize_turn(
     break_triggered: bool,
     consumed_venom: bool,
 ) -> None:
+    if bool(state.forced_game_over):
+        _clear_pending_decision(state)
+        _validate_card_zones(state)
+        return
+
     if _maybe_begin_conservation_reward_pending(
         state,
         player_id=player_id,
@@ -10277,6 +10930,7 @@ def _complete_turn_after_break_resolution(
     _validate_card_zones(state)
     state.turn_index = int(state.turn_index) + 1
     state.current_player = (int(state.current_player) + 1) % len(state.players)
+    _maybe_trigger_round_limit_endgame(state)
 
 
 def _resolve_cards_discard_pending_action(
@@ -10565,6 +11219,15 @@ def _resolve_conservation_reward_pending_action(
     resume_turn_player_id_raw = payload.get("resume_turn_player_id")
     resume_turn_player_id = int(resume_turn_player_id_raw) if resume_turn_player_id_raw is not None else None
     resume_turn_consumed_venom = bool(payload.get("resume_turn_consumed_venom"))
+    chained_choices_raw = details.get("chained_conservation_reward_choices")
+    chained_choices: List[Dict[str, Any]] = []
+    if chained_choices_raw is not None:
+        if not isinstance(chained_choices_raw, list):
+            raise ValueError("chained_conservation_reward_choices must be a list.")
+        for item in chained_choices_raw:
+            if not isinstance(item, dict):
+                raise ValueError("chained_conservation_reward_choices entries must be objects.")
+            chained_choices.append(copy.deepcopy(item))
 
     _apply_conservation_reward_choice(
         state=state,
@@ -10575,7 +11238,7 @@ def _resolve_conservation_reward_pending_action(
     )
 
     _clear_pending_decision(state)
-    if _maybe_begin_conservation_reward_pending(
+    while _maybe_begin_conservation_reward_pending(
         state,
         player_id=player_id,
         resume_kind=resume_kind,
@@ -10585,8 +11248,36 @@ def _resolve_conservation_reward_pending_action(
         resume_turn_player_id=resume_turn_player_id,
         resume_turn_consumed_venom=resume_turn_consumed_venom,
     ):
-        _validate_card_zones(state)
-        return
+        if not chained_choices:
+            _validate_card_zones(state)
+            return
+        next_threshold = int(state.pending_decision_payload.get("threshold", 0))
+        if next_threshold <= 0:
+            raise ValueError("Conservation reward chain is missing next threshold.")
+        next_choice = dict(chained_choices.pop(0))
+        choice_threshold = int(next_choice.get("reward_threshold", next_threshold))
+        if choice_threshold != next_threshold:
+            raise ValueError(
+                f"Conservation reward chain expected threshold {next_threshold}, got {choice_threshold}."
+            )
+        _apply_conservation_reward_choice(
+            state=state,
+            player=player,
+            player_id=player_id,
+            threshold=next_threshold,
+            action=Action(
+                ActionType.PENDING_DECISION,
+                details={
+                    "pending_kind": "conservation_reward",
+                    "reward_threshold": next_threshold,
+                    **next_choice,
+                },
+            ),
+        )
+        _clear_pending_decision(state)
+
+    if chained_choices:
+        raise ValueError("Unused chained_conservation_reward_choices entries remain after resolution.")
 
     if resume_kind == "turn_finalize":
         _finalize_turn(
@@ -10951,6 +11642,8 @@ class HumanPlayer(PlayerAgent):
                         player=player,
                         strength=strength,
                     )
+                    details = dict(details or {})
+                    details["_interactive"] = True
                     return Action(
                         ActionType.MAIN_ACTION,
                         value=selected.value,
@@ -10965,6 +11658,8 @@ class HumanPlayer(PlayerAgent):
                         strength=strength,
                         player_id=state.current_player,
                     )
+                    details = dict(details or {})
+                    details["_interactive"] = True
                     return Action(
                         ActionType.MAIN_ACTION,
                         value=selected.value,
@@ -10979,6 +11674,8 @@ class HumanPlayer(PlayerAgent):
                         strength=strength,
                         player_id=state.current_player,
                     )
+                    details = dict(details or {})
+                    details["_interactive"] = True
                     return Action(
                         ActionType.MAIN_ACTION,
                         value=selected.value,
@@ -10992,6 +11689,8 @@ class HumanPlayer(PlayerAgent):
                         player=player,
                         strength=strength,
                     )
+                    details = dict(details or {})
+                    details["_interactive"] = True
                     return Action(
                         ActionType.MAIN_ACTION,
                         value=selected.value,
@@ -11046,7 +11745,7 @@ def setup_game(
         replenish_zoo_display=_replenish_zoo_display,
         validate_card_zones=_validate_card_zones,
         break_track_by_players=BREAK_TRACK_BY_PLAYERS,
-        max_turns_per_player=16,
+        max_turns_per_player=MAX_GAME_ROUNDS,
     )
     state.map_rules = _load_map_rules(state.map_image_name)
     state.map_tile_tags = _build_map_tile_tags_map(state.map_image_name)

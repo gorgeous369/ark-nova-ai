@@ -207,6 +207,145 @@ def test_conservation_space_5_reputation_reward_expands_reputation_milestone_upg
     assert state.current_player == 1
 
 
+def test_conservation_space_5_university_reward_expands_university_reputation_milestone_choices():
+    state = setup_game(seed=2047, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    p0.conservation = 5
+    p0.claimed_conservation_reward_spaces.add(2)
+    p0.reputation = 4
+    state.shared_conservation_bonus_tiles[5] = ["university"]
+
+    started = main._maybe_begin_conservation_reward_pending(
+        state,
+        player_id=0,
+        resume_kind="turn_finalize",
+    )
+
+    assert started is True
+    actions = legal_actions(p0, state=state, player_id=0)
+    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
+
+    assert "cons[5] | tile(uni(hand5,+1rep)) ; rep5 upgrade(build)" in labels
+
+    chosen = next(
+        action
+        for action in actions
+        if (action.details or {}).get("action_label") == "cons[5] | tile(uni(hand5,+1rep)) ; rep5 upgrade(build)"
+    )
+    apply_action(state, chosen)
+
+    assert p0.reputation == 5
+    assert "reputation_1_hand_limit_5" in p0.universities
+    assert p0.action_upgraded["build"] is True
+    assert state.pending_decision_kind == ""
+    assert state.current_player == 1
+
+
+def test_conservation_space_5_reputation_reward_rep8_worker_uses_post_gain_reputation_range():
+    state = setup_game(seed=2048, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    p0.conservation = 5
+    p0.claimed_conservation_reward_spaces.add(2)
+    p0.reputation = 6
+    state.shared_conservation_bonus_tiles[5] = ["2_reputation"]
+    state.map_rules["worker_gain_rewards"] = [{"effect": "draw_1_card_deck_or_reputation_range"}]
+    hand_before = len(p0.hand)
+
+    started = main._maybe_begin_conservation_reward_pending(
+        state,
+        player_id=0,
+        resume_kind="turn_finalize",
+    )
+
+    assert started is True
+    actions = legal_actions(p0, state=state, player_id=0)
+    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
+    assert any("rep8 worker(display[4]" in label for label in labels)
+
+    chosen = next(
+        action
+        for action in actions
+        if "rep8 worker(display[4]" in str((action.details or {}).get("action_label") or "")
+    )
+    apply_action(state, chosen)
+
+    assert p0.reputation == 8
+    assert p0.workers == 2
+    assert len(p0.hand) == hand_before + 1
+    assert state.pending_decision_kind == ""
+    assert state.current_player == 1
+
+
+def test_conservation_space_5_partner_threshold_gain_worker_expands_worker_reward_choices():
+    state = setup_game(seed=2049, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    p0.conservation = 5
+    p0.claimed_conservation_reward_spaces.add(2)
+    state.shared_conservation_bonus_tiles[5] = ["partner_zoo"]
+    state.map_rules["partner_zoo_threshold_rewards"] = [{"count": 1, "effect": "gain_worker_1"}]
+    state.map_rules["worker_gain_rewards"] = [{"effect": "upgrade_action_card"}]
+
+    started = main._maybe_begin_conservation_reward_pending(
+        state,
+        player_id=0,
+        resume_kind="turn_finalize",
+    )
+
+    assert started is True
+    actions = legal_actions(p0, state=state, player_id=0)
+    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
+    assert "cons[5] | tile(partner(Africa)) ; partner-threshold-1(+1 worker) ; worker-reward(build)" in labels
+
+    chosen = next(
+        action
+        for action in actions
+        if (action.details or {}).get("action_label")
+        == "cons[5] | tile(partner(Africa)) ; partner-threshold-1(+1 worker) ; worker-reward(build)"
+    )
+    apply_action(state, chosen)
+
+    assert p0.workers == 2
+    assert p0.action_upgraded["build"] is True
+    assert state.pending_decision_kind == ""
+    assert state.current_player == 1
+
+
+def test_conservation_space_5_choice_can_flatten_followup_space_8_reward_in_same_action():
+    state = setup_game(seed=2050, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    p0.conservation = 6
+    p0.claimed_conservation_reward_spaces.add(2)
+    state.shared_conservation_bonus_tiles[5] = ["partner_zoo"]
+    state.shared_conservation_bonus_tiles[8] = ["10_money"]
+    state.map_rules["partner_zoo_threshold_rewards"] = [{"count": 1, "effect": "gain_conservation_2"}]
+
+    started = main._maybe_begin_conservation_reward_pending(
+        state,
+        player_id=0,
+        resume_kind="turn_finalize",
+    )
+
+    assert started is True
+    actions = legal_actions(p0, state=state, player_id=0)
+    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
+    assert "cons[5] | tile(partner(Africa)) ; partner-threshold-1(+2 conservation) ; cons[8] | +10 money" in labels
+
+    chosen = next(
+        action
+        for action in actions
+        if (action.details or {}).get("action_label")
+        == "cons[5] | tile(partner(Africa)) ; partner-threshold-1(+2 conservation) ; cons[8] | +10 money"
+    )
+    apply_action(state, chosen)
+
+    assert p0.conservation == 8
+    assert "africa" in {value.lower() for value in p0.partner_zoos}
+    assert p0.money >= 10
+    assert p0.claimed_conservation_reward_spaces.issuperset({2, 5, 8})
+    assert state.pending_decision_kind == ""
+    assert state.current_player == 1
+
+
 def test_conservation_space_2_activate_worker_expands_map_worker_reward_choices():
     state = setup_game(seed=2045, player_names=["P1", "P2"])
     p0 = state.players[0]
@@ -930,6 +1069,29 @@ def test_state_legal_actions_expand_cards_to_draw_actions_only():
     assert "discard[" not in str(cards_actions[0])
 
 
+def test_upgraded_cards_strength_one_does_not_generate_overdraw_display_choices():
+    state = setup_game(seed=281, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.action_order = ["cards", "animals", "build", "association", "sponsors"]  # cards strength=1
+    player.action_upgraded["cards"] = True
+    player.reputation = 9
+
+    actions = legal_actions(player, state=state, player_id=0)
+    cards_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "cards" and int(action.value or 0) == 0
+    ]
+
+    assert cards_actions
+    for action in cards_actions:
+        details = dict(action.details or {})
+        from_display = list(details.get("from_display_indices") or [])
+        from_deck = int(details.get("from_deck_count", 0) or 0)
+        assert len(from_display) + from_deck <= 1
+        apply_action(copy.deepcopy(state), action)
+
+
 def test_state_legal_actions_expand_project_support_with_map_unlock_draw_choices():
     state = setup_game(seed=286, player_names=["P1", "P2"])
     player = state.players[0]
@@ -1190,7 +1352,7 @@ def test_break_resolves_in_rule_order_for_display_workers_and_temp_tokens(monkey
 
     responses = iter(["10", "1"])
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
-    _resolve_break(state)
+    _resolve_break(state, allow_interactive=True)
 
     assert [card.instance_id for card in state.zoo_display] == ["d3", "d4", "d5", "d6", "n1", "n2"]
     assert "d1" in {card.instance_id for card in state.zoo_discard}
@@ -2048,7 +2210,7 @@ def test_pilfering_has_no_effect_when_actor_is_unique_highest():
     assert target.money == 11
 
 
-def test_pilfering_noninteractive_requires_explicit_choice_when_both_losses_are_legal():
+def test_pilfering_noninteractive_defaults_to_money_loss_when_both_losses_are_legal():
     state = setup_game(seed=190, player_names=["P1", "P2"])
     actor = state.players[0]
     target = state.players[1]
@@ -2073,14 +2235,16 @@ def test_pilfering_noninteractive_requires_explicit_choice_when_both_losses_are_
         AnimalCard("Cheap Animal", 1, 1, 0, 0, number=9911, instance_id="cheap"),
     ]
 
-    with pytest.raises(ValueError, match="explicit pilfering_choices"):
-        _perform_animals_action_effect(
-            state=state,
-            player=actor,
-            player_id=0,
-            strength=3,
-            details={"animals_sequence_index": 0},
-        )
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0},
+    )
+
+    assert actor.money == 7
+    assert target.money == 6
 
 
 def test_pilfering_noninteractive_uses_explicit_card_loss_choice_and_random_card(monkeypatch):
@@ -2126,7 +2290,7 @@ def test_pilfering_noninteractive_uses_explicit_card_loss_choice_and_random_card
     assert [card.instance_id for card in target.hand] == ["expensive"]
 
 
-def test_pilfering_noninteractive_requires_explicit_target_when_multiple_players_are_tied_highest():
+def test_pilfering_noninteractive_defaults_to_first_target_when_multiple_players_are_tied_highest():
     state = setup_game(seed=1901, player_names=["P1", "P2"])
     state.players.append(copy.deepcopy(state.players[1]))
     state.players[2].name = "P3"
@@ -2154,14 +2318,17 @@ def test_pilfering_noninteractive_requires_explicit_target_when_multiple_players
     target_b.money = 8
     target_b.hand = []
 
-    with pytest.raises(ValueError, match="multiple target players"):
-        _perform_animals_action_effect(
-            state=state,
-            player=actor,
-            player_id=0,
-            strength=3,
-            details={"animals_sequence_index": 0},
-        )
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0},
+    )
+
+    assert actor.money == 7
+    assert target_a.money == 6
+    assert target_b.money == 8
 
     state = setup_game(seed=1901, player_names=["P1", "P2"])
     state.players.append(copy.deepcopy(state.players[1]))
@@ -2343,6 +2510,69 @@ def test_game_ends_after_rest_of_round_when_score_reaches_100():
 
     assert state.current_player == 0
     assert state.game_over()
+
+
+def test_cards_draw_exceeding_remaining_deck_forces_immediate_game_end():
+    state = setup_game(seed=194, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    p0.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    p0.action_upgraded["cards"] = False
+    state.current_player = 0
+    state.zoo_deck = []
+    state.zoo_display = []
+
+    cards_action = next(
+        action
+        for action in legal_actions(p0, state=state, player_id=0)
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "cards"
+    )
+    apply_action(state, cards_action)
+
+    assert state.game_over()
+    assert state.forced_game_over is True
+    assert "cards_draw_exceeds_deck" in state.forced_game_over_reason
+    assert state.pending_decision_kind == ""
+
+
+def test_game_forces_end_after_exceeding_50_rounds():
+    state = setup_game(seed=195, player_names=["P1", "P2"])
+    state.current_player = 0
+
+    # 2 actions = 1 round for 2 players. End should trigger once rounds exceed 50.
+    # Use current legal actions to avoid invalid fixed-action loops (e.g. X-token cap).
+    for _ in range(500):
+        if state.game_over():
+            break
+        actor_id = (
+            int(state.pending_decision_player_id)
+            if str(state.pending_decision_kind or "").strip() and state.pending_decision_player_id is not None
+            else int(state.current_player)
+        )
+        actor = state.players[actor_id]
+        options = legal_actions(actor, state=state, player_id=actor_id)
+        assert options
+        apply_action(state, options[0])
+
+    assert state.game_over()
+    assert state.forced_game_over is True
+    assert "round_limit_exceeded" in state.forced_game_over_reason
+    assert main._completed_rounds(state) > 50
+
+
+def test_increase_reputation_non_interactive_does_not_prompt_for_milestone_upgrade(monkeypatch):
+    state = setup_game(seed=196, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    p0.reputation = 4
+
+    def _fail_input(_prompt: str) -> str:  # pragma: no cover - should not be called
+        raise AssertionError("input() should not be called for non-interactive reputation gain")
+
+    monkeypatch.setattr("builtins.input", _fail_input)
+
+    main._increase_reputation(state=state, player=p0, amount=1)
+
+    assert p0.reputation == 5
+    assert p0.action_upgraded["animals"] is True
 
 
 def test_rank_scores_assigns_same_rank_to_ties():
