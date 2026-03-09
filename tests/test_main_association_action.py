@@ -455,6 +455,111 @@ def test_association_upgraded_can_support_display_conservation_project_and_pay_d
     assert all(card.instance_id != "display-project-130" for card in state.zoo_display)
 
 
+def test_two_player_new_conservation_projects_keep_max_three_and_discard_oldest():
+    state = setup_game(seed=6046, player_names=["P1", "P2"])
+    p0, p1 = state.players
+    p0.action_order = ["cards", "animals", "build", "sponsors", "association"]  # association strength=5
+    p1.action_order = ["cards", "animals", "build", "sponsors", "association"]  # association strength=5
+    p0.workers = 4
+    p1.workers = 4
+
+    state.opening_setup.base_conservation_projects = [
+        SetupCardRef(data_id="P101_SpeciesDiversity", title="SPECIES DIVERSITY"),
+        SetupCardRef(data_id="P102_HabitatDiversity", title="HABITAT DIVERSITY"),
+        SetupCardRef(data_id="P112_Birds", title="BIRDS"),
+    ]
+    state.opening_setup.two_player_blocked_project_levels = []
+    state.conservation_project_slots = {
+        project.data_id: {
+            "left_level": None,
+            "middle_level": None,
+            "right_level": None,
+        }
+        for project in state.opening_setup.base_conservation_projects
+    }
+
+    for player in (p0, p1):
+        player.zoo_cards.extend(
+            [
+                AnimalCard(
+                    name="icons-1",
+                    cost=0,
+                    size=1,
+                    appeal=0,
+                    conservation=0,
+                    badges=("Africa", "Americas", "Primate", "Reptile"),
+                ),
+                AnimalCard(
+                    name="icons-2",
+                    cost=0,
+                    size=1,
+                    appeal=0,
+                    conservation=0,
+                    badges=("Africa", "Americas", "Primate", "Reptile"),
+                ),
+            ]
+        )
+
+    p0.hand.extend(
+        [
+            _make_conservation_project_hand_card(
+                SetupCardRef(data_id="P103_Africa", title="AFRICA"),
+                "p0-project-103",
+            ),
+            _make_conservation_project_hand_card(
+                SetupCardRef(data_id="P108_Primates", title="PRIMATES"),
+                "p0-project-108",
+            ),
+        ]
+    )
+    p1.hand.extend(
+        [
+            _make_conservation_project_hand_card(
+                SetupCardRef(data_id="P104_Americas", title="AMERICAS"),
+                "p1-project-104",
+            ),
+            _make_conservation_project_hand_card(
+                SetupCardRef(data_id="P109_Reptiles", title="REPTILES"),
+                "p1-project-109",
+            ),
+        ]
+    )
+
+    def _support_from_hand(player_id: int, project_id: str) -> None:
+        state.current_player = player_id
+        state.players[player_id].action_order = ["cards", "animals", "build", "sponsors", "association"]
+        apply_action(
+            state,
+            Action(
+                ActionType.MAIN_ACTION,
+                card_name="association",
+                details={
+                    "task_kind": "conservation_project",
+                    "project_id": project_id,
+                    "project_level": "right_level",
+                },
+            ),
+        )
+        if state.pending_decision_kind == "conservation_reward":
+            actions = legal_actions(state.players[player_id], state=state, player_id=player_id)
+            apply_action(state, next(action for action in actions if action.type == ActionType.PENDING_DECISION))
+
+    _support_from_hand(0, "P103_Africa")
+    _support_from_hand(1, "P104_Americas")
+    _support_from_hand(0, "P108_Primates")
+    _support_from_hand(1, "P109_Reptiles")
+
+    base_ids = {project.data_id for project in state.opening_setup.base_conservation_projects}
+    row_ids = [project_id for project_id in state.conservation_project_slots if project_id not in base_ids]
+    assert row_ids == ["P109_Reptiles", "P108_Primates", "P104_Americas"]
+    assert "P103_Africa" not in state.conservation_project_slots
+    assert any(card.card_type == "conservation_project" and card.number == 103 for card in state.zoo_discard)
+    assert any(
+        line.startswith("conservation_project_row_discard:P103_Africa:returned_tokens=1")
+        for line in state.effect_log
+    )
+
+
 def test_association_conservation_project_slot_is_blocked_if_occupied():
     state = setup_game(seed=607, player_names=["P1", "P2"])
     p0, p1 = state.players

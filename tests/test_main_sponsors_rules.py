@@ -635,6 +635,99 @@ def test_sponsor_227_requires_explicit_mode():
     assert player.zoo_cards == []
 
 
+def test_sponsor_227_puts_non_kept_revealed_cards_to_deck_bottom():
+    state = setup_game(seed=7161, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.money = 20
+    player.reputation = 6
+    player.action_order = ["animals", "cards", "build", "association", "sponsors"]
+    sponsor_227 = AnimalCard(
+        name="WAZA",
+        cost=4,
+        size=0,
+        appeal=0,
+        conservation=0,
+        card_type="sponsor",
+        number=227,
+        instance_id="s227-bottom",
+    )
+    reveal_1 = AnimalCard(
+        name="Reveal Sponsor",
+        cost=1,
+        size=0,
+        appeal=0,
+        conservation=0,
+        card_type="sponsor",
+        number=99001,
+        instance_id="reveal-1",
+    )
+    reveal_2 = AnimalCard(
+        name="Reveal Large",
+        cost=1,
+        size=4,
+        appeal=0,
+        conservation=0,
+        card_type="animal",
+        number=99002,
+        instance_id="reveal-2",
+    )
+    keep_small = AnimalCard(
+        name="Keep Small",
+        cost=1,
+        size=2,
+        appeal=0,
+        conservation=0,
+        card_type="animal",
+        number=99003,
+        instance_id="keep-small",
+    )
+    tail_card = AnimalCard(
+        name="Tail",
+        cost=1,
+        size=0,
+        appeal=0,
+        conservation=0,
+        card_type="sponsor",
+        number=99004,
+        instance_id="tail-card",
+    )
+    player.hand = [sponsor_227]
+    state.zoo_deck = [reveal_1, reveal_2, keep_small, tail_card]
+    state.zoo_discard = []
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            card_name="sponsors",
+            details={
+                "use_break_ability": False,
+                "sponsor_227_mode": "small",
+                "sponsor_selections": [
+                    {
+                        "source": "hand",
+                        "source_index": 0,
+                        "card_instance_id": sponsor_227.instance_id,
+                    }
+                ],
+            },
+        ),
+    )
+
+    assert any(card.instance_id == sponsor_227.instance_id for card in player.zoo_cards)
+    assert any(card.instance_id == keep_small.instance_id for card in player.hand)
+    assert [card.instance_id for card in state.zoo_deck] == [
+        tail_card.instance_id,
+        reveal_1.instance_id,
+        reveal_2.instance_id,
+    ]
+    assert all(
+        card.instance_id not in {reveal_1.instance_id, reveal_2.instance_id, keep_small.instance_id}
+        for card in state.zoo_discard
+    )
+
+
 def test_final_score_includes_sponsor_endgame_bonus():
     state = setup_game(seed=711, player_names=["P1", "P2"])
     player = state.players[0]

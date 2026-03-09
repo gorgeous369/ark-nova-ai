@@ -280,6 +280,11 @@ DONATION_COST_TRACK: Tuple[int, ...] = (2, 5, 7, 10, 12)
 ASSOCIATION_TASK_KINDS: Tuple[str, ...] = ("reputation", "partner_zoo", "university", "conservation_project")
 MAX_WORKERS: int = 4
 MAX_ASSOCIATION_WORKERS_PER_TASK: int = 3
+CONSERVATION_PROJECT_ROW_LIMIT_BY_PLAYERS: Dict[int, int] = {
+    2: 3,
+    3: 3,
+    4: 4,
+}
 SPONSOR_LEVEL_OVERRIDES: Dict[int, int] = {
     231: 3,
     232: 3,
@@ -1371,6 +1376,99 @@ def _ensure_conservation_project_slots(state: GameState, project_id: str) -> Non
             "middle_level": None,
             "right_level": None,
         }
+
+
+def _opening_base_conservation_project_ids(state: GameState) -> List[str]:
+    return [project.data_id for project in state.opening_setup.base_conservation_projects]
+
+
+def _conservation_project_row_ids(state: GameState) -> List[str]:
+    base_ids = set(_opening_base_conservation_project_ids(state))
+    return [
+        project_id
+        for project_id in state.conservation_project_slots
+        if project_id not in base_ids
+    ]
+
+
+def _set_conservation_project_slot_order(
+    state: GameState,
+    *,
+    row_project_ids: Sequence[str],
+) -> None:
+    previous = state.conservation_project_slots
+    reordered: Dict[str, Dict[str, Optional[int]]] = {}
+    for project_id in _opening_base_conservation_project_ids(state):
+        slots = previous.get(project_id)
+        if slots is not None:
+            reordered[project_id] = slots
+    for project_id in row_project_ids:
+        if project_id in reordered:
+            continue
+        slots = previous.get(project_id)
+        if slots is not None:
+            reordered[project_id] = slots
+    state.conservation_project_slots = reordered
+
+
+def _conservation_project_row_limit(state: GameState) -> int:
+    return int(
+        CONSERVATION_PROJECT_ROW_LIMIT_BY_PLAYERS.get(
+            len(state.players),
+            4,
+        )
+    )
+
+
+def _project_card_for_discard_from_id(
+    *,
+    project_id: str,
+    turn_index: int,
+    discard_index: int,
+) -> AnimalCard:
+    number = _project_number_from_data_id(project_id)
+    project_ref = _project_ref_from_number(number, fallback_title=project_id)
+    return _make_conservation_project_hand_card(
+        project_ref,
+        instance_id=f"discard-{project_id}-{turn_index}-{discard_index}",
+    )
+
+
+def _on_new_conservation_project_added_to_row(
+    state: GameState,
+    *,
+    project_id: str,
+) -> None:
+    base_ids = set(_opening_base_conservation_project_ids(state))
+    if project_id in base_ids:
+        return
+
+    existing_row_ids = [pid for pid in _conservation_project_row_ids(state) if pid != project_id]
+    row_ids = [project_id] + existing_row_ids
+    limit = _conservation_project_row_limit(state)
+    kept_row_ids = row_ids[:limit]
+    discarded_row_ids = row_ids[limit:]
+    previous_slots = state.conservation_project_slots
+    discarded_with_slots = [
+        (discarded_id, dict(previous_slots.get(discarded_id) or {}))
+        for discarded_id in discarded_row_ids
+    ]
+    _set_conservation_project_slot_order(state, row_project_ids=kept_row_ids)
+    for discarded_id, slot_owners in discarded_with_slots:
+        token_count = 0
+        for owner in slot_owners.values():
+            if owner is None:
+                continue
+            token_count += 1
+        discard_card = _project_card_for_discard_from_id(
+            project_id=discarded_id,
+            turn_index=int(state.turn_index),
+            discard_index=len(state.zoo_discard),
+        )
+        state.zoo_discard.append(discard_card)
+        state.effect_log.append(
+            f"conservation_project_row_discard:{discarded_id}:returned_tokens={token_count}"
+        )
 
 
 def _current_conservation_projects(state: GameState) -> List[SetupCardRef]:
@@ -9173,6 +9271,7 @@ def _apply_association_selected_option(
                 raise ValueError("Selected hand conservation project does not match requested project.")
             player.hand.pop(project_from_hand_index)
             _ensure_conservation_project_slots(state, project_id)
+            _on_new_conservation_project_added_to_row(state, project_id=project_id)
         elif project_from_display_index_raw is not None:
             if not upgraded:
                 raise ValueError("Only upgraded Association can support conservation projects from display.")
@@ -9193,6 +9292,7 @@ def _apply_association_selected_option(
             state.zoo_display.pop(project_from_display_index)
             _replenish_zoo_display(state)
             _ensure_conservation_project_slots(state, project_id)
+            _on_new_conservation_project_added_to_row(state, project_id=project_id)
         project_level = str(selected.get("project_level") or "")
         if project_level not in {"left_level", "middle_level", "right_level"}:
             raise ValueError("Missing or invalid project_level for conservation project task.")
@@ -10195,7 +10295,7 @@ def _apply_sponsor_immediate_effects(
         for candidate in revealed:
             if keep is not None and candidate.instance_id == keep.instance_id:
                 continue
-            state.zoo_discard.append(candidate)
+            state.zoo_deck.append(candidate)
         if keep is not None:
             player.hand.append(keep)
         messages.append(
