@@ -900,6 +900,103 @@ def test_build_card_bonus_uses_selected_display_choice():
     assert [card.instance_id for card in state.zoo_display] == ["display-1", "display-3", "display-4", "deck-fill-1"]
 
 
+def test_build_bonus_archaeologist_chain_keeps_non_interactive_mode(monkeypatch):
+    state = setup_game(seed=1464, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.reputation = 4
+    player.action_upgraded = {action: False for action in MAIN_ACTION_CARDS}
+    state.map_tile_bonuses = {
+        (0, 0): "5coins",
+        (1, 1): "reputation",
+    }
+
+    monkeypatch.setattr("main._player_has_sponsor", lambda _player, sponsor_number: sponsor_number == 221)
+    monkeypatch.setattr("main._player_border_coords", lambda _player: {(0, 0)})
+    monkeypatch.setattr("main._player_all_covered_cells", lambda _player: set())
+    monkeypatch.setattr("builtins.input", lambda _prompt: (_ for _ in ()).throw(AssertionError("input() must not be called")))
+
+    main._apply_build_placement_bonus(
+        state=state,
+        player=player,
+        bonus="5coins",
+        details={},
+        bonus_index=0,
+        bonus_coord=(0, 0),
+        allow_interactive=False,
+    )
+
+    assert player.reputation >= 5
+    assert player.action_upgraded["animals"] is True
+
+
+def test_animals_trade_with_sponsor_228_skips_stale_followup_instead_of_raising(monkeypatch):
+    state = setup_game(seed=1465, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.money = 50
+    player.reputation = 10
+    player.enclosures = [
+        Enclosure(size=1, occupied=False, origin=(0, 0), rotation="ROT_0"),
+        Enclosure(size=1, occupied=False, origin=(1, -1), rotation="ROT_0"),
+    ]
+    player.hand = [
+        AnimalCard(
+            "Trader",
+            3,
+            1,
+            1,
+            0,
+            card_type="animal",
+            ability_title="Trade",
+            number=970201,
+            instance_id="970201",
+        ),
+        AnimalCard(
+            "ExtraSmall",
+            2,
+            1,
+            3,
+            0,
+            card_type="animal",
+            number=970202,
+            instance_id="970202",
+        ),
+    ]
+    state.zoo_display = [
+        AnimalCard(
+            "DisplayCard",
+            2,
+            1,
+            1,
+            0,
+            card_type="animal",
+            number=970299,
+            instance_id="970299",
+        )
+    ]
+
+    monkeypatch.setattr("main._player_has_sponsor", lambda _player, sponsor_number: sponsor_number == 228)
+
+    options = main.list_legal_animals_options(state=state, player_id=0, strength=2)
+    trade_index = next(
+        int(option["index"]) - 1
+        for option in options
+        if [str(play.get("card_instance_id") or "") for play in option.get("plays") or []] == ["970201"]
+    )
+
+    _perform_animals_action_effect(
+        state=state,
+        player=player,
+        strength=2,
+        details={"animals_sequence_index": trade_index},
+        player_id=0,
+    )
+
+    assert any(str(entry).startswith("sponsor_228_extra_small_animal") for entry in state.effect_log)
+    assert any(str(entry).startswith("animals_followup_skipped_missing_hand_card") for entry in state.effect_log)
+    assert any(card.instance_id == "970299" for card in player.hand)
+
+
 def test_human_association_choice_keeps_selected_x_spend(monkeypatch):
     state = setup_game(seed=147, player_names=["P1", "P2"])
     player = state.players[0]

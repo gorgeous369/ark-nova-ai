@@ -701,3 +701,74 @@ def test_legal_actions_filters_two_play_animals_sequence_invalidated_by_trade_ef
     }
 
     assert invalid_idx not in animal_indices
+
+
+def test_legal_actions_filter_trade_sequence_invalidated_by_sponsor_228_followup(monkeypatch):
+    state = setup_game(seed=616, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    state.current_player = 0
+    p0.money = 50
+    p0.reputation = 10
+    p0.action_upgraded["animals"] = False
+    p0.action_order = ["cards", "animals", "build", "association", "sponsors"]  # animals strength=2
+    p0.enclosures = [
+        Enclosure(size=1, occupied=False, origin=(0, 0), rotation="ROT_0"),
+        Enclosure(size=1, occupied=False, origin=(1, -1), rotation="ROT_0"),
+    ]
+    p0.enclosure_objects = [
+        EnclosureObject(1, "enclosure_1", 0, 0, 0, (0, 0), "ROT_0"),
+        EnclosureObject(1, "enclosure_1", 0, 0, 0, (1, -1), "ROT_0"),
+    ]
+    p0.hand = [
+        AnimalCard(
+            name="Trader",
+            cost=3,
+            size=1,
+            appeal=1,
+            conservation=0,
+            card_type="animal",
+            ability_title="Trade",
+            number=970001,
+            instance_id="970001",
+        ),
+        AnimalCard(
+            name="ExtraSmall",
+            cost=2,
+            size=1,
+            appeal=3,
+            conservation=0,
+            card_type="animal",
+            number=970002,
+            instance_id="970002",
+        ),
+    ]
+    state.zoo_display = [
+        AnimalCard(
+            name="DisplayCard",
+            cost=2,
+            size=1,
+            appeal=1,
+            conservation=0,
+            card_type="animal",
+            number=970100,
+            instance_id="970100",
+        )
+    ]
+
+    monkeypatch.setattr("main._player_has_sponsor", lambda _player, sponsor_number: sponsor_number == 228)
+
+    options = list_legal_animals_options(state=state, player_id=0, strength=2)
+    invalid_idx = next(
+        int(option["index"]) - 1
+        for option in options
+        if [str(play.get("card_instance_id") or "") for play in option.get("plays") or []] == ["970001"]
+    )
+
+    actions = legal_actions(p0, state=state, player_id=0)
+    animal_indices = {
+        int((action.details or {}).get("animals_sequence_index", -1))
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION and str(action.card_name or "") == "animals"
+    }
+
+    assert invalid_idx not in animal_indices

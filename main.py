@@ -22,7 +22,7 @@ import json
 from pathlib import Path
 import random
 import re
-from typing import Dict, List, Optional, Sequence, Set, Tuple, Any
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from arknova_engine.map_model import (
     ArkNovaMap,
@@ -800,6 +800,8 @@ def _serialize_map_building_public(building: Building) -> Dict[str, Any]:
 _PENDING_PAYLOAD_PUBLIC_KEYS_BY_KIND: Dict[str, Tuple[str, ...]] = {
     "cards_discard": (
         "discard_target",
+        "break_triggered",
+        "consumed_venom",
     ),
     "break_discard": (
         "discard_target",
@@ -848,6 +850,10 @@ def _serialize_public_pending_payload(kind: str, payload: Any) -> Dict[str, Any]
             continue
         if value is None:
             serialized[str(key)] = None
+    if kind_key == "opening_draft_keep":
+        draft_ids = payload.get("draft_card_instance_ids")
+        if isinstance(draft_ids, list):
+            serialized["draft_card_count"] = len(draft_ids)
     return serialized
 
 
@@ -860,6 +866,42 @@ def _build_public_player_observation(player: PlayerState, *, player_id: int) -> 
         task: int(player.association_workers_by_task.get(task, 0))
         for task in ASSOCIATION_TASK_KINDS
     }
+    multiplier_tokens_on_actions = {
+        action: int(player.multiplier_tokens_on_actions.get(action, 0))
+        for action in MAIN_ACTION_CARDS
+    }
+    venom_tokens_on_actions = {
+        action: int(player.venom_tokens_on_actions.get(action, 0))
+        for action in MAIN_ACTION_CARDS
+    }
+    constriction_tokens_on_actions = {
+        action: int(player.constriction_tokens_on_actions.get(action, 0))
+        for action in MAIN_ACTION_CARDS
+    }
+    extra_actions_granted = {
+        action: int(player.extra_actions_granted.get(action, 0))
+        for action in MAIN_ACTION_CARDS
+    }
+    extra_strength_actions = [
+        {
+            "strength": int(strength),
+            "count": int(count),
+        }
+        for strength, count in sorted(
+            player.extra_strength_actions.items(),
+            key=lambda item: int(item[0]),
+        )
+    ]
+    sponsor_tokens_by_number = [
+        {
+            "number": int(number),
+            "count": int(count),
+        }
+        for number, count in sorted(
+            player.sponsor_tokens_by_number.items(),
+            key=lambda item: int(item[0]),
+        )
+    ]
     enclosure_objects = sorted(
         player.enclosure_objects,
         key=lambda item: (
@@ -919,6 +961,16 @@ def _build_public_player_observation(player: PlayerState, *, player_id: int) -> 
         "action_upgraded": action_upgraded,
         "workers_on_association_board": int(player.workers_on_association_board),
         "association_workers_by_task": association_workers,
+        "multiplier_tokens_on_actions": multiplier_tokens_on_actions,
+        "venom_tokens_on_actions": venom_tokens_on_actions,
+        "constriction_tokens_on_actions": constriction_tokens_on_actions,
+        "extra_actions_granted": extra_actions_granted,
+        "extra_any_actions": int(player.extra_any_actions),
+        "extra_strength_actions": extra_strength_actions,
+        "camouflage_condition_ignores": int(player.camouflage_condition_ignores),
+        "sponsor_tokens_by_number": sponsor_tokens_by_number,
+        "sponsor_waza_assignment_mode": str(player.sponsor_waza_assignment_mode),
+        "sponsor_ignore_large_condition_charges": int(player.sponsor_ignore_large_condition_charges),
         "partner_zoos": sorted(str(item) for item in player.partner_zoos),
         "universities": sorted(str(item) for item in player.universities),
         "supported_conservation_projects": sorted(
@@ -974,6 +1026,16 @@ def _build_public_player_observation(player: PlayerState, *, player_id: int) -> 
 
 
 def _build_private_player_observation(player: PlayerState) -> Dict[str, Any]:
+    zoo_card_public_indices = {
+        str(card.instance_id): idx
+        for idx, card in enumerate(list(player.zoo_cards))
+        if str(card.instance_id).strip()
+    }
+    zoo_card_numbers_by_instance = {
+        str(card.instance_id): int(card.number)
+        for card in list(player.zoo_cards)
+        if str(card.instance_id).strip()
+    }
     pouched_cards_by_host = {
         str(host): [str(card.instance_id) for card in list(cards)]
         for host, cards in sorted(
@@ -981,6 +1043,44 @@ def _build_private_player_observation(player: PlayerState) -> Dict[str, Any]:
             key=lambda item: str(item[0]),
         )
     }
+    pouched_cards_by_host_cards = {
+        str(host): [
+            _serialize_animal_card_private(card)
+            for card in list(cards)
+        ]
+        for host, cards in sorted(
+            player.pouched_cards_by_host.items(),
+            key=lambda item: str(item[0]),
+        )
+    }
+    pouched_cards_by_host_public: List[Dict[str, Any]] = []
+    pouched_host_public_counts = [0 for _ in range(len(player.zoo_cards))]
+    for host, cards in sorted(
+        player.pouched_cards_by_host.items(),
+        key=lambda item: str(item[0]),
+    ):
+        host_key = str(host)
+        host_public_index = zoo_card_public_indices.get(host_key)
+        if host_public_index is not None:
+            pouched_host_public_counts[int(host_public_index)] += len(list(cards))
+        pouched_cards_by_host_public.append(
+            {
+                "host_public_index": (
+                    None
+                    if host_public_index is None
+                    else int(host_public_index)
+                ),
+                "host_number": (
+                    None
+                    if host_key not in zoo_card_numbers_by_instance
+                    else int(zoo_card_numbers_by_instance[host_key])
+                ),
+                "cards": [
+                    _serialize_animal_card_private(card)
+                    for card in list(cards)
+                ],
+            }
+        )
     return {
         "hand_count": len(player.hand),
         "hand": [
@@ -1004,7 +1104,14 @@ def _build_private_player_observation(player: PlayerState) -> Dict[str, Any]:
             _serialize_animal_card_private(card)
             for card in list(player.pouched_cards)
         ],
+        "zoo_cards_public_count": len(player.zoo_cards),
         "pouched_cards_by_host": pouched_cards_by_host,
+        "pouched_cards_by_host_cards": pouched_cards_by_host_cards,
+        "pouched_cards_by_host_public": pouched_cards_by_host_public,
+        "pouched_host_public_counts": [
+            int(count)
+            for count in pouched_host_public_counts
+        ],
         "legacy_private_deck_count": len(player.deck),
         "legacy_private_discard_count": len(player.discard),
     }
@@ -2175,12 +2282,25 @@ def _merge_detail_fragments(*fragments: Dict[str, Any]) -> Dict[str, Any]:
     merged: Dict[str, Any] = {}
     for fragment in fragments:
         for key, value in fragment.items():
-            if key in {"sponsor_unique_building_selections", "sponsor_263_build_details"}:
+            if key in {
+                "sponsor_unique_building_selections",
+                "sponsor_263_build_details",
+                "sponsor_253_plays",
+            }:
                 merged.setdefault(key, [])
                 merged[key].extend(copy.deepcopy(list(value)))
                 continue
             merged[key] = copy.deepcopy(value)
     return merged
+
+
+class _ActionDetailExpansionRequired(Exception):
+    def __init__(self, variants: Sequence[Tuple[Dict[str, Any], str]]) -> None:
+        super().__init__("action detail expansion required")
+        self.variants: List[Tuple[Dict[str, Any], str]] = [
+            (copy.deepcopy(details), str(label))
+            for details, label in variants
+        ]
 
 
 def _enumerate_sponsor_candidate_detail_variants(
@@ -2271,6 +2391,100 @@ def _enumerate_sponsor_candidate_detail_variants(
         _cross_join(additions)
 
     return variants
+
+
+def _enumerate_sponsor_253_choice_variants(
+    state: GameState,
+    player: PlayerState,
+    player_id: int,
+    candidates: Sequence[AnimalCard],
+) -> List[Tuple[Dict[str, Any], str]]:
+    variants: List[Tuple[Dict[str, Any], str]] = [
+        ({"sponsor_253_plays": [{"skip": True}]}, "253=skip"),
+    ]
+    for card in candidates:
+        source_index = next(
+            (idx for idx, candidate in enumerate(player.hand) if candidate.instance_id == card.instance_id),
+            -1,
+        )
+        if source_index < 0:
+            continue
+        candidate_payload = {
+            "card_instance_id": str(card.instance_id),
+            "source_index": int(source_index),
+        }
+        candidate_ref = {
+            "card": card,
+            "source": "hand",
+            "source_index": int(source_index),
+            "card_instance_id": str(card.instance_id),
+            "level": int(_sponsor_level(card)),
+            "playable_now": True,
+        }
+        for fragment_details, fragment_label in _enumerate_sponsor_candidate_detail_variants(
+            state,
+            player,
+            player_id,
+            candidate_ref,
+        ):
+            label = f"253=>hand[{source_index + 1}] #{card.number} {card.name}"
+            if fragment_label:
+                label = f"{label} ({fragment_label})"
+            variants.append(
+                (
+                    _merge_detail_fragments(
+                        {"sponsor_253_plays": [candidate_payload]},
+                        fragment_details,
+                    ),
+                    label,
+                )
+            )
+    return variants
+
+
+def _resolve_action_detail_variants_by_simulation(
+    *,
+    state: GameState,
+    player_id: int,
+    base_details: Dict[str, Any],
+    executor: Callable[[GameState, PlayerState, Dict[str, Any]], None],
+    invalid_effect_log_prefixes: Sequence[str] = (),
+) -> List[Tuple[Dict[str, Any], str]]:
+    resolved: List[Tuple[Dict[str, Any], str]] = []
+
+    def _recurse(details_payload: Dict[str, Any], label_parts: List[str]) -> None:
+        sim_state = copy.deepcopy(state)
+        sim_player = sim_state.players[player_id]
+        sim_details = copy.deepcopy(details_payload)
+        sim_details["_allow_interactive"] = False
+        sim_details["_expand_implicit_choices"] = True
+        effect_log_len_before = len(sim_state.effect_log)
+        try:
+            executor(sim_state, sim_player, sim_details)
+        except _ActionDetailExpansionRequired as pending:
+            for extra_details, extra_label in pending.variants:
+                next_details = _merge_detail_fragments(details_payload, extra_details)
+                next_labels = list(label_parts)
+                if extra_label:
+                    next_labels.append(extra_label)
+                _recurse(next_details, next_labels)
+            return
+        except ValueError:
+            return
+
+        if invalid_effect_log_prefixes:
+            recent_effects = sim_state.effect_log[effect_log_len_before:]
+            if any(
+                any(str(entry).startswith(prefix) for prefix in invalid_effect_log_prefixes)
+                for entry in recent_effects
+            ):
+                return
+
+        label = " ; ".join(part for part in label_parts if part)
+        resolved.append((copy.deepcopy(details_payload), label))
+
+    _recurse(copy.deepcopy(base_details), [])
+    return resolved or []
 
 
 def _enumerate_concrete_cards_actions(
@@ -2438,12 +2652,18 @@ def _enumerate_animals_effect_choice_variants(
                     and bool(state.zoo_display)
                     and int(_reputation_display_limit(player.reputation)) > 0
                 )
+                trade_valid = True
                 if can_trade:
                     for _ in range(max(0, int(effect.value))):
                         if not next_hand:
                             break
+                        if str(next_hand[0].instance_id or "").strip() in reserved_future_ids:
+                            trade_valid = False
+                            break
                         # Non-interactive trade deterministically exchanges hand slot 0.
                         next_hand.pop(0)
+                if not trade_valid:
+                    continue
                 next_variants.append(
                     (
                         copy.deepcopy(queued_choices),
@@ -3730,31 +3950,21 @@ def _enumerate_concrete_animals_actions(
     strength = int((template_action.details or {}).get("effective_strength", 0))
     options = list_legal_animals_options(state=state, player_id=player_id, strength=strength)
     actions: List[Action] = []
-    validation_cache: Dict[str, bool] = {}
 
-    def _is_executable(details_payload: Dict[str, Any]) -> bool:
-        key = json.dumps(details_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-        cached = validation_cache.get(key)
-        if cached is not None:
-            return cached
-
-        sim_state = copy.deepcopy(state)
-        sim_player = sim_state.players[player_id]
-        sim_details = copy.deepcopy(details_payload)
-        sim_details["_allow_interactive"] = False
-        try:
-            _perform_animals_action_effect(
+    def _resolve_animals_details(details_payload: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str]]:
+        return _resolve_action_detail_variants_by_simulation(
+            state=state,
+            player_id=player_id,
+            base_details=details_payload,
+            executor=lambda sim_state, sim_player, sim_details: _perform_animals_action_effect(
                 state=sim_state,
                 player=sim_player,
                 strength=strength,
                 details=sim_details,
                 player_id=player_id,
-            )
-            validation_cache[key] = True
-            return True
-        except ValueError:
-            validation_cache[key] = False
-            return False
+            ),
+            invalid_effect_log_prefixes=("animals_followup_skipped_missing_hand_card",),
+        )
 
     for option in options:
         base_label = " ; then ".join(_format_animals_play_step_for_human(step, player) for step in option["plays"])
@@ -3763,9 +3973,21 @@ def _enumerate_concrete_animals_actions(
             label = base_label if not effect_label else f"{base_label} ; {effect_label}"
             details = {"animals_sequence_index": int(option["index"]) - 1}
             details.update(copy.deepcopy(extra_effect_details))
-            if len(option["plays"]) >= 2 and not _is_executable(details):
-                continue
-            actions.append(_make_concrete_action(template_action, label=label, extra_details=details))
+            requires_resolution = (
+                len(option["plays"]) >= 2
+                or _player_has_sponsor(player, 228)
+                or int(player.sponsor_tokens_by_number.get(253, 0)) > 0
+            )
+            resolved_variants = [(copy.deepcopy(details), "")] if not requires_resolution else _resolve_animals_details(details)
+            for resolved_details, resolved_label in resolved_variants:
+                final_label = label if not resolved_label else f"{label} ; {resolved_label}"
+                actions.append(
+                    _make_concrete_action(
+                        template_action,
+                        label=final_label,
+                        extra_details=resolved_details,
+                    )
+                )
     return actions
 
 
@@ -4227,13 +4449,31 @@ def _enumerate_concrete_sponsors_actions(
                     card_label += f" ({fragment_label})"
                 label_parts.append(card_label)
                 extra_details = _merge_detail_fragments(extra_details, fragment_details)
-            actions.append(
-                _make_concrete_action(
-                    template_action,
-                    label=" + ".join(label_parts),
-                    extra_details=extra_details,
+            resolved_variants = [(copy.deepcopy(extra_details), "")]
+            if int(player.sponsor_tokens_by_number.get(253, 0)) > 0:
+                resolved_variants = _resolve_action_detail_variants_by_simulation(
+                    state=state,
+                    player_id=player_id,
+                    base_details=extra_details,
+                    executor=lambda sim_state, sim_player, sim_details: _perform_sponsors_action_effect(
+                        state=sim_state,
+                        player=sim_player,
+                        strength=strength,
+                        details=sim_details,
+                        player_id=player_id,
+                    ),
                 )
-            )
+            for resolved_details, resolved_label in resolved_variants:
+                final_label = " + ".join(label_parts)
+                if resolved_label:
+                    final_label = f"{final_label} ; {resolved_label}"
+                actions.append(
+                    _make_concrete_action(
+                        template_action,
+                        label=final_label,
+                        extra_details=resolved_details,
+                    )
+                )
 
     return actions
 
@@ -5621,7 +5861,7 @@ def _apply_build_placement_bonus(
     bonus_index: int,
     bonus_coord: Optional[Tuple[int, int]] = None,
     allow_archaeologist_chain: bool = True,
-    allow_interactive: bool = True,
+    allow_interactive: bool = False,
 ) -> None:
     if bonus == "5coins":
         player.money += 5
@@ -5722,6 +5962,7 @@ def _apply_build_placement_bonus(
                 bonus_index=bonus_index,
                 bonus_coord=picked_coord,
                 allow_archaeologist_chain=False,
+                allow_interactive=allow_interactive,
             )
 
 
@@ -7907,7 +8148,10 @@ def _perform_animals_action_effect(
 
     for card, play in zip(resolved_cards, selected_plays):
         if card not in player.hand:
-            raise ValueError("Selected animal card is no longer in hand.")
+            state.effect_log.append(
+                f"animals_followup_skipped_missing_hand_card card={getattr(card, 'number', '?')}"
+            )
+            continue
         if card.card_type != "animal":
             raise ValueError("Selected card is not an animal card.")
         if not _animal_size_restriction_met(player, card):
@@ -8241,6 +8485,7 @@ def _perform_animals_action_effect(
                         details={},
                         bonus_index=bonus_cursor,
                         bonus_coord=bonus_coord,
+                        allow_interactive=False,
                     )
                     bonus_cursor += 1
                 _apply_cover_money_from_sponsors_241_242(player, picked)
@@ -8815,6 +9060,7 @@ def _perform_animals_action_effect(
                         details={},
                         bonus_index=bonus_cursor,
                         bonus_coord=bonus_coord,
+                        allow_interactive=False,
                     )
                     bonus_cursor += 1
                 _apply_cover_money_from_sponsors_241_242(player, picked)
@@ -9752,8 +9998,22 @@ def _play_sponsor_from_hand_via_253(
             selection = {
                 "card_instance_id": candidates[0].instance_id,
             }
+        elif bool(details.get("_expand_implicit_choices")):
+            raise _ActionDetailExpansionRequired(
+                _enumerate_sponsor_253_choice_variants(
+                    state=state,
+                    player=player,
+                    player_id=player_id,
+                    candidates=candidates,
+                )
+            )
         else:
-            raise ValueError("Sponsor #253 requires explicit sponsor_253_plays choices when a legal sponsor play exists.")
+            selection = {
+                "card_instance_id": candidates[0].instance_id,
+            }
+            state.effect_log.append(
+                f"sponsor_253_default_choice card={candidates[0].number} source_index={player.hand.index(candidates[0])}"
+            )
     if bool(selection.get("skip")):
         return False
 

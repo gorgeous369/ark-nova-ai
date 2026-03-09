@@ -62,7 +62,7 @@ def _tokenize_text(text: str) -> List[str]:
 class ActionFeatureEncoder:
     """Encodes concrete `Action` candidates into fixed vectors."""
 
-    def __init__(self, text_hash_dim: int = 64) -> None:
+    def __init__(self, text_hash_dim: int = 32) -> None:
         self.main_actions: Tuple[str, ...] = tuple(main.MAIN_ACTION_CARDS)
         self.pending_kinds: Tuple[str, ...] = (
             "cards_discard",
@@ -122,14 +122,71 @@ class ActionFeatureEncoder:
             1.0 if bool(details.get("use_break_ability")) else 0.0,
         ]
 
+    def _append_text_feature_tokens(
+        self,
+        tokens: List[str],
+        *,
+        prefix: str,
+        value: Any,
+    ) -> None:
+        if isinstance(value, bool):
+            tokens.append(f"{prefix}:{1 if value else 0}")
+            return
+        if isinstance(value, (int, float)):
+            tokens.append(f"{prefix}:{int(value)}")
+            return
+        if isinstance(value, str):
+            value_text = value.strip().lower()
+            if value_text:
+                tokens.append(f"{prefix}:{value_text}")
+            return
+        if isinstance(value, dict):
+            for child_key in sorted(value):
+                child_key_text = str(child_key).strip().lower()
+                if (
+                    not child_key_text
+                    or child_key_text == "action_label"
+                    or "instance_id" in child_key_text
+                    or child_key_text.endswith("_ids")
+                ):
+                    continue
+                child_prefix = f"{prefix}.{child_key_text}"
+                tokens.append(f"key:{child_prefix}")
+                self._append_text_feature_tokens(
+                    tokens,
+                    prefix=child_prefix,
+                    value=value.get(child_key),
+                )
+            return
+        if isinstance(value, (list, tuple)):
+            for idx, item in enumerate(value):
+                self._append_text_feature_tokens(
+                    tokens,
+                    prefix=f"{prefix}[{idx}]",
+                    value=item,
+                )
+
     def _text_features(self, action: main.Action) -> np.ndarray:
         details = dict(action.details or {})
-        tokens = _tokenize_text(str(action))
+        tokens: List[str] = [f"type:{action.type.value}"]
+        card_name = str(action.card_name or "").strip().lower()
+        if card_name:
+            tokens.append(f"card:{card_name}")
         for key in sorted(details):
-            tokens.extend(_tokenize_text(key))
-            value = details.get(key)
-            if isinstance(value, (str, int, float, bool)):
-                tokens.extend(_tokenize_text(str(value)))
+            key_text = str(key).strip().lower()
+            if (
+                not key_text
+                or key_text == "action_label"
+                or "instance_id" in key_text
+                or key_text.endswith("_ids")
+            ):
+                continue
+            tokens.append(f"key:{key_text}")
+            self._append_text_feature_tokens(
+                tokens,
+                prefix=key_text,
+                value=details.get(key),
+            )
         return _hash_tokens(tokens, self.text_hash_dim)
 
     def encode(self, action: main.Action) -> np.ndarray:
@@ -385,6 +442,100 @@ class ObservationEncoder:
             tokens.append(f"{key_text}:{value_text}")
         return _hash_tokens(tokens, self.set_hash_dim).tolist()
 
+    def _encode_main_action_count_map(self, payload: Any, *, scale: float = 6.0) -> List[float]:
+        data = dict(payload or {}) if isinstance(payload, dict) else {}
+        values: List[float] = []
+        total = 0
+        for action_name in self.main_actions:
+            count = max(0, _safe_int(data.get(action_name, 0), 0))
+            total += count
+            values.append(_norm(count, scale))
+        values.append(_norm(total, scale * float(max(1, len(self.main_actions)))))
+        return values
+
+    def _encode_strength_count_entries(self, payload: Any) -> List[float]:
+        counts: Dict[int, int] = {}
+        if isinstance(payload, dict):
+            for raw_strength, raw_count in payload.items():
+                strength = _safe_int(raw_strength, 0)
+                count = max(0, _safe_int(raw_count, 0))
+                if count > 0:
+                    counts[strength] = counts.get(strength, 0) + count
+        elif isinstance(payload, list):
+            for raw_entry in payload:
+                if not isinstance(raw_entry, dict):
+                    continue
+                strength = _safe_int(raw_entry.get("strength", 0), 0)
+                count = max(0, _safe_int(raw_entry.get("count", 0), 0))
+                if count > 0:
+                    counts[strength] = counts.get(strength, 0) + count
+
+        values = [_norm(counts.get(strength, 0), 6.0) for strength in range(1, 6)]
+        other_total = sum(count for strength, count in counts.items() if strength < 1 or strength > 5)
+        distinct = sum(1 for count in counts.values() if count > 0)
+        values.extend(
+            [
+                _norm(other_total, 10.0),
+                _norm(distinct, 8.0),
+                _norm(sum(counts.values()), 20.0),
+            ]
+        )
+        return values
+
+    def _encode_number_count_entries(
+        self,
+        payload: Any,
+        *,
+        number_key: str,
+        count_key: str = "count",
+        number_scale: float = 600.0,
+        count_scale: float = 10.0,
+    ) -> List[float]:
+        counts: Dict[int, int] = {}
+        if isinstance(payload, dict):
+            for raw_number, raw_count in payload.items():
+                number = _safe_int(raw_number, -1)
+                count = max(0, _safe_int(raw_count, 0))
+                if count > 0:
+                    counts[number] = counts.get(number, 0) + count
+        elif isinstance(payload, list):
+            for raw_entry in payload:
+                if not isinstance(raw_entry, dict):
+                    continue
+                number = _safe_int(raw_entry.get(number_key, -1), -1)
+                count = max(0, _safe_int(raw_entry.get(count_key, 0), 0))
+                if count > 0:
+                    counts[number] = counts.get(number, 0) + count
+
+        total = sum(counts.values())
+        distinct = len(counts)
+        max_number = max(counts.keys()) if counts else 0
+        max_count = max(counts.values()) if counts else 0
+        tokens = [f"{int(number)}:{int(count)}" for number, count in sorted(counts.items())]
+
+        values: List[float] = [
+            _norm(total, count_scale * 4.0),
+            _norm(distinct, 16.0),
+            _norm(max_number, number_scale),
+            _norm(max_count, count_scale),
+        ]
+        values.extend(_hash_tokens(tokens, self.set_hash_dim).tolist())
+        return values
+
+    def _encode_dense_count_slots(
+        self,
+        raw_counts: Sequence[Any],
+        *,
+        max_slots: int,
+        scale: float,
+    ) -> List[float]:
+        counts = list(raw_counts or [])
+        values: List[float] = []
+        for idx in range(max(0, int(max_slots))):
+            count = _safe_int(counts[idx], 0) if idx < len(counts) else 0
+            values.append(_norm(max(0, count), scale))
+        return values
+
     def _rotation_one_hot(self, raw_rotation: Any) -> List[float]:
         slot_dim = len(self.rotation_types) + 1
         values = [0.0] * slot_dim
@@ -450,9 +601,6 @@ class ObservationEncoder:
         tokens.extend(effect_tokens)
         tokens.append(f"num:{_safe_int(raw_card.get('number', -1), -1)}")
         tokens.append(f"type:{str(raw_card.get('card_type') or '').strip().lower()}")
-        instance_id = str(raw_card.get("instance_id") or "").strip().lower()
-        if include_private_tokens:
-            tokens.extend(_tokenize_text(instance_id))
 
         values: List[float] = [1.0]
         values.extend(self._card_type_one_hot(raw_card.get("card_type")))
@@ -472,11 +620,7 @@ class ObservationEncoder:
                 _norm(len(effects), 8.0),
                 _norm(raw_card.get("reptile_house_size", 0) or 0, 5.0),
                 _norm(raw_card.get("large_bird_aviary_size", 0) or 0, 5.0),
-                (
-                    _norm(_stable_bucket(instance_id, 65536), 65535.0)
-                    if include_private_tokens and instance_id
-                    else 0.0
-                ),
+                0.0,
             ]
         )
         values.extend(_hash_tokens(tokens, self.card_text_hash_dim).tolist())
@@ -667,6 +811,7 @@ class ObservationEncoder:
         values: List[float] = [
             _norm(data.get("discard_target", 0), 12.0),
             _norm(data.get("keep_target", 0), 8.0),
+            _norm(data.get("draft_card_count", 0), 8.0),
             _norm(data.get("threshold", 0), 12.0),
             _norm(data.get("break_hand_limit_index", 0), 6.0),
             _norm(data.get("break_income_index", 0), 6.0),
@@ -723,8 +868,19 @@ class ObservationEncoder:
         zoo_cards = list(info.get("zoo_cards") or [])
         enclosures = list(info.get("enclosures") or [])
         enclosure_objects = list(info.get("enclosure_objects") or [])
+        multiplier_tokens = dict(info.get("multiplier_tokens_on_actions") or {})
+        venom_tokens = dict(info.get("venom_tokens_on_actions") or {})
+        constriction_tokens = dict(info.get("constriction_tokens_on_actions") or {})
+        extra_actions_granted = dict(info.get("extra_actions_granted") or {})
+        extra_strength_actions = list(info.get("extra_strength_actions") or [])
+        sponsor_tokens = list(info.get("sponsor_tokens_by_number") or [])
+        sponsor_mode = str(info.get("sponsor_waza_assignment_mode") or "").strip().lower()
         vec: List[float] = [
             1.0 if player is not None else 0.0,
+        ]
+        vec.extend(self._encode_pending_player_one_hot(info.get("player_id")))
+        vec.extend(
+            [
             _norm(info.get("money", 0), 250.0),
             _norm(info.get("appeal", 0), 200.0),
             _norm(info.get("conservation", 0), 20.0),
@@ -755,7 +911,8 @@ class ObservationEncoder:
             _norm(len(map_unlocked_effects), 16.0),
             _norm(len(claimed_partner_thresholds), 6.0),
             _norm(len(claimed_university_thresholds), 6.0),
-        ]
+            ]
+        )
         for action_name in self.main_actions:
             vec.append(1.0 if bool(action_upgraded.get(action_name, False)) else 0.0)
         for action_name in self.main_actions:
@@ -765,6 +922,30 @@ class ObservationEncoder:
                 vec.append(0.0)
         for task_kind in self.association_tasks:
             vec.append(_norm(association_workers.get(task_kind, 0), 4.0))
+        vec.extend(self._encode_main_action_count_map(multiplier_tokens, scale=4.0))
+        vec.extend(self._encode_main_action_count_map(venom_tokens, scale=2.0))
+        vec.extend(self._encode_main_action_count_map(constriction_tokens, scale=2.0))
+        vec.extend(self._encode_main_action_count_map(extra_actions_granted, scale=4.0))
+        vec.append(_norm(info.get("extra_any_actions", 0), 8.0))
+        vec.extend(self._encode_strength_count_entries(extra_strength_actions))
+        vec.append(_norm(info.get("camouflage_condition_ignores", 0), 8.0))
+        vec.extend(
+            self._encode_number_count_entries(
+                sponsor_tokens,
+                number_key="number",
+                count_key="count",
+                number_scale=600.0,
+                count_scale=10.0,
+            )
+        )
+        vec.extend(
+            [
+                1.0 if sponsor_mode == "small" else 0.0,
+                1.0 if sponsor_mode == "large" else 0.0,
+                1.0 if sponsor_mode not in {"", "small", "large"} else 0.0,
+                _norm(info.get("sponsor_ignore_large_condition_charges", 0), 8.0),
+            ]
+        )
         vec.extend(self._encode_token_hash(partner_zoos, dim=self.set_hash_dim, dedupe=True))
         vec.extend(self._encode_token_hash(universities, dim=self.set_hash_dim, dedupe=True))
         vec.extend(self._encode_token_hash(supported_projects, dim=self.set_hash_dim, dedupe=True))
@@ -860,6 +1041,7 @@ class ObservationEncoder:
             _norm(total_slot_count, 60.0),
             _norm(filled_slot_count, 60.0),
             1.0 if bool(info.get("forced_game_over", False)) else 0.0,
+            _norm(info.get("endgame_trigger_turn_index", 0), 200.0),
             1.0 if info.get("endgame_trigger_player") is not None else 0.0,
             1.0 if info.get("break_trigger_player") is not None else 0.0,
         ]
@@ -867,6 +1049,8 @@ class ObservationEncoder:
         vec.extend(self._encode_current_player_one_hot(_safe_int(info.get("current_player"), 0)))
         vec.extend(self._encode_pending_kind_one_hot(pending_kind))
         vec.extend(self._encode_pending_player_one_hot(pending_player))
+        vec.extend(self._encode_pending_player_one_hot(info.get("endgame_trigger_player")))
+        vec.extend(self._encode_pending_player_one_hot(info.get("break_trigger_player")))
         vec.extend(self._encode_pending_payload(pending_payload))
         vec.extend(self._encode_token_hash(info.get("available_partner_zoos") or [], dim=self.set_hash_dim, dedupe=True))
         vec.extend(self._encode_token_hash(info.get("available_universities") or [], dim=self.set_hash_dim, dedupe=True))
@@ -970,23 +1154,88 @@ class ObservationEncoder:
         opening_draft_kept_indices = list(player.get("opening_draft_kept_indices") or [])
         pouched_cards = list(player.get("pouched_cards") or [])
         pouched_by_host = dict(player.get("pouched_cards_by_host") or {})
-        pouched_host_counts = {
-            str(host): len(list(cards or []))
-            for host, cards in pouched_by_host.items()
-        }
+        pouched_by_host_cards = dict(player.get("pouched_cards_by_host_cards") or {})
+        pouched_by_host_public = list(player.get("pouched_cards_by_host_public") or [])
+        pouched_host_public_counts = list(player.get("pouched_host_public_counts") or [])
+        host_public_card_tokens: List[str] = []
+        host_card_total = 0
+        host_with_cards = 0
+        host_max_stack = 0
+        if pouched_by_host_public:
+            for raw_entry in pouched_by_host_public:
+                if not isinstance(raw_entry, dict):
+                    continue
+                host_public_index_raw = raw_entry.get("host_public_index")
+                host_public_index = (
+                    None
+                    if host_public_index_raw is None
+                    else _safe_int(host_public_index_raw, -1)
+                )
+                host_number = raw_entry.get("host_number")
+                cards = [dict(card) for card in list(raw_entry.get("cards") or []) if isinstance(card, dict)]
+                card_count = len(cards)
+                host_card_total += card_count
+                if card_count > 0:
+                    host_with_cards += 1
+                    host_max_stack = max(host_max_stack, card_count)
+                if host_public_index is not None and host_public_index >= 0:
+                    host_token = f"slot:{host_public_index}"
+                elif host_number is not None:
+                    host_token = f"host_number:{_safe_int(host_number, -1)}"
+                else:
+                    host_token = "slot:unknown"
+                for card in cards:
+                    card_number = _safe_int(card.get("number", -1), -1)
+                    card_type = str(card.get("card_type") or "").strip().lower()
+                    host_public_card_tokens.append(
+                        f"{host_token}|num:{card_number}|type:{card_type}"
+                    )
+        elif pouched_by_host_cards:
+            for raw_cards in pouched_by_host_cards.values():
+                cards = [dict(card) for card in list(raw_cards or []) if isinstance(card, dict)]
+                card_count = len(cards)
+                host_card_total += card_count
+                if card_count > 0:
+                    host_with_cards += 1
+                    host_max_stack = max(host_max_stack, card_count)
+                for card in cards:
+                    card_number = _safe_int(card.get("number", -1), -1)
+                    card_type = str(card.get("card_type") or "").strip().lower()
+                    host_public_card_tokens.append(f"slot:unknown|num:{card_number}|type:{card_type}")
+        else:
+            for host, raw_ids in sorted(pouched_by_host.items(), key=lambda item: str(item[0])):
+                del host
+                ids = [str(item).strip().lower() for item in list(raw_ids or []) if str(item).strip()]
+                card_count = len(ids)
+                host_card_total += card_count
+                if card_count > 0:
+                    host_with_cards += 1
+                    host_max_stack = max(host_max_stack, card_count)
 
         vec: List[float] = [
+            *self._encode_pending_player_one_hot(info.get("viewer_player_id")),
             _norm(player.get("hand_count", 0), 30.0),
             _norm(player.get("final_scoring_count", 0), 8.0),
             _norm(player.get("opening_draft_drawn_count", 0), 8.0),
             _norm(len(opening_draft_kept_indices), 8.0),
             _norm(len(pouched_cards), 30.0),
             _norm(len(pouched_by_host), 30.0),
+            _norm(host_card_total, 40.0),
+            _norm(host_with_cards, 40.0),
+            _norm(host_max_stack, 10.0),
+            _norm(player.get("zoo_cards_public_count", 0), 80.0),
             _norm(player.get("legacy_private_deck_count", 0), 80.0),
             _norm(player.get("legacy_private_discard_count", 0), 80.0),
         ]
         vec.extend(self._encode_token_hash(opening_draft_kept_indices, dim=self.set_hash_dim, dedupe=True))
-        vec.extend(self._encode_scalar_token_map_hash(pouched_host_counts))
+        vec.extend(
+            self._encode_dense_count_slots(
+                pouched_host_public_counts,
+                max_slots=self.max_zoo_cards,
+                scale=4.0,
+            )
+        )
+        vec.extend(_hash_tokens(host_public_card_tokens, self.set_hash_dim).tolist())
         hand_summary = self._encode_hand_summary(hand_cards)
         final_summary = self._encode_final_scoring_summary(final_cards)
         draft_summary = self._encode_opening_draft_summary(opening_draft_cards)
@@ -1021,11 +1270,36 @@ class ObservationEncoder:
             axis=0,
         ).astype(np.float32)
 
+    def encode_global_state_from_state(
+        self,
+        state: main.GameState,
+        *,
+        public_vec: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        if public_vec is None:
+            viewer_id = 0 if state.players else 0
+            public_obs = main.build_public_observation(state, viewer_player_id=viewer_id)
+            public_vec = self.encode_public_observation(public_obs)
+
+        private_blocks: List[np.ndarray] = []
+        empty_private = self.encode_private_observation({})
+        for player_id in range(self.max_players):
+            if player_id >= len(state.players):
+                private_blocks.append(np.zeros_like(empty_private))
+                continue
+            private_obs = main.build_private_observation(state, viewer_player_id=player_id)
+            private_blocks.append(self.encode_private_observation(private_obs))
+
+        return np.concatenate(
+            [public_vec.astype(np.float32)] + [block.astype(np.float32) for block in private_blocks],
+            axis=0,
+        ).astype(np.float32)
+
     def encode_from_state(self, state: main.GameState, viewer_player_id: int) -> Tuple[np.ndarray, np.ndarray]:
         public_obs = main.build_public_observation(state, viewer_player_id=viewer_player_id)
         private_obs = main.build_private_observation(state, viewer_player_id=viewer_player_id)
         public_vec = self.encode_public_observation(public_obs)
         private_vec = self.encode_private_observation(private_obs)
         local_vec = np.concatenate([public_vec, private_vec], axis=0).astype(np.float32)
-        global_vec = public_vec.astype(np.float32)
+        global_vec = self.encode_global_state_from_state(state, public_vec=public_vec)
         return local_vec, global_vec

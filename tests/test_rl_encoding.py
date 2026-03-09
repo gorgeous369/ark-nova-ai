@@ -5,7 +5,7 @@ import numpy as np
 import main
 
 from arknova_rl.encoding import ActionFeatureEncoder, ObservationEncoder
-from main import AnimalCard, SetupCardRef, legal_actions, setup_game
+from main import Action, ActionType, AnimalCard, SetupCardRef, legal_actions, setup_game
 
 
 def test_action_feature_encoder_is_deterministic():
@@ -19,6 +19,39 @@ def test_action_feature_encoder_is_deterministic():
     vec_b = encoder.encode(actions[0])
 
     assert vec_a.shape[0] == encoder.feature_dim
+    assert np.array_equal(vec_a, vec_b)
+
+
+def test_action_feature_encoder_ignores_ui_labels_and_opaque_instance_ids():
+    encoder = ActionFeatureEncoder()
+    action_a = Action(
+        ActionType.MAIN_ACTION,
+        value=1,
+        card_name="animals",
+        details={
+            "effective_strength": 4,
+            "concrete": True,
+            "action_label": "play slot A",
+            "card_instance_id": "animal-a",
+            "discard_card_instance_ids": ["d-a"],
+        },
+    )
+    action_b = Action(
+        ActionType.MAIN_ACTION,
+        value=1,
+        card_name="animals",
+        details={
+            "effective_strength": 4,
+            "concrete": True,
+            "action_label": "play slot B",
+            "card_instance_id": "animal-b",
+            "discard_card_instance_ids": ["d-b"],
+        },
+    )
+
+    vec_a = encoder.encode(action_a)
+    vec_b = encoder.encode(action_b)
+
     assert np.array_equal(vec_a, vec_b)
 
 
@@ -44,6 +77,16 @@ def test_observation_encoder_public_part_ignores_opponent_hidden_faces():
     public_b = encoder.encode_public_observation(main.build_public_observation(state_b, viewer_player_id=0))
 
     assert np.array_equal(public_a, public_b)
+
+
+def test_observation_encoder_public_part_is_viewer_invariant():
+    encoder = ObservationEncoder()
+    state = setup_game(seed=7021, player_names=["P1", "P2"])
+
+    public_0 = encoder.encode_public_observation(main.build_public_observation(state, viewer_player_id=0))
+    public_1 = encoder.encode_public_observation(main.build_public_observation(state, viewer_player_id=1))
+
+    assert np.array_equal(public_0, public_1)
 
 
 def test_observation_encoder_private_part_changes_with_own_hidden_faces():
@@ -248,7 +291,7 @@ def test_observation_encoder_public_part_hides_pending_private_instance_ids():
     assert np.array_equal(public_a, public_b)
 
 
-def test_observation_encoder_private_part_changes_with_private_instance_ids():
+def test_observation_encoder_private_part_ignores_private_instance_ids_when_faces_match():
     encoder = ObservationEncoder()
     state_a = setup_game(seed=711, player_names=["P1", "P2"])
     state_b = copy.deepcopy(state_a)
@@ -267,4 +310,139 @@ def test_observation_encoder_private_part_changes_with_private_instance_ids():
 
     private_a = encoder.encode_private_observation(main.build_private_observation(state_a, viewer_player_id=0))
     private_b = encoder.encode_private_observation(main.build_private_observation(state_b, viewer_player_id=0))
+    assert np.array_equal(private_a, private_b)
+
+
+def test_observation_encoder_public_part_changes_with_action_token_state_details():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=712, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+
+    p_a = state_a.players[0]
+    p_b = state_b.players[0]
+    p_a.multiplier_tokens_on_actions["cards"] = 1
+    p_a.venom_tokens_on_actions["build"] = 1
+    p_a.constriction_tokens_on_actions["association"] = 1
+    p_a.extra_actions_granted["sponsors"] = 2
+    p_a.extra_any_actions = 1
+    p_a.extra_strength_actions[3] = 1
+    p_a.camouflage_condition_ignores = 1
+    p_a.sponsor_tokens_by_number[253] = 2
+    p_a.sponsor_waza_assignment_mode = "large"
+    p_a.sponsor_ignore_large_condition_charges = 1
+
+    p_b.multiplier_tokens_on_actions["animals"] = 1
+    p_b.venom_tokens_on_actions["cards"] = 1
+    p_b.constriction_tokens_on_actions["sponsors"] = 1
+    p_b.extra_actions_granted["build"] = 2
+    p_b.extra_any_actions = 0
+    p_b.extra_strength_actions[4] = 1
+    p_b.camouflage_condition_ignores = 0
+    p_b.sponsor_tokens_by_number[227] = 2
+    p_b.sponsor_waza_assignment_mode = "small"
+    p_b.sponsor_ignore_large_condition_charges = 0
+
+    public_a = encoder.encode_public_observation(main.build_public_observation(state_a, viewer_player_id=0))
+    public_b = encoder.encode_public_observation(main.build_public_observation(state_b, viewer_player_id=0))
+    assert not np.array_equal(public_a, public_b)
+
+
+def test_observation_encoder_public_part_changes_with_trigger_player_identity():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=713, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+
+    state_a.endgame_trigger_player = 0
+    state_b.endgame_trigger_player = 1
+    state_a.break_trigger_player = 1
+    state_b.break_trigger_player = 0
+    state_a.endgame_trigger_turn_index = 25
+    state_b.endgame_trigger_turn_index = 25
+
+    public_a = encoder.encode_public_observation(main.build_public_observation(state_a, viewer_player_id=0))
+    public_b = encoder.encode_public_observation(main.build_public_observation(state_b, viewer_player_id=0))
+    assert not np.array_equal(public_a, public_b)
+
+
+def test_observation_encoder_public_part_changes_with_opening_draft_public_card_count():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=714, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+
+    state_a.pending_decision_kind = "opening_draft_keep"
+    state_a.pending_decision_player_id = 0
+    state_a.pending_decision_payload = {
+        "keep_target": 4,
+        "draft_card_instance_ids": ["draft-a", "draft-b"],
+    }
+    state_b.pending_decision_kind = "opening_draft_keep"
+    state_b.pending_decision_player_id = 0
+    state_b.pending_decision_payload = {
+        "keep_target": 4,
+        "draft_card_instance_ids": ["draft-x", "draft-y", "draft-z"],
+    }
+
+    public_a = encoder.encode_public_observation(main.build_public_observation(state_a, viewer_player_id=0))
+    public_b = encoder.encode_public_observation(main.build_public_observation(state_b, viewer_player_id=0))
+    assert not np.array_equal(public_a, public_b)
+
+
+def test_observation_encoder_private_part_changes_with_pouched_host_card_mapping():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=715, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+
+    host_a_1 = AnimalCard("HOST_1", 4, 2, 0, 0, number=99241, instance_id="host-a-1")
+    host_a_2 = AnimalCard("HOST_2", 5, 2, 0, 0, number=99242, instance_id="host-a-2")
+    host_b_1 = AnimalCard("HOST_1", 4, 2, 0, 0, number=99241, instance_id="host-b-1")
+    host_b_2 = AnimalCard("HOST_2", 5, 2, 0, 0, number=99242, instance_id="host-b-2")
+    a_card_1 = AnimalCard("POUCH_A", 2, 1, 0, 0, number=99251, instance_id="pouch-a-1")
+    a_card_2 = AnimalCard("POUCH_B", 3, 1, 0, 0, number=99252, instance_id="pouch-b-1")
+    b_card_1 = AnimalCard("POUCH_A", 2, 1, 0, 0, number=99251, instance_id="pouch-a-1")
+    b_card_2 = AnimalCard("POUCH_B", 3, 1, 0, 0, number=99252, instance_id="pouch-b-1")
+
+    me_a = state_a.players[0]
+    me_b = state_b.players[0]
+    me_a.zoo_cards = [host_a_1, host_a_2]
+    me_b.zoo_cards = [host_b_1, host_b_2]
+    me_a.pouched_cards = [a_card_1, a_card_2]
+    me_b.pouched_cards = [b_card_1, b_card_2]
+    me_a.pouched_cards_by_host = {host_a_1.instance_id: [a_card_1], host_a_2.instance_id: [a_card_2]}
+    me_b.pouched_cards_by_host = {host_b_1.instance_id: [b_card_2], host_b_2.instance_id: [b_card_1]}
+
+    private_a = encoder.encode_private_observation(main.build_private_observation(state_a, viewer_player_id=0))
+    private_b = encoder.encode_private_observation(main.build_private_observation(state_b, viewer_player_id=0))
     assert not np.array_equal(private_a, private_b)
+
+
+def test_observation_encoder_local_part_marks_viewer_slot_but_global_part_stays_shared():
+    encoder = ObservationEncoder()
+    state = setup_game(seed=716, player_names=["P1", "P2"])
+    for player in state.players:
+        player.hand = []
+        player.final_scoring_cards = []
+        player.opening_draft_drawn = []
+        player.opening_draft_kept_indices = []
+        player.pouched_cards = []
+        player.pouched_cards_by_host = {}
+
+    local_0, global_0 = encoder.encode_from_state(state, viewer_player_id=0)
+    local_1, global_1 = encoder.encode_from_state(state, viewer_player_id=1)
+
+    assert not np.array_equal(local_0, local_1)
+    assert np.array_equal(global_0, global_1)
+
+
+def test_observation_encoder_global_part_sees_opponent_hidden_faces_but_local_part_does_not():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=717, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+
+    state_a.players[1].hand = [AnimalCard("OPP_A", 2, 1, 0, 0, number=99261, instance_id="opp-a")]
+    state_b.players[1].hand = [AnimalCard("OPP_B", 7, 4, 0, 0, number=99262, instance_id="opp-b")]
+
+    local_a, global_a = encoder.encode_from_state(state_a, viewer_player_id=0)
+    local_b, global_b = encoder.encode_from_state(state_b, viewer_player_id=0)
+
+    assert np.array_equal(local_a, local_b)
+    assert not np.array_equal(global_a, global_b)

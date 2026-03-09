@@ -17,6 +17,7 @@ from main import (
     _sponsor_unique_base_footprint,
     _list_legal_sponsor_unique_building_cells,
     apply_action,
+    legal_actions,
     list_legal_animals_options,
     setup_game,
 )
@@ -461,6 +462,138 @@ def test_sponsor_253_plays_sponsor_from_hand_on_herbivore_trigger():
     assert any(card.number == 220 for card in player.zoo_cards)
     assert player.sponsor_tokens_by_number.get(253, 0) == 0
     assert player.money == 19  # 20 - level(4) + immediate(3)
+
+
+def test_animals_legal_actions_expand_sponsor_253_followup_choices():
+    state = setup_game(seed=7081, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "association", "sponsors"]  # animals strength=2
+    player.money = 20
+    player.zoo_cards.append(
+        AnimalCard(
+            name="OkapiStable253",
+            cost=6,
+            size=0,
+            appeal=0,
+            conservation=0,
+            card_type="sponsor",
+            badges=("Herbivore",),
+            number=253,
+            instance_id="s253",
+        )
+    )
+    player.sponsor_tokens_by_number[253] = 1
+    sponsor_220 = _take_card_by_number_from_deck(state, 220)
+    sponsor_238 = _take_card_by_number_from_deck(state, 238)
+    herbivore_animal = AnimalCard(
+        name="HerbivoreAnimal",
+        cost=0,
+        size=1,
+        appeal=1,
+        conservation=0,
+        card_type="animal",
+        badges=("Herbivore",),
+        number=9806,
+        instance_id="a-9806",
+    )
+    player.hand = [herbivore_animal, sponsor_220, sponsor_238]
+    player.enclosures = [Enclosure(size=1, occupied=False)]
+
+    actions = [
+        action
+        for action in legal_actions(player, state=state, player_id=0)
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "animals"
+    ]
+
+    variants = {
+        tuple(
+            "skip"
+            if bool(entry.get("skip"))
+            else str(entry.get("card_instance_id") or "")
+            for entry in list((action.details or {}).get("sponsor_253_plays") or [])
+        )
+        for action in actions
+    }
+
+    assert variants == {
+        ("skip",),
+        (str(sponsor_220.instance_id),),
+        (str(sponsor_238.instance_id),),
+    }
+
+    chosen = next(
+        action
+        for action in actions
+        if [str(entry.get("card_instance_id") or "") for entry in list((action.details or {}).get("sponsor_253_plays") or [])]
+        == [str(sponsor_220.instance_id)]
+    )
+    apply_action(state, chosen)
+
+    assert any(card.number == 220 for card in player.zoo_cards)
+    assert player.sponsor_tokens_by_number.get(253, 0) == 0
+
+
+def test_sponsors_legal_actions_expand_sponsor_253_followup_choices():
+    state = setup_game(seed=7082, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "association", "sponsors"]  # sponsors strength=5
+    player.money = 20
+    player.zoo_cards.append(
+        AnimalCard(
+            name="OkapiStable253",
+            cost=6,
+            size=0,
+            appeal=0,
+            conservation=0,
+            card_type="sponsor",
+            badges=("Herbivore",),
+            number=253,
+            instance_id="s253",
+        )
+    )
+    player.sponsor_tokens_by_number[253] = 1
+    trigger_sponsor = AnimalCard(
+        name="TriggerHerbSponsor",
+        cost=4,
+        size=0,
+        appeal=0,
+        conservation=0,
+        card_type="sponsor",
+        badges=("Herbivore",),
+        number=9810,
+        instance_id="s-9810",
+    )
+    sponsor_220 = _take_card_by_number_from_deck(state, 220)
+    sponsor_238 = _take_card_by_number_from_deck(state, 238)
+    player.hand = [trigger_sponsor, sponsor_220, sponsor_238]
+
+    actions = [
+        action
+        for action in legal_actions(player, state=state, player_id=0)
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "sponsors"
+        and not bool((action.details or {}).get("use_break_ability"))
+        and [str(selection.get("card_instance_id") or "") for selection in list((action.details or {}).get("sponsor_selections") or [])]
+        == ["s-9810"]
+    ]
+
+    variants = {
+        tuple(
+            "skip"
+            if bool(entry.get("skip"))
+            else str(entry.get("card_instance_id") or "")
+            for entry in list((action.details or {}).get("sponsor_253_plays") or [])
+        )
+        for action in actions
+    }
+
+    assert variants == {
+        ("skip",),
+        (str(sponsor_220.instance_id),),
+        (str(sponsor_238.instance_id),),
+    }
 
 
 def test_sponsor_257_break_income_counts_adjacent_non_empty_buildings_only(monkeypatch):
