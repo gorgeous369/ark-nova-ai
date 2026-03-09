@@ -797,6 +797,60 @@ def _serialize_map_building_public(building: Building) -> Dict[str, Any]:
     }
 
 
+_PENDING_PAYLOAD_PUBLIC_KEYS_BY_KIND: Dict[str, Tuple[str, ...]] = {
+    "cards_discard": (
+        "discard_target",
+    ),
+    "break_discard": (
+        "discard_target",
+        "break_hand_limit_index",
+        "resume_turn_player_id",
+        "resume_turn_consumed_venom",
+    ),
+    "opening_draft_keep": (
+        "keep_target",
+    ),
+    "conservation_reward": (
+        "threshold",
+        "resume_kind",
+        "break_triggered",
+        "consumed_venom",
+        "break_income_index",
+        "resume_turn_player_id",
+        "resume_turn_consumed_venom",
+    ),
+}
+
+
+def _serialize_public_pending_payload(kind: str, payload: Any) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    kind_key = str(kind or "").strip()
+    allowed_keys = _PENDING_PAYLOAD_PUBLIC_KEYS_BY_KIND.get(kind_key, ())
+    if not allowed_keys:
+        return {}
+    serialized: Dict[str, Any] = {}
+    for key in allowed_keys:
+        if key not in payload:
+            continue
+        value = payload.get(key)
+        if isinstance(value, bool):
+            serialized[str(key)] = bool(value)
+            continue
+        if isinstance(value, int):
+            serialized[str(key)] = int(value)
+            continue
+        if isinstance(value, float):
+            serialized[str(key)] = int(value)
+            continue
+        if isinstance(value, str):
+            serialized[str(key)] = str(value)
+            continue
+        if value is None:
+            serialized[str(key)] = None
+    return serialized
+
+
 def _build_public_player_observation(player: PlayerState, *, player_id: int) -> Dict[str, Any]:
     action_upgraded = {
         action: bool(player.action_upgraded.get(action, False))
@@ -1013,6 +1067,10 @@ def build_public_observation(state: GameState, *, viewer_player_id: int) -> Dict
             None
             if state.pending_decision_player_id is None
             else int(state.pending_decision_player_id)
+        ),
+        "pending_decision_payload_public": _serialize_public_pending_payload(
+            state.pending_decision_kind,
+            state.pending_decision_payload,
         ),
         "endgame_trigger_player": (
             None if state.endgame_trigger_player is None else int(state.endgame_trigger_player)
@@ -2345,6 +2403,8 @@ def _enumerate_card_combinations(
 def _enumerate_animals_effect_choice_variants(
     player: PlayerState,
     plays: Sequence[Dict[str, Any]],
+    *,
+    state: Optional[GameState] = None,
 ) -> List[Tuple[Dict[str, Any], str]]:
     variants: List[Tuple[Dict[str, List[Dict[str, Any]]], List[str], List[AnimalCard], List[str]]] = [
         ({}, [], list(player.hand), list(player.action_order))
@@ -2371,6 +2431,28 @@ def _enumerate_animals_effect_choice_variants(
             hand_after_play = list(current_hand)
             played_card = hand_after_play.pop(played_index)
             effect = resolve_card_effect(played_card)
+            if effect.code == "trade_hand_with_display":
+                next_hand = list(hand_after_play)
+                can_trade = (
+                    state is not None
+                    and bool(state.zoo_display)
+                    and int(_reputation_display_limit(player.reputation)) > 0
+                )
+                if can_trade:
+                    for _ in range(max(0, int(effect.value))):
+                        if not next_hand:
+                            break
+                        # Non-interactive trade deterministically exchanges hand slot 0.
+                        next_hand.pop(0)
+                next_variants.append(
+                    (
+                        copy.deepcopy(queued_choices),
+                        list(labels),
+                        next_hand,
+                        list(current_action_order),
+                    )
+                )
+                continue
             if effect.code not in {"sell_hand_cards", "pouch_hand_for_appeal", "boost_action_card"}:
                 next_variants.append(
                     (
@@ -3648,13 +3730,41 @@ def _enumerate_concrete_animals_actions(
     strength = int((template_action.details or {}).get("effective_strength", 0))
     options = list_legal_animals_options(state=state, player_id=player_id, strength=strength)
     actions: List[Action] = []
+    validation_cache: Dict[str, bool] = {}
+
+    def _is_executable(details_payload: Dict[str, Any]) -> bool:
+        key = json.dumps(details_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        cached = validation_cache.get(key)
+        if cached is not None:
+            return cached
+
+        sim_state = copy.deepcopy(state)
+        sim_player = sim_state.players[player_id]
+        sim_details = copy.deepcopy(details_payload)
+        sim_details["_allow_interactive"] = False
+        try:
+            _perform_animals_action_effect(
+                state=sim_state,
+                player=sim_player,
+                strength=strength,
+                details=sim_details,
+                player_id=player_id,
+            )
+            validation_cache[key] = True
+            return True
+        except ValueError:
+            validation_cache[key] = False
+            return False
+
     for option in options:
         base_label = " ; then ".join(_format_animals_play_step_for_human(step, player) for step in option["plays"])
-        effect_variants = _enumerate_animals_effect_choice_variants(player, option["plays"])
+        effect_variants = _enumerate_animals_effect_choice_variants(player, option["plays"], state=state)
         for extra_effect_details, effect_label in effect_variants:
             label = base_label if not effect_label else f"{base_label} ; {effect_label}"
             details = {"animals_sequence_index": int(option["index"]) - 1}
             details.update(copy.deepcopy(extra_effect_details))
+            if len(option["plays"]) >= 2 and not _is_executable(details):
+                continue
             actions.append(_make_concrete_action(template_action, label=label, extra_details=details))
     return actions
 
@@ -5577,12 +5687,16 @@ def _apply_build_placement_bonus(
                 if isinstance(raw, str) and raw in player.action_order:
                     chosen_action = raw
         if chosen_action is None:
-            if len(player.action_order) == 1:
-                chosen_action = player.action_order[0]
-            else:
-                raise ValueError(
-                    "bonus_action_to_slot_1_targets entry is required for action_to_slot_1 placement bonus."
+            if not player.action_order:
+                raise ValueError("Cannot resolve action_to_slot_1 placement bonus with empty action order.")
+            if allow_interactive:
+                chosen_action = _prompt_action_to_slot_1_target_for_human(
+                    player,
+                    reason="Build placement bonus: move one action card to slot 1.",
                 )
+            else:
+                # Deterministic non-interactive fallback for map/sponsor auto effects.
+                chosen_action = player.action_order[-1]
         _rotate_action_card_to_slot_1(player, chosen_action)
 
     if (

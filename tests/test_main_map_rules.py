@@ -204,3 +204,23 @@ def test_map_break_recurring_play_sponsor_by_paying_cost_auto_fills_waza_mode():
     assert any(card.instance_id == sponsor_227.instance_id for card in p0.zoo_cards)
     assert p0.sponsor_waza_assignment_mode in {"small", "large"}
     assert any("map_break_step5:P1:play_1_sponsor_by_paying_cost:played=227" in line for line in state.effect_log)
+
+
+def test_map_break_recurring_free_build_auto_resolves_action_to_slot_1_bonus(monkeypatch):
+    state = setup_game(seed=708, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    order_before = list(p0.action_order)
+    p0.map_left_track_unlocked_effects = ["build_free_standard_enclosure_size_2"]
+
+    monkeypatch.setattr(
+        "main._building_bonuses",
+        lambda _state, _building: [("action_to_slot_1", (0, 0))],
+    )
+
+    _apply_map_break_recurring_effects_for_player(
+        state=state,
+        player=p0,
+        player_id=0,
+    )
+
+    assert p0.action_order[0] == order_before[-1]

@@ -84,3 +84,187 @@ def test_observation_encoder_public_part_changes_with_map_layout():
 
     assert public_a.shape == public_b.shape
     assert not np.array_equal(public_a, public_b)
+
+
+def test_observation_encoder_public_part_changes_with_display_card_faces():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=705, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+
+    state_a.zoo_display[0] = AnimalCard(
+        "DISPLAY_A",
+        4,
+        2,
+        1,
+        0,
+        card_type="animal",
+        number=99501,
+        instance_id="display-a",
+    )
+    state_b.zoo_display[0] = AnimalCard(
+        "DISPLAY_B",
+        4,
+        2,
+        1,
+        0,
+        card_type="animal",
+        number=99502,
+        instance_id="display-b",
+    )
+
+    public_a = encoder.encode_public_observation(main.build_public_observation(state_a, viewer_player_id=0))
+    public_b = encoder.encode_public_observation(main.build_public_observation(state_b, viewer_player_id=0))
+    assert not np.array_equal(public_a, public_b)
+
+
+def test_observation_encoder_public_part_changes_with_conservation_slot_ownership():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=706, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+
+    state_a.conservation_project_slots = {"P900_Custom": {"2": 0, "5": None}}
+    state_b.conservation_project_slots = {"P900_Custom": {"2": 1, "5": None}}
+
+    public_a = encoder.encode_public_observation(main.build_public_observation(state_a, viewer_player_id=0))
+    public_b = encoder.encode_public_observation(main.build_public_observation(state_b, viewer_player_id=0))
+    assert not np.array_equal(public_a, public_b)
+
+
+def test_observation_encoder_public_part_changes_with_public_resource_identities():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=707, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+
+    state_a.available_partner_zoos = {"America"}
+    state_b.available_partner_zoos = {"Asia"}
+    state_a.available_universities = {"University A"}
+    state_b.available_universities = {"University B"}
+
+    public_a = encoder.encode_public_observation(main.build_public_observation(state_a, viewer_player_id=0))
+    public_b = encoder.encode_public_observation(main.build_public_observation(state_b, viewer_player_id=0))
+    assert not np.array_equal(public_a, public_b)
+
+
+def test_observation_encoder_public_part_changes_with_public_player_detail_layout():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=708, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+    p_a = state_a.players[0]
+    p_b = state_b.players[0]
+
+    p_a.zoo_cards = [
+        AnimalCard("ZOO_A", 3, 2, 1, 0, card_type="animal", number=99401, instance_id="zoo-a")
+    ]
+    p_b.zoo_cards = [
+        AnimalCard("ZOO_B", 3, 2, 1, 0, card_type="animal", number=99402, instance_id="zoo-b")
+    ]
+    p_a.enclosures = [
+        main.Enclosure(
+            size=3,
+            occupied=True,
+            origin=(0, 0),
+            rotation="ROT_0",
+            enclosure_type="standard",
+            used_capacity=1,
+            animal_capacity=3,
+        )
+    ]
+    p_b.enclosures = [
+        main.Enclosure(
+            size=3,
+            occupied=True,
+            origin=(0, 0),
+            rotation="ROT_0",
+            enclosure_type="standard",
+            used_capacity=2,
+            animal_capacity=3,
+        )
+    ]
+    p_a.enclosure_objects = [
+        main.EnclosureObject(
+            size=3,
+            enclosure_type="standard",
+            adjacent_rock=1,
+            adjacent_water=0,
+            animals_inside=1,
+            origin=(0, 0),
+            rotation="ROT_0",
+        )
+    ]
+    p_b.enclosure_objects = [
+        main.EnclosureObject(
+            size=3,
+            enclosure_type="standard",
+            adjacent_rock=0,
+            adjacent_water=1,
+            animals_inside=1,
+            origin=(0, 0),
+            rotation="ROT_0",
+        )
+    ]
+
+    public_a = encoder.encode_public_observation(main.build_public_observation(state_a, viewer_player_id=0))
+    public_b = encoder.encode_public_observation(main.build_public_observation(state_b, viewer_player_id=0))
+    assert not np.array_equal(public_a, public_b)
+
+
+def test_observation_encoder_public_part_changes_with_pending_payload_scalars():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=709, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+
+    state_a.pending_decision_kind = "cards_discard"
+    state_a.pending_decision_player_id = 0
+    state_a.pending_decision_payload = {"discard_target": 1}
+    state_b.pending_decision_kind = "cards_discard"
+    state_b.pending_decision_player_id = 0
+    state_b.pending_decision_payload = {"discard_target": 2}
+
+    public_a = encoder.encode_public_observation(main.build_public_observation(state_a, viewer_player_id=0))
+    public_b = encoder.encode_public_observation(main.build_public_observation(state_b, viewer_player_id=0))
+    assert not np.array_equal(public_a, public_b)
+
+
+def test_observation_encoder_public_part_hides_pending_private_instance_ids():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=710, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+
+    state_a.pending_decision_kind = "opening_draft_keep"
+    state_a.pending_decision_player_id = 0
+    state_a.pending_decision_payload = {
+        "keep_target": 4,
+        "draft_card_instance_ids": ["draft-private-a", "draft-private-b"],
+    }
+    state_b.pending_decision_kind = "opening_draft_keep"
+    state_b.pending_decision_player_id = 0
+    state_b.pending_decision_payload = {
+        "keep_target": 4,
+        "draft_card_instance_ids": ["draft-private-x", "draft-private-y"],
+    }
+
+    public_a = encoder.encode_public_observation(main.build_public_observation(state_a, viewer_player_id=0))
+    public_b = encoder.encode_public_observation(main.build_public_observation(state_b, viewer_player_id=0))
+    assert np.array_equal(public_a, public_b)
+
+
+def test_observation_encoder_private_part_changes_with_private_instance_ids():
+    encoder = ObservationEncoder()
+    state_a = setup_game(seed=711, player_names=["P1", "P2"])
+    state_b = copy.deepcopy(state_a)
+
+    card_common = dict(
+        name="SELF_PRIVATE",
+        cost=4,
+        size=2,
+        appeal=1,
+        conservation=0,
+        card_type="animal",
+        number=99311,
+    )
+    state_a.players[0].hand = [AnimalCard(instance_id="private-a", **card_common)]
+    state_b.players[0].hand = [AnimalCard(instance_id="private-b", **card_common)]
+
+    private_a = encoder.encode_private_observation(main.build_private_observation(state_a, viewer_player_id=0))
+    private_b = encoder.encode_private_observation(main.build_private_observation(state_b, viewer_player_id=0))
+    assert not np.array_equal(private_a, private_b)
