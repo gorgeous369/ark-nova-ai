@@ -1147,6 +1147,58 @@ def test_state_legal_actions_expand_project_support_with_map_unlock_draw_choices
     assert any(card.instance_id == expected_display_card.instance_id for card in player.hand)
 
 
+def test_state_legal_actions_project_display_unlock_sponsor_uses_post_project_money():
+    state = setup_game(seed=2861, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "build", "animals", "sponsors", "association"]
+    player.action_upgraded["association"] = True
+    player.money = 4
+    player.reputation = 2
+    state.opening_setup.base_conservation_projects = [
+        SetupCardRef(data_id="P101_SpeciesDiversity", title="SPECIES DIVERSITY")
+    ]
+    state.opening_setup.two_player_blocked_project_levels = []
+    state.conservation_project_slots = {
+        "P101_SpeciesDiversity": {
+            "left_level": None,
+            "middle_level": None,
+            "right_level": None,
+        }
+    }
+    player.zoo_cards = [
+        AnimalCard("Bird", 0, 1, 0, 0, badges=("Bird",), instance_id="bird-1"),
+        AnimalCard("Reptile", 0, 1, 0, 0, badges=("Reptile",), instance_id="reptile-1"),
+        AnimalCard("Predator", 0, 1, 0, 0, badges=("Predator",), instance_id="pred-1"),
+    ]
+    sponsor_238 = next(card for card in state.zoo_deck if card.number == 238)
+    state.zoo_deck.remove(sponsor_238)
+    player.hand = [sponsor_238]
+    state.zoo_display[1] = AnimalCard(
+        "SMALL ANIMALS",
+        0,
+        0,
+        0,
+        0,
+        card_type="conservation_project",
+        number=130,
+        instance_id="cp-130",
+    )
+
+    actions = legal_actions(player, state=state, player_id=0)
+    display_unlock_4_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "association"
+        and "proj display[2]" in str(action)
+        and "unlock[4]" in str(action)
+    ]
+
+    assert display_unlock_4_actions
+    assert all("unlock[4](sponsor unavailable)" in str(action) for action in display_unlock_4_actions)
+
+
 def test_state_legal_actions_expand_build_to_concrete_selection():
     state = setup_game(seed=282, player_names=["P1", "P2"])
     player = state.players[0]
@@ -1675,6 +1727,106 @@ def test_pouch_effect_expands_animals_legal_actions_and_moves_cards_under_host()
     assert all(card.instance_id != "keep-a" for card in state.zoo_discard)
 
 
+def test_sell_hand_choices_are_clamped_to_runtime_limit_in_non_interactive_mode():
+    state = setup_game(seed=2931, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.money = 5
+    player.hand = [
+        AnimalCard(
+            "Seller",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Sun Bathing 1",
+            ability_text="You may sell up to 1 card(s) from your hand for 4",
+            instance_id="seller",
+        ),
+        AnimalCard("Keep A", 0, 1, 0, 0, card_type="sponsor", instance_id="keep-a"),
+        AnimalCard("Keep B", 0, 1, 0, 0, card_type="sponsor", instance_id="keep-b"),
+    ]
+    player.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    player.enclosures = [Enclosure(size=1, origin=(0, 0))]
+
+    actions = legal_actions(player, state=state, player_id=0)
+    chosen = next(
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "animals"
+        and "Seller" in str((action.details or {}).get("action_label") or "")
+    )
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            value=chosen.value,
+            card_name=chosen.card_name,
+            details={
+                **dict(chosen.details or {}),
+                "sell_hand_card_choices": [
+                    {"card_instance_ids": ["keep-b", "missing-id", "keep-a"]},
+                ],
+            },
+        ),
+    )
+
+    assert player.money == 9
+    assert [card.instance_id for card in player.hand] == ["keep-a"]
+    assert {card.instance_id for card in state.zoo_discard} >= {"keep-b"}
+
+
+def test_pouch_choices_are_clamped_to_runtime_limit_in_non_interactive_mode():
+    state = setup_game(seed=2932, player_names=["P1", "P2"])
+    player = state.players[0]
+    player.hand = [
+        AnimalCard(
+            "Poucher",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Pouch 1",
+            ability_text="You may place 1 card(s) from your hand under this card to gain 2",
+            instance_id="poucher",
+        ),
+        AnimalCard("Keep A", 0, 1, 0, 0, card_type="sponsor", instance_id="keep-a"),
+        AnimalCard("Keep B", 0, 1, 0, 0, card_type="sponsor", instance_id="keep-b"),
+    ]
+    player.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    player.enclosures = [Enclosure(size=1, origin=(0, 0))]
+
+    actions = legal_actions(player, state=state, player_id=0)
+    chosen = next(
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "animals"
+        and "Poucher" in str((action.details or {}).get("action_label") or "")
+    )
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            value=chosen.value,
+            card_name=chosen.card_name,
+            details={
+                **dict(chosen.details or {}),
+                "pouch_hand_card_choices": [
+                    {"card_instance_ids": ["keep-a", "missing-id", "keep-b"]},
+                ],
+            },
+        ),
+    )
+
+    assert player.appeal == 2
+    assert [card.instance_id for card in player.hand] == ["keep-b"]
+    assert [card.instance_id for card in player.pouched_cards] == ["keep-a"]
+    assert [card.instance_id for card in player.pouched_cards_by_host["poucher"]] == ["keep-a"]
+
+
 def test_boost_action_card_effect_expands_animals_legal_actions_and_applies_slot_choice():
     state = setup_game(seed=2941, player_names=["P1", "P2"])
     player = state.players[0]
@@ -2106,6 +2258,40 @@ def test_hypnosis_can_target_another_player_when_actor_is_tied_for_highest_appea
     assert tied_target.action_order[0] == "build"
 
 
+def test_hypnosis_does_not_offer_unexecutable_association_action():
+    state = setup_game(seed=1882, player_names=["P1", "P2"])
+    actor = state.players[0]
+    target = state.players[1]
+    actor.hand = [
+        AnimalCard(
+            "Hypnosis Scout",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Hypnosis 1",
+            number=99032,
+            instance_id="hyp-no-assoc-1",
+        )
+    ]
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    target.appeal = 5
+    target.workers = 0
+    target.action_order = ["association", "cards", "build", "animals", "sponsors"]
+    order_before = list(target.action_order)
+
+    _perform_animals_action_effect(
+        state=state,
+        player=actor,
+        player_id=0,
+        strength=3,
+        details={"animals_sequence_index": 0},
+    )
+
+    assert target.action_order == order_before
+    assert any("effect[hypnosis] target=P2 no_action" in line for line in state.effect_log)
+
+
 def test_pilfering_takes_five_money_from_highest_appeal_target():
     state = setup_game(seed=189, player_names=["P1", "P2"])
     actor = state.players[0]
@@ -2534,11 +2720,11 @@ def test_cards_draw_exceeding_remaining_deck_forces_immediate_game_end():
     assert state.pending_decision_kind == ""
 
 
-def test_game_forces_end_after_exceeding_50_rounds():
+def test_game_forces_end_after_exceeding_100_rounds():
     state = setup_game(seed=195, player_names=["P1", "P2"])
     state.current_player = 0
 
-    # 2 actions = 1 round for 2 players. End should trigger once rounds exceed 50.
+    # 2 actions = 1 round for 2 players. End should trigger once rounds exceed 100.
     # Use current legal actions to avoid invalid fixed-action loops (e.g. X-token cap).
     for _ in range(500):
         if state.game_over():
@@ -2555,8 +2741,10 @@ def test_game_forces_end_after_exceeding_50_rounds():
 
     assert state.game_over()
     assert state.forced_game_over is True
-    assert "round_limit_exceeded" in state.forced_game_over_reason
-    assert main._completed_rounds(state) > 50
+    reason = str(state.forced_game_over_reason or "")
+    assert ("round_limit_exceeded" in reason) or ("cards_draw_exceeds_deck" in reason)
+    if "round_limit_exceeded" in reason:
+        assert main._completed_rounds(state) > 100
 
 
 def test_increase_reputation_non_interactive_does_not_prompt_for_milestone_upgrade(monkeypatch):

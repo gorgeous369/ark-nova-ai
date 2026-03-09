@@ -237,7 +237,7 @@ CONSERVATION_FIXED_MONEY_OPTION = "5coins"
 CONSERVATION_REWARD_THRESHOLDS: Tuple[int, int, int] = (2, 5, 8)
 CONSERVATION_SHARED_BONUS_THRESHOLDS: Tuple[int, int] = (5, 8)
 BREAK_TRACK_BY_PLAYERS: Dict[int, int] = {2: 9, 3: 12, 4: 15}
-MAX_GAME_ROUNDS: int = 50
+MAX_GAME_ROUNDS: int = 100
 
 MAIN_ACTION_CARDS: Tuple[str, ...] = ("animals", "cards", "build", "association", "sponsors")
 _BUILD_ENUM_LEGAL_OPTION_CACHE: Dict[Tuple[str, str, int, Tuple[str, ...], bool, bool], List[Dict[str, Any]]] = {}
@@ -5610,59 +5610,77 @@ def _apply_map_effect_code(
         return
 
     if code == "play_1_sponsor_by_paying_cost":
+        def _try_play_selected_sponsor(selected_card: AnimalCard, sponsor_details: Dict[str, Any]) -> bool:
+            try:
+                _play_single_sponsor_from_hand_paying_cost(
+                    state=state,
+                    player=player,
+                    player_id=player_id,
+                    card=selected_card,
+                    details=copy.deepcopy(sponsor_details),
+                )
+            except ValueError:
+                if allow_interactive:
+                    raise
+                return False
+            state.effect_log.append(
+                f"{source}:{player.name}:{code}:played={getattr(selected_card, 'number', -1)}"
+            )
+            return True
+
         sponsor_details_raw = effect_details.get("sponsor_details")
         if isinstance(sponsor_details_raw, dict):
             sponsor_details = copy.deepcopy(sponsor_details_raw)
             sponsor_selection_cards = _resolve_selected_sponsor_cards_from_details(state, player, sponsor_details)
             if sponsor_selection_cards:
                 selected_card = sponsor_selection_cards[0]
-                _play_single_sponsor_from_hand_paying_cost(
-                    state=state,
-                    player=player,
-                    player_id=player_id,
-                    card=selected_card,
-                    details=sponsor_details,
-                )
-                state.effect_log.append(
-                    f"{source}:{player.name}:{code}:played={getattr(selected_card, 'number', -1)}"
-                )
-                return
+                if selected_card in player.hand and int(player.money) >= _sponsor_level(selected_card):
+                    if _try_play_selected_sponsor(selected_card, sponsor_details):
+                        return
         sponsors_upgraded = bool(player.action_upgraded["sponsors"])
         candidates = _list_legal_sponsor_candidates(state, player, sponsors_upgraded)
-        playable_hand = [item for item in candidates if item.get("source") == "hand" and bool(item.get("playable_now"))]
+        playable_hand = [
+            item
+            for item in candidates
+            if item.get("source") == "hand"
+            and bool(item.get("reason") == "ok")
+            and isinstance(item.get("card"), AnimalCard)
+            and int(player.money) >= _sponsor_level(item["card"])
+        ]
         if not playable_hand:
             state.effect_log.append(f"{source}:{player.name}:{code}:played=0")
             return
         playable_hand.sort(
             key=lambda item: (
-                int(item.get("pay_cost", 0)),
                 int(item.get("level", 0)),
                 int(getattr(item.get("card"), "number", -1)),
                 str(item.get("card_instance_id", "")),
             )
         )
-        chosen = playable_hand[0]
-        selected_card = chosen.get("card")
-        details = {
-            "use_break_ability": False,
-            "sponsor_selections": [
-                {
-                    "source": "hand",
-                    "source_index": int(chosen.get("source_index", -1)),
-                    "card_instance_id": str(chosen.get("card_instance_id", "")),
-                }
-            ],
-        }
-        _play_single_sponsor_from_hand_paying_cost(
-            state=state,
-            player=player,
-            player_id=player_id,
-            card=selected_card,
-            details=details,
-        )
-        state.effect_log.append(
-            f"{source}:{player.name}:{code}:played={getattr(selected_card, 'number', -1)}"
-        )
+        for chosen in playable_hand:
+            selected_card = chosen.get("card")
+            if not isinstance(selected_card, AnimalCard):
+                continue
+            base_details: Dict[str, Any] = {
+                "use_break_ability": False,
+                "sponsor_selections": [
+                    {
+                        "source": "hand",
+                        "source_index": int(chosen.get("source_index", -1)),
+                        "card_instance_id": str(chosen.get("card_instance_id", "")),
+                    }
+                ],
+            }
+            for fragment_details, _fragment_label in _enumerate_sponsor_candidate_detail_variants(
+                state,
+                player,
+                player_id,
+                chosen,
+            ):
+                resolved_details = _merge_detail_fragments(base_details, fragment_details)
+                if _try_play_selected_sponsor(selected_card, resolved_details):
+                    return
+        state.effect_log.append(f"{source}:{player.name}:{code}:played=0")
         return
 
     if code == "gain_worker_1":
@@ -5882,6 +5900,16 @@ def _projected_reputation_after_project_support(player: PlayerState, option: Dic
     return max(0, min(15, projected))
 
 
+def _projected_money_after_project_support(player: PlayerState, option: Dict[str, Any]) -> int:
+    projected = int(player.money)
+    project_from_display_index = option.get("project_from_display_index")
+    if project_from_display_index is not None:
+        display_index = int(project_from_display_index)
+        display_extra_cost = int(option.get("project_display_extra_cost", display_index + 1))
+        projected -= max(0, display_extra_cost)
+    return max(0, projected)
+
+
 def _simulated_display_after_project_support(state: GameState, option: Dict[str, Any]) -> List[AnimalCard]:
     simulated = list(state.zoo_display)
     raw_index = option.get("project_from_display_index")
@@ -5922,6 +5950,7 @@ def _map_left_track_reward_variants_for_option(
     if not remaining_unlocks:
         return [({}, "")]
     simulated_display = _simulated_display_after_project_support(state, option)
+    projected_money = _projected_money_after_project_support(player, option)
     all_variants: List[Tuple[Dict[str, Any], str]] = []
 
     def _wrap(unlock_index: int, effect_code: str, choice_payload: Dict[str, Any], label: str) -> Tuple[Dict[str, Any], str]:
@@ -5989,7 +6018,7 @@ def _map_left_track_reward_variants_for_option(
                     continue
                 if not bool(item.get("reason") == "ok"):
                     continue
-                if int(player.money) < _sponsor_level(card):
+                if int(projected_money) < _sponsor_level(card):
                     continue
                 candidates.append(item)
             if candidates:
@@ -7802,28 +7831,42 @@ def _perform_animals_action_effect(
             sold_indices: List[int] = []
             if queued_sell_hand_card_choices:
                 requested_ids = queued_sell_hand_card_choices.pop(0)
-                if len(requested_ids) > max_sell:
-                    raise ValueError(f"sell_hand_card_choices can contain at most {max_sell} card(s).")
-                if len(set(requested_ids)) != len(requested_ids):
-                    raise ValueError("sell_hand_card_choices card_instance_ids must be unique.")
-                for requested_id in requested_ids:
-                    matching_index = next(
-                        (idx for idx, hand_card in enumerate(player.hand) if hand_card.instance_id == requested_id),
-                        None,
-                    )
-                    if matching_index is None:
-                        raise ValueError("sell_hand_card_choices selected card is not in hand.")
-                    sold_indices.append(matching_index)
+                if interactive_effect_prompts:
+                    if len(requested_ids) > max_sell:
+                        raise ValueError(f"sell_hand_card_choices can contain at most {max_sell} card(s).")
+                    if len(set(requested_ids)) != len(requested_ids):
+                        raise ValueError("sell_hand_card_choices card_instance_ids must be unique.")
+                    for requested_id in requested_ids:
+                        matching_index = next(
+                            (idx for idx, hand_card in enumerate(player.hand) if hand_card.instance_id == requested_id),
+                            None,
+                        )
+                        if matching_index is None:
+                            raise ValueError("sell_hand_card_choices selected card is not in hand.")
+                        sold_indices.append(matching_index)
+                else:
+                    normalized_ids: List[str] = []
+                    seen_ids: Set[str] = set()
+                    for requested_id in requested_ids:
+                        if requested_id in seen_ids:
+                            continue
+                        seen_ids.add(requested_id)
+                        normalized_ids.append(requested_id)
+                    for requested_id in normalized_ids:
+                        matching_index = next(
+                            (idx for idx, hand_card in enumerate(player.hand) if hand_card.instance_id == requested_id),
+                            None,
+                        )
+                        if matching_index is None:
+                            continue
+                        sold_indices.append(matching_index)
+                    sold_indices = sold_indices[:max_sell]
             elif interactive_effect_prompts:
                 sold_indices = _prompt_sell_hand_cards_for_human(
                     player,
                     max_sell=max_sell,
                     money_each=money_each,
                     effect_name="Sell hand cards",
-                )
-            elif max_sell > 0:
-                raise ValueError(
-                    "sell_hand_card_choices are required when an animal effect allows selling hand cards."
                 )
             if len(set(sold_indices)) != len(sold_indices):
                 raise ValueError("Selected sell-hand card indices must be unique.")
@@ -7844,28 +7887,42 @@ def _perform_animals_action_effect(
             pouched_indices: List[int] = []
             if queued_pouch_hand_card_choices:
                 requested_ids = queued_pouch_hand_card_choices.pop(0)
-                if len(requested_ids) > max_pouch:
-                    raise ValueError(f"pouch_hand_card_choices can contain at most {max_pouch} card(s).")
-                if len(set(requested_ids)) != len(requested_ids):
-                    raise ValueError("pouch_hand_card_choices card_instance_ids must be unique.")
-                for requested_id in requested_ids:
-                    matching_index = next(
-                        (idx for idx, hand_card in enumerate(player.hand) if hand_card.instance_id == requested_id),
-                        None,
-                    )
-                    if matching_index is None:
-                        raise ValueError("pouch_hand_card_choices selected card is not in hand.")
-                    pouched_indices.append(matching_index)
+                if interactive_effect_prompts:
+                    if len(requested_ids) > max_pouch:
+                        raise ValueError(f"pouch_hand_card_choices can contain at most {max_pouch} card(s).")
+                    if len(set(requested_ids)) != len(requested_ids):
+                        raise ValueError("pouch_hand_card_choices card_instance_ids must be unique.")
+                    for requested_id in requested_ids:
+                        matching_index = next(
+                            (idx for idx, hand_card in enumerate(player.hand) if hand_card.instance_id == requested_id),
+                            None,
+                        )
+                        if matching_index is None:
+                            raise ValueError("pouch_hand_card_choices selected card is not in hand.")
+                        pouched_indices.append(matching_index)
+                else:
+                    normalized_ids: List[str] = []
+                    seen_ids: Set[str] = set()
+                    for requested_id in requested_ids:
+                        if requested_id in seen_ids:
+                            continue
+                        seen_ids.add(requested_id)
+                        normalized_ids.append(requested_id)
+                    for requested_id in normalized_ids:
+                        matching_index = next(
+                            (idx for idx, hand_card in enumerate(player.hand) if hand_card.instance_id == requested_id),
+                            None,
+                        )
+                        if matching_index is None:
+                            continue
+                        pouched_indices.append(matching_index)
+                    pouched_indices = pouched_indices[:max_pouch]
             elif interactive_effect_prompts:
                 pouched_indices = _prompt_pouch_hand_cards_for_human(
                     player,
                     max_pouch=max_pouch,
                     appeal_each=appeal_each,
                     effect_name="Pouch cards",
-                )
-            elif max_pouch > 0:
-                raise ValueError(
-                    "pouch_hand_card_choices are required when an animal effect allows pouching hand cards."
                 )
             if len(set(pouched_indices)) != len(pouched_indices):
                 raise ValueError("Selected pouch-hand card indices must be unique.")
@@ -8000,17 +8057,61 @@ def _perform_animals_action_effect(
             if not available_actions:
                 return f"target={target_player.name} no_action"
 
+            def _hypnosis_concrete_details_for_action(action_name: str, strength_value: int) -> Optional[Dict[str, Any]]:
+                template_action = Action(
+                    ActionType.MAIN_ACTION,
+                    value=0,
+                    card_name=action_name,
+                    details={
+                        "effective_strength": int(strength_value),
+                        "base_strength": int(strength_value),
+                    },
+                )
+                try:
+                    if action_name == "animals":
+                        concrete = _enumerate_concrete_animals_actions(state, target_player, target_id, template_action)
+                    elif action_name == "cards":
+                        concrete = _enumerate_concrete_cards_actions(state, target_player, template_action)
+                    elif action_name == "build":
+                        concrete = _enumerate_concrete_build_actions(state, target_player, target_id, template_action)
+                    elif action_name == "association":
+                        concrete = _enumerate_concrete_association_actions(state, target_player, target_id, template_action)
+                    elif action_name == "sponsors":
+                        concrete = _enumerate_concrete_sponsors_actions(state, target_player, target_id, template_action)
+                    else:
+                        return None
+                except ValueError:
+                    return None
+                if not concrete:
+                    return None
+                return copy.deepcopy(concrete[0].details or {})
+
+            executable_actions: List[str] = []
+            for action_name in available_actions:
+                base_strength_for_action = target_player.action_order.index(action_name) + 1
+                effective_strength_for_action = _effective_action_strength(
+                    target_player,
+                    action_name,
+                    x_spent=0,
+                    base_strength=base_strength_for_action,
+                )
+                if _hypnosis_concrete_details_for_action(action_name, effective_strength_for_action) is None:
+                    continue
+                executable_actions.append(action_name)
+            if not executable_actions:
+                return f"target={target_player.name} no_action"
+
             chosen_action: Optional[str] = None
             if queued_hypnosis_targets:
                 chosen_action = _pop_queued_action_name(
                     queued_hypnosis_targets,
-                    available_actions,
+                    executable_actions,
                     effect_name="Hypnosis",
                 )
             if interactive_effect_prompts:
-                print(f"Hypnosis: choose one action card from {target_player.name} slot 1-{len(available_actions)}.")
-                for idx, action_name in enumerate(available_actions, start=1):
-                    base_strength = idx
+                print(f"Hypnosis: choose one action card from {target_player.name} slot 1-{max(0, max_slot)}.")
+                for idx, action_name in enumerate(executable_actions, start=1):
+                    base_strength = target_player.action_order.index(action_name) + 1
                     effective_strength = _effective_action_strength(
                         target_player,
                         action_name,
@@ -8024,19 +8125,19 @@ def _perform_animals_action_effect(
                         f"constriction={int(target_player.constriction_tokens_on_actions.get(action_name, 0))})"
                     )
                 while True:
-                    raw = input(f"Select action [1-{len(available_actions)}]: ").strip()
+                    raw = input(f"Select action [1-{len(executable_actions)}]: ").strip()
                     if raw.isdigit():
                         picked = int(raw)
-                        if 1 <= picked <= len(available_actions):
-                            chosen_action = available_actions[picked - 1]
+                        if 1 <= picked <= len(executable_actions):
+                            chosen_action = executable_actions[picked - 1]
                             break
                     print("Please enter a valid number.")
             elif chosen_action is None:
-                if len(available_actions) == 1:
-                    chosen_action = available_actions[0]
+                if len(executable_actions) == 1:
+                    chosen_action = executable_actions[0]
                 else:
                     # Non-interactive fallback: deterministically pick slot-1 action in available range.
-                    chosen_action = available_actions[0]
+                    chosen_action = executable_actions[0]
 
             if chosen_action is None:
                 raise ValueError("Hypnosis action selection failed.")
@@ -8103,6 +8204,8 @@ def _perform_animals_action_effect(
                         player=player,
                         strength=effective_strength,
                     )
+            else:
+                hypnosis_details = _hypnosis_concrete_details_for_action(chosen_action, effective_strength)
 
             skip_dispatch = (
                 chosen_action == "build"
@@ -8110,24 +8213,35 @@ def _perform_animals_action_effect(
                 and isinstance(hypnosis_details.get("selections"), list)
                 and len(hypnosis_details.get("selections") or []) == 0
             )
+            if not interactive_effect_prompts and hypnosis_details is None:
+                skip_dispatch = True
             break_triggered = False
+            dispatch_skipped_non_interactive = False
             if not skip_dispatch:
-                break_triggered = _perform_main_action_dispatch(
-                    state=state,
-                    player=player,
-                    player_id=player_id,
-                    chosen=chosen_action,
-                    strength=effective_strength,
-                    details=hypnosis_details,
-                )
+                try:
+                    break_triggered = _perform_main_action_dispatch(
+                        state=state,
+                        player=player,
+                        player_id=player_id,
+                        chosen=chosen_action,
+                        strength=effective_strength,
+                        details=hypnosis_details,
+                    )
+                except ValueError:
+                    if interactive_effect_prompts:
+                        raise
+                    dispatch_skipped_non_interactive = True
             _apply_action_card_token_use(target_player, chosen_action)
             _rotate_action_card_to_slot_1(target_player, chosen_action)
             if break_triggered:
                 _resolve_break(state)
-            return (
+            summary = (
                 f"target={target_player.name} action={chosen_action} "
                 f"x={x_spent} strength={effective_strength}"
             )
+            if dispatch_skipped_non_interactive:
+                summary += " skipped=invalid"
+            return summary
 
         def _effect_pilfering(amount: int) -> str:
             target_groups = _pilfering_target_groups(state, player_id, amount)
@@ -8660,7 +8774,9 @@ def list_legal_association_options(
     if strength >= 3:
         required = _task_workers_or_none("partner_zoo")
         if required is not None:
-            if bool(player.action_upgraded.get("association", False)) or len(player.partner_zoos) < 2:
+            if len(player.partner_zoos) < 4 and (
+                bool(player.action_upgraded.get("association", False)) or len(player.partner_zoos) < 2
+            ):
                 for partner in sorted(state.available_partner_zoos):
                     if partner in player.partner_zoos:
                         continue
@@ -11878,3 +11994,5 @@ def main_cli() -> None:
 
 if __name__ == "__main__":
     main_cli()
+# python main.py --seed 7
+# python tools/rl/train_self_play.py --algo masked_ppo --updates 100 --episodes-per-update 8 --output-dir runs/self_play_masked

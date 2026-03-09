@@ -3,6 +3,7 @@ from main import (
     AnimalCard,
     Enclosure,
     EnclosureObject,
+    _apply_map_break_recurring_effects_for_player,
     _apply_map_partner_threshold_rewards,
     _apply_map_university_threshold_rewards,
     _ensure_player_map_initialized,
@@ -168,3 +169,38 @@ def test_association_side_i_hides_partner_options_after_two_partners():
     p0.action_upgraded["association"] = True
     opts_upgraded = list_legal_association_options(state=state, player_id=0, strength=4)
     assert any(opt.get("task_kind") == "partner_zoo" for opt in opts_upgraded)
+
+
+def test_association_hides_partner_options_after_four_partners_even_side_ii():
+    state = setup_game(seed=706, player_names=["P1", "P2"])
+    p0 = state.players[0]
+    p0.partner_zoos = {"asia", "africa", "america", "europe"}
+    p0.action_upgraded["association"] = True
+
+    state.available_partner_zoos = {"australia"}
+    opts = list_legal_association_options(state=state, player_id=0, strength=4)
+
+    assert all(opt.get("task_kind") != "partner_zoo" for opt in opts)
+
+
+def test_map_break_recurring_play_sponsor_by_paying_cost_auto_fills_waza_mode():
+    state = setup_game(seed=707, player_names=["P1", "P2"])
+    p0 = state.players[0]
+
+    sponsor_227 = next(card for card in state.zoo_deck if card.number == 227)
+    state.zoo_deck.remove(sponsor_227)
+    p0.hand = [sponsor_227]
+    p0.money = 30
+    p0.reputation = 6
+    p0.map_left_track_unlocked_effects = ["play_1_sponsor_by_paying_cost"]
+
+    _apply_map_break_recurring_effects_for_player(
+        state=state,
+        player=p0,
+        player_id=0,
+    )
+
+    assert all(card.instance_id != sponsor_227.instance_id for card in p0.hand)
+    assert any(card.instance_id == sponsor_227.instance_id for card in p0.zoo_cards)
+    assert p0.sponsor_waza_assignment_mode in {"small", "large"}
+    assert any("map_break_step5:P1:play_1_sponsor_by_paying_cost:played=227" in line for line in state.effect_log)

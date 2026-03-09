@@ -23,6 +23,9 @@ venv/
 .env.*
 !.env.example
 
+# Local run artifacts
+runs/
+
 # Local reference material
 /Ark-Nova-Icon-Overview.pdf
 /Arknova_rules_jpn_web.pdf

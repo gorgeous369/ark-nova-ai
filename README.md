@@ -35,6 +35,32 @@ python3 main.py
 .venv/bin/pytest -q
 ```
 
+## RL Self-Play Training (MLP + LSTM)
+
+The repository now includes a self-play baseline trainer with:
+
+- `masked_ppo`: masked PPO with flattened legal action candidates.
+- `recurrent_ppo`: recurrent PPO (shared policy, LSTM state encoder).
+- `mappo`: recurrent actor with centralized critic input.
+
+Entry script:
+
+```bash
+.venv/bin/python tools/rl/train_self_play.py \
+  --algo masked_ppo \
+  --updates 100 \
+  --episodes-per-update 8 \
+  --output-dir runs/self_play_masked
+```
+
+The trainer uses:
+
+- public/private observation split (`build_public_observation`, `build_private_observation`)
+- concrete legal action flattening (`legal_actions(...)`)
+- action masking inside the policy head
+
+Note: RL training requires `torch`. Install your platform-specific PyTorch wheel before running the trainer.
+
 ## Create map tile template (machine-readable)
 
 ```bash
