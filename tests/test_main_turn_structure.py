@@ -4,6 +4,8 @@ import pytest
 
 import main
 
+from tests.helpers import find_action, has_action, make_state, materialize_first_action
+
 from main import (
     Action,
     ActionType,
@@ -26,7 +28,7 @@ from main import (
 
 
 def test_setup_uses_8_choose_4_opening_and_break_9_in_two_player_game():
-    state = setup_game(seed=41, player_names=["P1", "P2"])
+    state = make_state(41)
 
     assert len(state.players) == 2
     assert state.break_max == 9
@@ -44,7 +46,7 @@ def test_setup_uses_8_choose_4_opening_and_break_9_in_two_player_game():
 
 
 def test_legal_actions_are_5_main_actions_plus_x_action():
-    state = setup_game(seed=42, player_names=["P1", "P2"])
+    state = make_state(42)
     player = state.players[state.current_player]
     actions = legal_actions(player)
 
@@ -57,7 +59,7 @@ def test_legal_actions_are_5_main_actions_plus_x_action():
 
 
 def test_legal_actions_expand_each_main_action_by_available_x_spend():
-    state = setup_game(seed=142, player_names=["P1", "P2"])
+    state = make_state(142)
     player = state.players[state.current_player]
     player.x_tokens = 2
 
@@ -93,7 +95,7 @@ def test_format_card_line_shows_sponsor_level_instead_of_zero_cost():
 
 
 def test_conservation_space_2_pending_offers_upgrade_and_activate_worker_choices():
-    state = setup_game(seed=2041, player_names=["P1", "P2"])
+    state = make_state(2041)
     p0 = state.players[0]
     money_before = p0.money
     p0.conservation = 2
@@ -108,12 +110,10 @@ def test_conservation_space_2_pending_offers_upgrade_and_activate_worker_choices
     assert state.pending_decision_kind == "conservation_reward"
 
     actions = legal_actions(p0, state=state, player_id=0)
-    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
+    assert has_action(actions, reward="activate_association_worker")
+    assert has_action(actions, reward="upgrade_action_card", upgraded_action="animals")
 
-    assert "cons[2] | activate worker" in labels
-    assert any(label.startswith("cons[2] | upgrade(") for label in labels)
-
-    worker_action = next(action for action in actions if (action.details or {}).get("reward") == "activate_association_worker")
+    worker_action = find_action(actions, reward="activate_association_worker")
     apply_action(state, worker_action)
 
     assert p0.workers == 2
@@ -123,7 +123,7 @@ def test_conservation_space_2_pending_offers_upgrade_and_activate_worker_choices
 
 
 def test_conservation_space_5_pending_expands_choiceful_bonus_tiles():
-    state = setup_game(seed=2042, player_names=["P1", "P2"])
+    state = make_state(2042)
     p0 = state.players[0]
     p0.conservation = 5
     p0.claimed_conservation_reward_spaces.add(2)
@@ -160,22 +160,28 @@ def test_conservation_space_5_pending_expands_choiceful_bonus_tiles():
 
     assert started is True
     actions = legal_actions(p0, state=state, player_id=0)
-    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
-
-    assert "cons[5] | +5 money" in labels
-    assert any("free enclosure_3" in label for label in labels)
-    assert any("tile(partner(" in label for label in labels)
-    assert any("tile(uni(" in label for label in labels)
-    assert any("tile(x2->" in label for label in labels)
-    assert any("play sponsor<=5 hand[1] #238 ORNITHOLOGIST" in label for label in labels)
-    assert "cons[5] | +10 money" in labels
-    assert "cons[5] | +2 reputation" in labels
-    assert "cons[5] | +3 x-tokens" in labels
-    assert "cons[5] | draw 3 deck" in labels
+    assert has_action(actions, reward="5coins")
+    assert has_action(actions, reward="size_3_enclosure")
+    assert has_action(actions, reward="partner_zoo", partner_zoo="africa")
+    assert has_action(actions, reward="university", university="reputation_1_hand_limit_5")
+    assert has_action(
+        actions,
+        reward="x2_multiplier",
+        predicate=lambda action: str((action.details or {}).get("multiplier_action") or "") in MAIN_ACTION_CARDS,
+    )
+    assert has_action(
+        actions,
+        reward="sponsor_card",
+        predicate=lambda action: bool((action.details or {}).get("sponsor_details")),
+    )
+    assert has_action(actions, reward="10_money")
+    assert has_action(actions, reward="2_reputation")
+    assert has_action(actions, reward="3_x_tokens")
+    assert has_action(actions, reward="3_cards")
 
 
 def test_conservation_space_5_reputation_reward_expands_reputation_milestone_upgrade_choices():
-    state = setup_game(seed=2044, player_names=["P1", "P2"])
+    state = make_state(2044)
     p0 = state.players[0]
     p0.conservation = 5
     p0.claimed_conservation_reward_spaces.add(2)
@@ -190,14 +196,14 @@ def test_conservation_space_5_reputation_reward_expands_reputation_milestone_upg
 
     assert started is True
     actions = legal_actions(p0, state=state, player_id=0)
-    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
-
-    assert "cons[5] | +2 reputation ; rep5 upgrade(build)" in labels
-
-    chosen = next(
-        action
-        for action in actions
-        if (action.details or {}).get("action_label") == "cons[5] | +2 reputation ; rep5 upgrade(build)"
+    chosen = find_action(
+        actions,
+        reward="2_reputation",
+        predicate=lambda action: any(
+            item.get("upgraded_action") == "build"
+            for item in list((action.details or {}).get("reputation_milestone_reward_choices") or [])
+            if isinstance(item, dict)
+        ),
     )
     apply_action(state, chosen)
 
@@ -208,7 +214,7 @@ def test_conservation_space_5_reputation_reward_expands_reputation_milestone_upg
 
 
 def test_conservation_space_5_university_reward_expands_university_reputation_milestone_choices():
-    state = setup_game(seed=2047, player_names=["P1", "P2"])
+    state = make_state(2047)
     p0 = state.players[0]
     p0.conservation = 5
     p0.claimed_conservation_reward_spaces.add(2)
@@ -223,14 +229,15 @@ def test_conservation_space_5_university_reward_expands_university_reputation_mi
 
     assert started is True
     actions = legal_actions(p0, state=state, player_id=0)
-    labels = [str((action.details or {}).get("action_label") or "") for action in actions]
-
-    assert "cons[5] | tile(uni(hand5,+1rep)) ; rep5 upgrade(build)" in labels
-
-    chosen = next(
-        action
-        for action in actions
-        if (action.details or {}).get("action_label") == "cons[5] | tile(uni(hand5,+1rep)) ; rep5 upgrade(build)"
+    chosen = find_action(
+        actions,
+        reward="university",
+        university="reputation_1_hand_limit_5",
+        predicate=lambda action: any(
+            item.get("upgraded_action") == "build"
+            for item in list((action.details or {}).get("reputation_milestone_reward_choices") or [])
+            if isinstance(item, dict)
+        ),
     )
     apply_action(state, chosen)
 
@@ -856,6 +863,7 @@ def test_build_card_bonus_expands_to_reputation_range_display_and_deck(monkeypat
     }
 
     monkeypatch.setattr(main, "list_legal_build_options", lambda **kwargs: [copy.deepcopy(option)])
+    monkeypatch.setattr(main, "_perform_build_action_effect", lambda *args, **kwargs: None)
 
     actions = legal_actions(player, state=state, player_id=0)
     build_actions = [
@@ -864,11 +872,29 @@ def test_build_card_bonus_expands_to_reputation_range_display_and_deck(monkeypat
         if action.type == ActionType.MAIN_ACTION and action.card_name == "build" and int(action.value or 0) == 0
     ]
 
-    assert [str(action) for action in build_actions] == [
-        "build(strength=2) | enclosure_2 cells=[(4,1),(5,1)] ; draw display[1] #701 Display 1",
-        "build(strength=2) | enclosure_2 cells=[(4,1),(5,1)] ; draw display[2] #702 Display 2",
-        "build(strength=2) | enclosure_2 cells=[(4,1),(5,1)] ; draw display[3] #703 Display 3",
-        "build(strength=2) | enclosure_2 cells=[(4,1),(5,1)] ; draw deck",
+    assert [
+        {
+            "selection": (action.details or {}).get("selections"),
+            "bonus_choices": (action.details or {}).get("build_card_bonus_choices"),
+        }
+        for action in build_actions
+    ] == [
+        {
+            "selection": [{"building_type": "SIZE_2", "cells": [[4, 1], [5, 1]]}],
+            "bonus_choices": [{"draw_source": "display", "display_index": 0}],
+        },
+        {
+            "selection": [{"building_type": "SIZE_2", "cells": [[4, 1], [5, 1]]}],
+            "bonus_choices": [{"draw_source": "display", "display_index": 1}],
+        },
+        {
+            "selection": [{"building_type": "SIZE_2", "cells": [[4, 1], [5, 1]]}],
+            "bonus_choices": [{"draw_source": "display", "display_index": 2}],
+        },
+        {
+            "selection": [{"building_type": "SIZE_2", "cells": [[4, 1], [5, 1]]}],
+            "bonus_choices": [{"draw_source": "deck"}],
+        },
     ]
 
 
@@ -898,6 +924,66 @@ def test_build_card_bonus_uses_selected_display_choice():
 
     assert [card.instance_id for card in player.hand] == ["display-2"]
     assert [card.instance_id for card in state.zoo_display] == ["display-1", "display-3", "display-4", "deck-fill-1"]
+
+
+def test_build_legal_actions_filter_invalid_reputation_range_bonus_choice(monkeypatch):
+    state = setup_game(seed=1465, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    player.reputation = 4
+    state.zoo_display = [
+        AnimalCard(f"Display {idx}", 0, 1, 0, 0, number=720 + idx, instance_id=f"display-{idx}")
+        for idx in range(1, 5)
+    ]
+
+    option = {
+        "index": 1,
+        "building_type": "SIZE_2",
+        "building_label": "enclosure_2",
+        "cells": [(4, 1), (5, 1)],
+        "size": 2,
+        "cost": 4,
+        "placement_bonuses": ["card_in_reputation_range"],
+    }
+
+    monkeypatch.setattr(main, "list_legal_build_options", lambda **kwargs: [copy.deepcopy(option)])
+
+    def _guard_invalid_bonus_choice(state, player, strength, player_id=None, details=None):
+        queued_choices = list((details or {}).get("build_card_bonus_choices") or [])
+        if queued_choices and int(queued_choices[0].get("display_index", -1)) == 2:
+            raise ValueError("Chosen display card is outside reputation range.")
+        return None
+
+    monkeypatch.setattr(main, "_perform_build_action_effect", _guard_invalid_bonus_choice)
+
+    actions = legal_actions(player, state=state, player_id=0)
+    build_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "build" and int(action.value or 0) == 0
+    ]
+
+    assert [
+        {
+            "selection": (action.details or {}).get("selections"),
+            "bonus_choices": (action.details or {}).get("build_card_bonus_choices"),
+        }
+        for action in build_actions
+    ] == [
+        {
+            "selection": [{"building_type": "SIZE_2", "cells": [[4, 1], [5, 1]]}],
+            "bonus_choices": [{"draw_source": "display", "display_index": 0}],
+        },
+        {
+            "selection": [{"building_type": "SIZE_2", "cells": [[4, 1], [5, 1]]}],
+            "bonus_choices": [{"draw_source": "display", "display_index": 1}],
+        },
+        {
+            "selection": [{"building_type": "SIZE_2", "cells": [[4, 1], [5, 1]]}],
+            "bonus_choices": [{"draw_source": "deck"}],
+        },
+    ]
 
 
 def test_build_bonus_archaeologist_chain_keeps_non_interactive_mode(monkeypatch):
@@ -1217,21 +1303,70 @@ def test_state_legal_actions_expand_project_support_with_map_unlock_draw_choices
         for action in actions
         if action.type == ActionType.MAIN_ACTION
         and action.card_name == "association"
-        and "proj P101" in str(action)
+        and (
+            (action.details or {}).get("association_task_sequence")
+            and (action.details or {})["association_task_sequence"][0].get("project_id") == "P101_SpeciesDiversity"
+        )
+    ]
+    draw_actions = [
+        action
+        for action in project_actions
+        if (
+            ((action.details or {}).get("association_task_sequence") or [])[0].get("map_left_track_choice") or {}
+        ).get("effect_code")
+        == "draw_1_card_deck_or_reputation_range"
+    ]
+    free_enclosure_actions = [
+        action
+        for action in project_actions
+        if (
+            ((action.details or {}).get("association_task_sequence") or [])[0].get("map_left_track_choice") or {}
+        ).get("effect_code")
+        == "build_free_standard_enclosure_size_2"
     ]
 
-    draw_actions = [action for action in project_actions if "unlock[1](draw display[" in str(action)]
-    free_enclosure_actions = [action for action in project_actions if "unlock[2](free:enclosure_2" in str(action)]
-
     assert len(project_actions) > len(state.zoo_display)
-    assert all("right(+2CP)" in str(action) for action in project_actions)
+    assert all(
+        ((action.details or {}).get("association_task_sequence") or [])[0].get("project_level") == "right_level"
+        for action in project_actions
+    )
     assert len(draw_actions) == len(state.zoo_display)
     assert free_enclosure_actions
-    assert any("unlock[3](+5 money)" in str(action) for action in project_actions)
-    assert any("unlock[4](play hand[" in str(action) for action in project_actions)
-    assert any("unlock[5](+1 worker)" in str(action) for action in project_actions)
-    assert any("unlock[6](+12 money)" in str(action) for action in project_actions)
-    assert any("unlock[7](+3 x-tokens)" in str(action) for action in project_actions)
+    assert any(
+        (
+            ((action.details or {}).get("association_task_sequence") or [])[0].get("map_left_track_choice") or {}
+        ).get("effect_code")
+        == "gain_5_coins"
+        for action in project_actions
+    )
+    assert any(
+        (
+            ((action.details or {}).get("association_task_sequence") or [])[0].get("map_left_track_choice") or {}
+        ).get("effect_code")
+        == "play_1_sponsor_by_paying_cost"
+        for action in project_actions
+    )
+    assert any(
+        (
+            ((action.details or {}).get("association_task_sequence") or [])[0].get("map_left_track_choice") or {}
+        ).get("effect_code")
+        == "gain_worker_1"
+        for action in project_actions
+    )
+    assert any(
+        (
+            ((action.details or {}).get("association_task_sequence") or [])[0].get("map_left_track_choice") or {}
+        ).get("effect_code")
+        == "gain_12_coins"
+        for action in project_actions
+    )
+    assert any(
+        (
+            ((action.details or {}).get("association_task_sequence") or [])[0].get("map_left_track_choice") or {}
+        ).get("effect_code")
+        == "gain_3_x_tokens"
+        for action in project_actions
+    )
 
     display_action = draw_actions[0]
     expected_display_card = state.zoo_display[0]
@@ -1288,12 +1423,33 @@ def test_state_legal_actions_project_display_unlock_sponsor_uses_post_project_mo
         for action in actions
         if action.type == ActionType.MAIN_ACTION
         and action.card_name == "association"
-        and "proj display[2]" in str(action)
-        and "unlock[4]" in str(action)
+        and (
+            (action.details or {}).get("association_task_sequence")
+            and (action.details or {})["association_task_sequence"][0].get("project_from_display_index") == 1
+        )
+        and (
+            (
+                ((action.details or {}).get("association_task_sequence") or [])[0].get("map_left_track_choice")
+                or {}
+            ).get("unlock_index")
+            == 3
+        )
     ]
 
     assert display_unlock_4_actions
-    assert all("unlock[4](sponsor unavailable)" in str(action) for action in display_unlock_4_actions)
+    assert all(
+        (
+            ((action.details or {}).get("association_task_sequence") or [])[0].get("map_left_track_choice") or {}
+        ).get("effect_code")
+        == "play_1_sponsor_by_paying_cost"
+        and not (
+            (
+                ((action.details or {}).get("association_task_sequence") or [])[0].get("map_left_track_choice")
+                or {}
+            ).get("sponsor_details")
+        )
+        for action in display_unlock_4_actions
+    )
 
 
 def test_state_legal_actions_expand_build_to_concrete_selection():
@@ -2818,12 +2974,12 @@ def test_cards_draw_exceeding_remaining_deck_forces_immediate_game_end():
 
 
 def test_game_forces_end_after_exceeding_100_rounds():
-    state = setup_game(seed=195, player_names=["P1", "P2"])
+    state = make_state(195)
     state.current_player = 0
 
     # 2 actions = 1 round for 2 players. End should trigger once rounds exceed 100.
-    # Use current legal actions to avoid invalid fixed-action loops (e.g. X-token cap).
-    for _ in range(500):
+    # Use the first fully materialized legal action each step.
+    for _ in range(260):
         if state.game_over():
             break
         actor_id = (
@@ -2831,10 +2987,7 @@ def test_game_forces_end_after_exceeding_100_rounds():
             if str(state.pending_decision_kind or "").strip() and state.pending_decision_player_id is not None
             else int(state.current_player)
         )
-        actor = state.players[actor_id]
-        options = legal_actions(actor, state=state, player_id=actor_id)
-        assert options
-        apply_action(state, options[0])
+        apply_action(state, materialize_first_action(state, actor_id))
 
     assert state.game_over()
     assert state.forced_game_over is True

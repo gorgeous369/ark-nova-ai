@@ -5,11 +5,12 @@ import numpy as np
 import main
 
 from arknova_rl.encoding import ActionFeatureEncoder, ObservationEncoder
-from main import Action, ActionType, AnimalCard, SetupCardRef, legal_actions, setup_game
+from main import Action, ActionType, AnimalCard, SetupCardRef, legal_actions
+from tests.helpers import make_state
 
 
 def test_action_feature_encoder_is_deterministic():
-    state = setup_game(seed=701, player_names=["P1", "P2"])
+    state = make_state(701)
     actor = state.players[0]
     actions = legal_actions(actor, state=state, player_id=0)
     assert actions
@@ -57,7 +58,7 @@ def test_action_feature_encoder_ignores_ui_labels_and_opaque_instance_ids():
 
 def test_observation_encoder_public_part_ignores_opponent_hidden_faces():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=702, player_names=["P1", "P2"])
+    state_a = make_state(702)
     state_b = copy.deepcopy(state_a)
 
     opp_a = state_a.players[1]
@@ -81,7 +82,7 @@ def test_observation_encoder_public_part_ignores_opponent_hidden_faces():
 
 def test_observation_encoder_public_part_is_viewer_invariant():
     encoder = ObservationEncoder()
-    state = setup_game(seed=7021, player_names=["P1", "P2"])
+    state = make_state(7021)
 
     public_0 = encoder.encode_public_observation(main.build_public_observation(state, viewer_player_id=0))
     public_1 = encoder.encode_public_observation(main.build_public_observation(state, viewer_player_id=1))
@@ -89,9 +90,19 @@ def test_observation_encoder_public_part_is_viewer_invariant():
     assert np.array_equal(public_0, public_1)
 
 
+def test_observation_encoder_can_skip_global_encoding():
+    encoder = ObservationEncoder()
+    state = make_state(7022)
+
+    local_vec, global_vec = encoder.encode_from_state(state, 0, include_global=False)
+
+    assert local_vec.size > 0
+    assert global_vec.shape == (0,)
+
+
 def test_observation_encoder_private_part_changes_with_own_hidden_faces():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=703, player_names=["P1", "P2"])
+    state_a = make_state(703)
     state_b = copy.deepcopy(state_a)
 
     me_a = state_a.players[0]
@@ -110,7 +121,7 @@ def test_observation_encoder_private_part_changes_with_own_hidden_faces():
 
 def test_observation_encoder_public_part_changes_with_map_layout():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=704, player_names=["P1", "P2"])
+    state_a = make_state(704)
     state_b = copy.deepcopy(state_a)
 
     opp_a = state_a.players[1]
@@ -131,7 +142,7 @@ def test_observation_encoder_public_part_changes_with_map_layout():
 
 def test_observation_encoder_public_part_changes_with_display_card_faces():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=705, player_names=["P1", "P2"])
+    state_a = make_state(705)
     state_b = copy.deepcopy(state_a)
 
     state_a.zoo_display[0] = AnimalCard(
@@ -162,7 +173,7 @@ def test_observation_encoder_public_part_changes_with_display_card_faces():
 
 def test_observation_encoder_public_part_changes_with_conservation_slot_ownership():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=706, player_names=["P1", "P2"])
+    state_a = make_state(706)
     state_b = copy.deepcopy(state_a)
 
     state_a.conservation_project_slots = {"P900_Custom": {"2": 0, "5": None}}
@@ -175,7 +186,7 @@ def test_observation_encoder_public_part_changes_with_conservation_slot_ownershi
 
 def test_observation_encoder_public_part_changes_with_public_resource_identities():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=707, player_names=["P1", "P2"])
+    state_a = make_state(707)
     state_b = copy.deepcopy(state_a)
 
     state_a.available_partner_zoos = {"America"}
@@ -190,7 +201,7 @@ def test_observation_encoder_public_part_changes_with_public_resource_identities
 
 def test_observation_encoder_public_part_changes_with_public_player_detail_layout():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=708, player_names=["P1", "P2"])
+    state_a = make_state(708)
     state_b = copy.deepcopy(state_a)
     p_a = state_a.players[0]
     p_b = state_b.players[0]
@@ -253,7 +264,7 @@ def test_observation_encoder_public_part_changes_with_public_player_detail_layou
 
 def test_observation_encoder_public_part_changes_with_pending_payload_scalars():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=709, player_names=["P1", "P2"])
+    state_a = make_state(709)
     state_b = copy.deepcopy(state_a)
 
     state_a.pending_decision_kind = "cards_discard"
@@ -270,7 +281,7 @@ def test_observation_encoder_public_part_changes_with_pending_payload_scalars():
 
 def test_observation_encoder_public_part_hides_pending_private_instance_ids():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=710, player_names=["P1", "P2"])
+    state_a = make_state(710)
     state_b = copy.deepcopy(state_a)
 
     state_a.pending_decision_kind = "opening_draft_keep"
@@ -293,7 +304,7 @@ def test_observation_encoder_public_part_hides_pending_private_instance_ids():
 
 def test_observation_encoder_private_part_ignores_private_instance_ids_when_faces_match():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=711, player_names=["P1", "P2"])
+    state_a = make_state(711)
     state_b = copy.deepcopy(state_a)
 
     card_common = dict(
@@ -315,7 +326,7 @@ def test_observation_encoder_private_part_ignores_private_instance_ids_when_face
 
 def test_observation_encoder_public_part_changes_with_action_token_state_details():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=712, player_names=["P1", "P2"])
+    state_a = make_state(712)
     state_b = copy.deepcopy(state_a)
 
     p_a = state_a.players[0]
@@ -349,7 +360,7 @@ def test_observation_encoder_public_part_changes_with_action_token_state_details
 
 def test_observation_encoder_public_part_changes_with_trigger_player_identity():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=713, player_names=["P1", "P2"])
+    state_a = make_state(713)
     state_b = copy.deepcopy(state_a)
 
     state_a.endgame_trigger_player = 0
@@ -366,7 +377,7 @@ def test_observation_encoder_public_part_changes_with_trigger_player_identity():
 
 def test_observation_encoder_public_part_changes_with_opening_draft_public_card_count():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=714, player_names=["P1", "P2"])
+    state_a = make_state(714)
     state_b = copy.deepcopy(state_a)
 
     state_a.pending_decision_kind = "opening_draft_keep"
@@ -389,7 +400,7 @@ def test_observation_encoder_public_part_changes_with_opening_draft_public_card_
 
 def test_observation_encoder_private_part_changes_with_pouched_host_card_mapping():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=715, player_names=["P1", "P2"])
+    state_a = make_state(715)
     state_b = copy.deepcopy(state_a)
 
     host_a_1 = AnimalCard("HOST_1", 4, 2, 0, 0, number=99241, instance_id="host-a-1")
@@ -417,7 +428,7 @@ def test_observation_encoder_private_part_changes_with_pouched_host_card_mapping
 
 def test_observation_encoder_local_part_marks_viewer_slot_but_global_part_stays_shared():
     encoder = ObservationEncoder()
-    state = setup_game(seed=716, player_names=["P1", "P2"])
+    state = make_state(716)
     for player in state.players:
         player.hand = []
         player.final_scoring_cards = []
@@ -435,7 +446,7 @@ def test_observation_encoder_local_part_marks_viewer_slot_but_global_part_stays_
 
 def test_observation_encoder_global_part_sees_opponent_hidden_faces_but_local_part_does_not():
     encoder = ObservationEncoder()
-    state_a = setup_game(seed=717, player_names=["P1", "P2"])
+    state_a = make_state(717)
     state_b = copy.deepcopy(state_a)
 
     state_a.players[1].hand = [AnimalCard("OPP_A", 2, 1, 0, 0, number=99261, instance_id="opp-a")]

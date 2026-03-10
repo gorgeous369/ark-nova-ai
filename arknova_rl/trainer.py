@@ -27,6 +27,11 @@ from .evaluator import (
     load_policy_bundle_from_checkpoint,
 )
 from .model import MaskedActorCritic
+from .runtime import (
+    build_model_and_encoders as _build_model_and_encoders,
+    current_actor_id as _current_actor_id,
+    load_torch_checkpoint as _load_torch_checkpoint,
+)
 
 
 @dataclass
@@ -71,13 +76,6 @@ class EpisodeRolloutResult:
     terminal_abs_diffs: List[float]
     terminal_reason: str
     elapsed_seconds: float
-
-
-def _current_actor_id(state: main.GameState) -> int:
-    if str(state.pending_decision_kind or "").strip() and state.pending_decision_player_id is not None:
-        return int(state.pending_decision_player_id)
-    return int(state.current_player)
-
 
 def _progress_score_diff(state: main.GameState, player_id: int) -> float:
     actor_score = float(main._progress_score(state.players[player_id]))
@@ -163,7 +161,11 @@ def _collect_episode_rollout(
                 f"No legal actions for actor={actor_id} pending={state.pending_decision_kind!r}."
             )
 
-        state_vec, global_vec = obs_encoder.encode_from_state(state, actor_id)
+        state_vec, global_vec = obs_encoder.encode_from_state(
+            state,
+            actor_id,
+            include_global=bool(model.use_centralized_value),
+        )
         action_features = action_encoder.encode_many(legal)
         action_mask = np.ones((len(legal),), dtype=np.float32)
 
@@ -431,6 +433,105 @@ def _collect_rollout(
     return rollout_steps, rollout_stats
 
 
+def _zero_loss_metrics() -> Dict[str, float]:
+    return {
+        "policy_loss": 0.0,
+        "value_loss": 0.0,
+        "entropy": 0.0,
+        "total_loss": 0.0,
+    }
+
+
+def _build_feedforward_training_batch(
+    rollout_steps: Sequence[RolloutStep],
+    normalized_advantages: np.ndarray,
+    *,
+    device: torch.device,
+) -> Dict[str, torch.Tensor]:
+    step_count = len(rollout_steps)
+    max_action_count = max(int(step.action_features.shape[0]) for step in rollout_steps)
+    action_dim = int(rollout_steps[0].action_features.shape[1])
+
+    state_array = np.stack([step.state_vec for step in rollout_steps], axis=0).astype(np.float32)
+    global_array = np.stack([step.global_state_vec for step in rollout_steps], axis=0).astype(np.float32)
+    action_array = np.zeros((step_count, max_action_count, action_dim), dtype=np.float32)
+    mask_array = np.zeros((step_count, max_action_count), dtype=np.float32)
+    action_indices = np.zeros((step_count,), dtype=np.int64)
+    old_logprobs = np.zeros((step_count,), dtype=np.float32)
+    returns = np.zeros((step_count,), dtype=np.float32)
+
+    for idx, step in enumerate(rollout_steps):
+        action_count = int(step.action_features.shape[0])
+        action_array[idx, :action_count] = step.action_features
+        mask_array[idx, :action_count] = step.action_mask
+        action_indices[idx] = int(step.action_index)
+        old_logprobs[idx] = float(step.old_logprob)
+        returns[idx] = float(step.return_)
+
+    return {
+        "state_vec": _to_tensor(state_array, device=device),
+        "global_state_vec": _to_tensor(global_array, device=device),
+        "action_features": _to_tensor(action_array, device=device),
+        "action_mask": _to_tensor(mask_array, device=device),
+        "action_index": torch.as_tensor(action_indices, dtype=torch.long, device=device),
+        "old_logprob": _to_tensor(old_logprobs, device=device),
+        "target_return": _to_tensor(returns, device=device),
+        "advantage": _to_tensor(normalized_advantages, device=device),
+    }
+
+
+def _build_recurrent_training_sequences(
+    rollout_steps: Sequence[RolloutStep],
+    ordered_sequences: Sequence[Tuple[Tuple[int, int], List[int]]],
+    normalized_advantages: np.ndarray,
+    *,
+    device: torch.device,
+) -> List[Dict[str, torch.Tensor]]:
+    sequence_batches: List[Dict[str, torch.Tensor]] = []
+    for _sequence_key, indices in ordered_sequences:
+        if not indices:
+            continue
+        max_action_count = max(int(rollout_steps[step_idx].action_features.shape[0]) for step_idx in indices)
+        action_dim = int(rollout_steps[indices[0]].action_features.shape[1])
+        step_count = len(indices)
+
+        state_array = np.stack([rollout_steps[step_idx].state_vec for step_idx in indices], axis=0).astype(np.float32)
+        global_array = np.stack(
+            [rollout_steps[step_idx].global_state_vec for step_idx in indices],
+            axis=0,
+        ).astype(np.float32)
+        action_array = np.zeros((step_count, max_action_count, action_dim), dtype=np.float32)
+        mask_array = np.zeros((step_count, max_action_count), dtype=np.float32)
+        action_indices = np.zeros((step_count,), dtype=np.int64)
+        old_logprobs = np.zeros((step_count,), dtype=np.float32)
+        returns = np.zeros((step_count,), dtype=np.float32)
+        advantages = np.zeros((step_count,), dtype=np.float32)
+
+        for seq_idx, step_idx in enumerate(indices):
+            step = rollout_steps[step_idx]
+            action_count = int(step.action_features.shape[0])
+            action_array[seq_idx, :action_count] = step.action_features
+            mask_array[seq_idx, :action_count] = step.action_mask
+            action_indices[seq_idx] = int(step.action_index)
+            old_logprobs[seq_idx] = float(step.old_logprob)
+            returns[seq_idx] = float(step.return_)
+            advantages[seq_idx] = float(normalized_advantages[step_idx])
+
+        sequence_batches.append(
+            {
+                "state_vec": _to_tensor(state_array, device=device),
+                "global_state_vec": _to_tensor(global_array, device=device),
+                "action_features": _to_tensor(action_array, device=device),
+                "action_mask": _to_tensor(mask_array, device=device),
+                "action_index": torch.as_tensor(action_indices, dtype=torch.long, device=device),
+                "old_logprob": _to_tensor(old_logprobs, device=device),
+                "target_return": _to_tensor(returns, device=device),
+                "advantage": _to_tensor(advantages, device=device),
+            }
+        )
+    return sequence_batches
+
+
 def _update_model(
     *,
     model: MaskedActorCritic,
@@ -441,12 +542,7 @@ def _update_model(
     device: torch.device,
 ) -> Dict[str, float]:
     if not rollout_steps:
-        return {
-            "policy_loss": 0.0,
-            "value_loss": 0.0,
-            "entropy": 0.0,
-            "total_loss": 0.0,
-        }
+        return _zero_loss_metrics()
 
     advantages = np.asarray([float(step.advantage) for step in rollout_steps], dtype=np.float32)
     adv_mean = float(np.mean(advantages))
@@ -461,55 +557,105 @@ def _update_model(
     epoch_total_losses: List[float] = []
 
     ordered_sequences = sorted(sequence_indices.items(), key=lambda item: item[0])
+    feedforward_batch: Optional[Dict[str, torch.Tensor]] = None
+    recurrent_batches: Optional[List[Dict[str, torch.Tensor]]] = None
+    if not model.use_lstm:
+        feedforward_batch = _build_feedforward_training_batch(
+            rollout_steps,
+            normalized_advantages,
+            device=device,
+        )
+    else:
+        recurrent_batches = _build_recurrent_training_sequences(
+            rollout_steps,
+            ordered_sequences,
+            normalized_advantages,
+            device=device,
+        )
     for _ in range(config.update_epochs):
-        policy_losses_t: List[torch.Tensor] = []
-        value_losses_t: List[torch.Tensor] = []
-        entropies_t: List[torch.Tensor] = []
+        if feedforward_batch is not None:
+            logits, values, _ = model.forward_step(
+                state_vec=feedforward_batch["state_vec"],
+                action_features=feedforward_batch["action_features"],
+                action_mask=feedforward_batch["action_mask"],
+                hidden=None,
+                global_state_vec=(
+                    feedforward_batch["global_state_vec"]
+                    if model.use_centralized_value
+                    else None
+                ),
+            )
+            step_log_probs = torch.log_softmax(logits, dim=-1)
+            step_probs = torch.softmax(logits, dim=-1)
+            chosen_indices = feedforward_batch["action_index"].unsqueeze(1)
+            new_logprob = step_log_probs.gather(1, chosen_indices).squeeze(1)
+            entropy = -(step_probs * step_log_probs).sum(dim=-1)
+            old_logprob = feedforward_batch["old_logprob"]
+            target_return = feedforward_batch["target_return"]
+            advantage = feedforward_batch["advantage"]
+            ratio = torch.exp(new_logprob - old_logprob)
+            clipped_ratio = torch.clamp(
+                ratio,
+                1.0 - float(config.clip_epsilon),
+                1.0 + float(config.clip_epsilon),
+            )
+            surrogate_1 = ratio * advantage
+            surrogate_2 = clipped_ratio * advantage
+            policy_loss = -torch.min(surrogate_1, surrogate_2).mean()
+            value_loss = ((target_return - values) ** 2).mean()
+            entropy_mean = entropy.mean()
+        else:
+            policy_losses_t: List[torch.Tensor] = []
+            value_losses_t: List[torch.Tensor] = []
+            entropies_t: List[torch.Tensor] = []
 
-        for _, indices in ordered_sequences:
-            hidden = model.init_hidden(1, device=device) if model.use_lstm else None
-            for step_idx in indices:
-                step = rollout_steps[step_idx]
-                state_t = _to_tensor(step.state_vec, device=device).unsqueeze(0)
-                global_t = _to_tensor(step.global_state_vec, device=device).unsqueeze(0)
-                action_t = _to_tensor(step.action_features, device=device).unsqueeze(0)
-                mask_t = _to_tensor(step.action_mask, device=device).unsqueeze(0)
-                logits, values, hidden = model.forward_step(
-                    state_vec=state_t,
-                    action_features=action_t,
-                    action_mask=mask_t,
-                    hidden=hidden,
-                    global_state_vec=global_t if model.use_centralized_value else None,
-                )
-                step_log_probs = torch.log_softmax(logits[0], dim=-1)
-                step_probs = torch.softmax(logits[0], dim=-1)
-                action_index_t = torch.tensor(step.action_index, dtype=torch.long, device=device)
-                new_logprob = step_log_probs[action_index_t]
-                entropy = -(step_probs * step_log_probs).sum()
-                new_value = values.squeeze(0)
+            for sequence_batch in recurrent_batches or []:
+                hidden = model.init_hidden(1, device=device)
+                step_count = int(sequence_batch["state_vec"].shape[0])
+                for step_idx in range(step_count):
+                    state_t = sequence_batch["state_vec"][step_idx : step_idx + 1]
+                    global_t = sequence_batch["global_state_vec"][step_idx : step_idx + 1]
+                    action_t = sequence_batch["action_features"][step_idx : step_idx + 1]
+                    mask_t = sequence_batch["action_mask"][step_idx : step_idx + 1]
+                    logits, values, hidden = model.forward_step(
+                        state_vec=state_t,
+                        action_features=action_t,
+                        action_mask=mask_t,
+                        hidden=hidden,
+                        global_state_vec=global_t if model.use_centralized_value else None,
+                    )
+                    step_log_probs = torch.log_softmax(logits[0], dim=-1)
+                    step_probs = torch.softmax(logits[0], dim=-1)
+                    action_index_t = sequence_batch["action_index"][step_idx]
+                    new_logprob = step_log_probs[action_index_t]
+                    entropy = -(step_probs * step_log_probs).sum()
+                    new_value = values.squeeze(0)
 
-                old_logprob = torch.tensor(float(step.old_logprob), dtype=torch.float32, device=device)
-                target_return = torch.tensor(float(step.return_), dtype=torch.float32, device=device)
-                advantage = torch.tensor(float(normalized_advantages[step_idx]), dtype=torch.float32, device=device)
+                    old_logprob = sequence_batch["old_logprob"][step_idx]
+                    target_return = sequence_batch["target_return"][step_idx]
+                    advantage = sequence_batch["advantage"][step_idx]
 
-                ratio = torch.exp(new_logprob - old_logprob)
-                clipped_ratio = torch.clamp(
-                    ratio,
-                    1.0 - float(config.clip_epsilon),
-                    1.0 + float(config.clip_epsilon),
-                )
-                surrogate_1 = ratio * advantage
-                surrogate_2 = clipped_ratio * advantage
-                policy_losses_t.append(-torch.min(surrogate_1, surrogate_2))
-                value_losses_t.append((target_return - new_value) ** 2)
-                entropies_t.append(entropy)
+                    ratio = torch.exp(new_logprob - old_logprob)
+                    clipped_ratio = torch.clamp(
+                        ratio,
+                        1.0 - float(config.clip_epsilon),
+                        1.0 + float(config.clip_epsilon),
+                    )
+                    surrogate_1 = ratio * advantage
+                    surrogate_2 = clipped_ratio * advantage
+                    policy_losses_t.append(-torch.min(surrogate_1, surrogate_2))
+                    value_losses_t.append((target_return - new_value) ** 2)
+                    entropies_t.append(entropy)
 
-        if not policy_losses_t:
+            if not policy_losses_t:
+                break
+
+            policy_loss = torch.stack(policy_losses_t).mean()
+            value_loss = torch.stack(value_losses_t).mean()
+            entropy_mean = torch.stack(entropies_t).mean()
+
+        if policy_loss.numel() == 0:
             break
-
-        policy_loss = torch.stack(policy_losses_t).mean()
-        value_loss = torch.stack(value_losses_t).mean()
-        entropy_mean = torch.stack(entropies_t).mean()
         total_loss = (
             policy_loss
             + float(config.value_coef) * value_loss
@@ -527,62 +673,13 @@ def _update_model(
         epoch_total_losses.append(float(total_loss.detach().cpu().item()))
 
     if not epoch_policy_losses:
-        return {
-            "policy_loss": 0.0,
-            "value_loss": 0.0,
-            "entropy": 0.0,
-            "total_loss": 0.0,
-        }
+        return _zero_loss_metrics()
     return {
         "policy_loss": float(np.mean(epoch_policy_losses)),
         "value_loss": float(np.mean(epoch_value_losses)),
         "entropy": float(np.mean(epoch_entropies)),
         "total_loss": float(np.mean(epoch_total_losses)),
     }
-
-
-def _build_model_and_encoders(
-    *,
-    config: PPOTrainConfig,
-    device: torch.device,
-) -> Tuple[MaskedActorCritic, ObservationEncoder, ActionFeatureEncoder]:
-    obs_encoder = ObservationEncoder()
-    action_encoder = ActionFeatureEncoder()
-
-    probe_state = main.setup_game(seed=config.seed, player_names=["P1", "P2"])
-    probe_actor_id = _current_actor_id(probe_state)
-    probe_actor = probe_state.players[probe_actor_id]
-    legal = main.legal_actions(probe_actor, state=probe_state, player_id=probe_actor_id)
-    if not legal:
-        raise RuntimeError("Probe state has no legal actions; cannot infer model dims.")
-
-    state_vec, global_vec = obs_encoder.encode_from_state(probe_state, probe_actor_id)
-    action_features = action_encoder.encode_many(legal)
-    model = MaskedActorCritic(
-        state_dim=int(state_vec.shape[0]),
-        action_dim=int(action_features.shape[1]),
-        global_state_dim=int(global_vec.shape[0]),
-        hidden_size=int(config.hidden_size),
-        lstm_size=int(config.lstm_size),
-        action_hidden_size=int(config.action_hidden_size),
-        use_lstm=bool(config.use_lstm),
-        use_centralized_value=bool(config.use_centralized_value),
-    ).to(device)
-    return model, obs_encoder, action_encoder
-
-
-def _load_torch_checkpoint(path: Path, *, device: torch.device) -> Dict[str, Any]:
-    load_kwargs: Dict[str, Any] = {
-        "map_location": device,
-    }
-    try:
-        checkpoint = torch.load(path, weights_only=False, **load_kwargs)
-    except TypeError:
-        checkpoint = torch.load(path, **load_kwargs)
-    if not isinstance(checkpoint, dict):
-        raise ValueError("Checkpoint payload must be a dict.")
-    return checkpoint
-
 
 def _coerce_rng_state_tensor(raw_state: Any) -> Optional[torch.Tensor]:
     if not isinstance(raw_state, torch.Tensor):

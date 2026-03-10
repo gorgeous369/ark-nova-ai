@@ -252,6 +252,27 @@ class Building:
         self.apply_rotation(rotations[(current_index + 1) % len(rotations)])
 
 
+def _building_footprint_key(building: Building) -> Tuple[Tuple[int, int], ...]:
+    return tuple(sorted((tile.x, tile.y) for tile in building.layout))
+
+
+@lru_cache(maxsize=None)
+def _unique_rotations_for_building_type(building_type: BuildingType) -> Tuple[Rotation, ...]:
+    origin = HexTile(0, 0)
+    unique_rotations: List[Rotation] = []
+    seen_layouts: Set[Tuple[Tuple[int, int], ...]] = set()
+    for rotation in Rotation:
+        building = Building(building_type, origin, rotation)
+        footprint = _building_footprint_key(building)
+        if footprint in seen_layouts:
+            continue
+        seen_layouts.add(footprint)
+        unique_rotations.append(rotation)
+        if len(building.layout) == 1:
+            break
+    return tuple(unique_rotations)
+
+
 @dataclass(frozen=True)
 class MapData:
     name: str
@@ -358,6 +379,16 @@ class ArkNovaMap:
         self.map_data = map_data
         self.grid: Set[HexTile] = set()
         self.buildings: Dict[HexTile, Building] = {}
+        self._legal_building_placements_cache: Dict[
+            Tuple[
+                Tuple[Tuple[str, int, int, str], ...],
+                bool,
+                bool,
+                int,
+                Tuple[str, ...],
+            ],
+            Tuple[Tuple[str, int, int, str], ...],
+        ] = {}
 
         for q in range(self.WIDTH + 1):
             q_offset = (q + 1) // 2
@@ -368,6 +399,55 @@ class ArkNovaMap:
 
     def add_building(self, building: Building) -> None:
         self.buildings[building.origin_hex] = building
+        self._legal_building_placements_cache.clear()
+
+    def _building_state_signature(self) -> Tuple[Tuple[str, int, int, str], ...]:
+        return tuple(
+            sorted(
+                (
+                    building.type.name,
+                    building.origin_hex.x,
+                    building.origin_hex.y,
+                    building.rotation.name,
+                )
+                for building in self.buildings.values()
+            )
+        )
+
+    def _legal_placement_cache_key(
+        self,
+        *,
+        is_build_upgraded: bool,
+        has_diversity_researcher: bool,
+        max_building_size: int,
+        already_built_buildings: Set[BuildingType],
+    ) -> Tuple[
+        Tuple[Tuple[str, int, int, str], ...],
+        bool,
+        bool,
+        int,
+        Tuple[str, ...],
+    ]:
+        return (
+            self._building_state_signature(),
+            bool(is_build_upgraded),
+            bool(has_diversity_researcher),
+            int(max_building_size),
+            tuple(sorted(building_type.name for building_type in already_built_buildings)),
+        )
+
+    def _placement_specs_to_buildings(
+        self,
+        specs: Tuple[Tuple[str, int, int, str], ...],
+    ) -> List[Building]:
+        return [
+            Building(
+                BuildingType[type_name],
+                HexTile(origin_x, origin_y),
+                Rotation[rotation_name],
+            )
+            for type_name, origin_x, origin_y, rotation_name in specs
+        ]
 
     def covered_hexes(self) -> Set[HexTile]:
         covered: Set[HexTile] = set()
@@ -433,18 +513,23 @@ class ArkNovaMap:
         if already_built_buildings is None:
             already_built_buildings = set()
 
+        cache_key = self._legal_placement_cache_key(
+            is_build_upgraded=is_build_upgraded,
+            has_diversity_researcher=has_diversity_researcher,
+            max_building_size=max_building_size,
+            already_built_buildings=already_built_buildings,
+        )
+        cached = self._legal_building_placements_cache.get(cache_key)
+        if cached is not None:
+            return self._placement_specs_to_buildings(cached)
+
         covered_hexes = self.covered_hexes()
-        border_tiles = self.border_tiles(has_diversity_researcher)
-        starts = {
-            tile
-            for tile in self.grid
-            if self.can_build_on_hex(
-                tile,
-                covered_hexes,
-                is_build_upgraded,
-                has_diversity_researcher,
-            )
-        }
+        border_tiles = self.border_tiles(has_diversity_researcher) if not covered_hexes else set()
+        starts = self.possible_starting_building_hexes(
+            is_build_upgraded,
+            has_diversity_researcher,
+            covered_hexes,
+        )
         existing_special = {
             b.type for b in self.buildings.values() if b.type.subtype == BuildingSubType.ENCLOSURE_SPECIAL
         }
@@ -467,14 +552,32 @@ class ArkNovaMap:
             ]
 
         placements: List[Building] = []
+        seen_placements: Set[Tuple[BuildingType, Tuple[Tuple[int, int], ...]]] = set()
+        placement_specs: List[Tuple[str, int, int, str]] = []
+        candidate_rotation_layouts = {
+            b_type: tuple(
+                (rotation, _rotated_building_layout(b_type, rotation))
+                for rotation in _unique_rotations_for_building_type(b_type)
+            )
+            for b_type in candidate_types
+        }
+
         for starting_hex in starts:
             for b_type in candidate_types:
+                rotation_layouts = candidate_rotation_layouts[b_type]
                 if b_type == BuildingType.KIOSK:
-                    if any(kiosk_origin.distance(starting_hex) < MINIMUM_KIOSK_DISTANCE for kiosk_origin in existing_kiosk_origins):
+                    if any(
+                        kiosk_origin.distance(starting_hex) < MINIMUM_KIOSK_DISTANCE
+                        for kiosk_origin in existing_kiosk_origins
+                    ):
                         continue
 
-                for rotation in Rotation:
-                    building = Building(b_type, starting_hex, rotation)
+                for rotation, offset_layout in rotation_layouts:
+                    layout = [starting_hex.add(tile) for tile in offset_layout]
+                    footprint_key = tuple(sorted((tile.x, tile.y) for tile in layout))
+                    placement_key = (b_type, footprint_key)
+                    if placement_key in seen_placements:
+                        continue
                     if all(
                         self.can_build_on_hex(
                             tile,
@@ -482,22 +585,31 @@ class ArkNovaMap:
                             is_build_upgraded,
                             has_diversity_researcher,
                         )
-                        for tile in building.layout
+                        for tile in layout
                     ):
                         if not covered_hexes:
-                            if not any(tile in border_tiles for tile in building.layout):
+                            if not any(tile in border_tiles for tile in layout):
                                 continue
                         else:
                             touches_existing = any(
                                 any(neighbor in covered_hexes for neighbor in tile.neighbors())
-                                for tile in building.layout
+                                for tile in layout
                             )
                             if not touches_existing:
                                 continue
+                        building = Building(b_type, starting_hex, rotation)
+                        seen_placements.add(placement_key)
                         placements.append(building)
+                        placement_specs.append(
+                            (
+                                b_type.name,
+                                starting_hex.x,
+                                starting_hex.y,
+                                rotation.name,
+                            )
+                        )
 
-                    if len(building.layout) == 1:
-                        break
+        self._legal_building_placements_cache[cache_key] = tuple(placement_specs)
         return placements
 
 

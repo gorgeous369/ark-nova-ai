@@ -11,12 +11,12 @@ from main import (
     _perform_animals_action_effect,
     _resolve_break,
     list_legal_association_options,
-    setup_game,
 )
+from tests.helpers import make_state
 
 
 def test_plan1a_map_rules_loaded_with_tower_tag():
-    state = setup_game(seed=701, player_names=["P1", "P2"])
+    state = make_state(701)
 
     assert "left_track_unlocks" in state.map_rules
     assert len(state.map_rules["left_track_unlocks"]) == 7
@@ -26,7 +26,7 @@ def test_plan1a_map_rules_loaded_with_tower_tag():
 
 
 def test_map_left_track_unlock_is_immediate_and_recurs_each_break_step5():
-    state = setup_game(seed=702, player_names=["P1", "P2"])
+    state = make_state(702)
     p0 = state.players[0]
     p1 = state.players[1]
 
@@ -47,7 +47,7 @@ def test_map_left_track_unlock_is_immediate_and_recurs_each_break_step5():
 
 
 def test_map_left_track_unlock_can_choose_any_remaining_reward_by_index():
-    state = setup_game(seed=702, player_names=["P1", "P2"])
+    state = make_state(702)
     p0 = state.players[0]
 
     money_before = p0.money
@@ -66,7 +66,7 @@ def test_map_left_track_unlock_can_choose_any_remaining_reward_by_index():
 
 
 def test_map_partner_and_university_threshold_rewards_trigger_once(monkeypatch):
-    state = setup_game(seed=703, player_names=["P1", "P2"])
+    state = make_state(703)
     p0 = state.players[0]
 
     monkeypatch.setattr("builtins.input", lambda _: "1")
@@ -107,7 +107,7 @@ def test_map_partner_and_university_threshold_rewards_trigger_once(monkeypatch):
 
 
 def test_observation_tower_passive_grants_2_appeal_when_adjacent_standard_enclosure_is_occupied():
-    state = setup_game(seed=704, player_names=["P1", "P2"])
+    state = make_state(704)
     p0 = state.players[0]
 
     _ensure_player_map_initialized(state, p0)
@@ -156,7 +156,7 @@ def test_observation_tower_passive_grants_2_appeal_when_adjacent_standard_enclos
 
 
 def test_association_side_i_hides_partner_options_after_two_partners():
-    state = setup_game(seed=705, player_names=["P1", "P2"])
+    state = make_state(705)
     p0 = state.players[0]
     p0.partner_zoos = {"asia", "africa"}
     p0.action_upgraded["association"] = False
@@ -172,7 +172,7 @@ def test_association_side_i_hides_partner_options_after_two_partners():
 
 
 def test_association_hides_partner_options_after_four_partners_even_side_ii():
-    state = setup_game(seed=706, player_names=["P1", "P2"])
+    state = make_state(706)
     p0 = state.players[0]
     p0.partner_zoos = {"asia", "africa", "america", "europe"}
     p0.action_upgraded["association"] = True
@@ -184,7 +184,7 @@ def test_association_hides_partner_options_after_four_partners_even_side_ii():
 
 
 def test_map_break_recurring_play_sponsor_by_paying_cost_auto_fills_waza_mode():
-    state = setup_game(seed=707, player_names=["P1", "P2"])
+    state = make_state(707)
     p0 = state.players[0]
 
     sponsor_227 = next(card for card in state.zoo_deck if card.number == 227)
@@ -207,7 +207,7 @@ def test_map_break_recurring_play_sponsor_by_paying_cost_auto_fills_waza_mode():
 
 
 def test_map_break_recurring_free_build_auto_resolves_action_to_slot_1_bonus(monkeypatch):
-    state = setup_game(seed=708, player_names=["P1", "P2"])
+    state = make_state(708)
     p0 = state.players[0]
     order_before = list(p0.action_order)
     p0.map_left_track_unlocked_effects = ["build_free_standard_enclosure_size_2"]

@@ -59,10 +59,35 @@ def _tokenize_text(text: str) -> List[str]:
     return [token for token in re.split(r"[^a-zA-Z0-9_]+", str(text).strip().lower()) if token]
 
 
+def _normalized_action_cache_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        normalized_items: List[Tuple[str, Any]] = []
+        for raw_key in sorted(value):
+            key = str(raw_key).strip().lower()
+            if (
+                not key
+                or key == "action_label"
+                or "instance_id" in key
+                or key.endswith("_ids")
+            ):
+                continue
+            normalized_items.append((key, _normalized_action_cache_value(value.get(raw_key))))
+        return tuple(normalized_items)
+    if isinstance(value, (list, tuple)):
+        return tuple(_normalized_action_cache_value(item) for item in value)
+    if isinstance(value, str):
+        return value.strip().lower()
+    if isinstance(value, (bool, int, float)):
+        return value
+    if value is None:
+        return None
+    return repr(value)
+
+
 class ActionFeatureEncoder:
     """Encodes concrete `Action` candidates into fixed vectors."""
 
-    def __init__(self, text_hash_dim: int = 32) -> None:
+    def __init__(self, text_hash_dim: int = 32, cache_size: int = 8192) -> None:
         self.main_actions: Tuple[str, ...] = tuple(main.MAIN_ACTION_CARDS)
         self.pending_kinds: Tuple[str, ...] = (
             "cards_discard",
@@ -72,6 +97,7 @@ class ActionFeatureEncoder:
             "",
         )
         self.text_hash_dim = int(text_hash_dim)
+        self.cache_size = max(0, int(cache_size))
         self.feature_dim = (
             3  # action type one-hot
             + (len(self.main_actions) + 1)  # action card one-hot (+none)
@@ -79,6 +105,7 @@ class ActionFeatureEncoder:
             + 10  # scalar/detail summary
             + self.text_hash_dim  # hashed action text tokens
         )
+        self._encode_cache: Dict[Tuple[Any, ...], np.ndarray] = {}
 
     def _action_type_one_hot(self, action: main.Action) -> List[float]:
         kind = action.type
@@ -189,7 +216,19 @@ class ActionFeatureEncoder:
             )
         return _hash_tokens(tokens, self.text_hash_dim)
 
+    def _cache_key(self, action: main.Action) -> Tuple[Any, ...]:
+        return (
+            action.type.value,
+            int(action.value or 0) if action.value is not None else None,
+            str(action.card_name or "").strip().lower(),
+            _normalized_action_cache_value(action.details or {}),
+        )
+
     def encode(self, action: main.Action) -> np.ndarray:
+        cache_key = self._cache_key(action)
+        cached = self._encode_cache.get(cache_key)
+        if cached is not None:
+            return cached
         details = dict(action.details or {})
         vec: List[float] = []
         vec.extend(self._action_type_one_hot(action))
@@ -198,7 +237,12 @@ class ActionFeatureEncoder:
         vec.extend(self._detail_summary(action))
         base = np.asarray(vec, dtype=np.float32)
         hashed = self._text_features(action)
-        return np.concatenate([base, hashed], axis=0).astype(np.float32)
+        encoded = np.concatenate([base, hashed], axis=0).astype(np.float32)
+        if self.cache_size > 0:
+            if len(self._encode_cache) >= self.cache_size:
+                self._encode_cache.clear()
+            self._encode_cache[cache_key] = encoded
+        return encoded
 
     def encode_many(self, actions: Sequence[main.Action]) -> np.ndarray:
         if not actions:
@@ -266,31 +310,48 @@ class ObservationEncoder:
         self.max_private_final_cards = int(max_private_final_cards)
         self.max_private_draft_cards = int(max_private_draft_cards)
         self.max_private_pouched_cards = int(max_private_pouched_cards)
+        self._empty_global_vec = np.zeros((0,), dtype=np.float32)
         self.map_coord_min = -20
         self.map_coord_max = 20
         self.map_building_types: Tuple[str, ...] = tuple(
             str(item.name).strip().lower()
             for item in main.BuildingType
         )
+        self.map_building_type_to_index = {
+            name: idx for idx, name in enumerate(self.map_building_types)
+        }
         self.map_building_rotations: Tuple[str, ...] = tuple(
             str(item.name).strip().lower()
             for item in main.Rotation
         )
+        self.map_building_rotation_to_index = {
+            name: idx for idx, name in enumerate(self.map_building_rotations)
+        }
         self.rotation_types: Tuple[str, ...] = tuple(
             str(item.name).strip().lower()
             for item in main.Rotation
         )
+        self.rotation_type_to_index = {
+            name: idx for idx, name in enumerate(self.rotation_types)
+        }
         self.card_types: Tuple[str, ...] = (
             "animal",
             "sponsor",
             "conservation_project",
         )
+        self.card_type_to_index = {
+            name: idx for idx, name in enumerate(self.card_types)
+        }
         self.pending_resume_kinds: Tuple[str, ...] = (
             "",
             "turn_finalize",
             "break_remaining",
             "other",
         )
+        self.pending_resume_kind_set = {
+            kind for kind in self.pending_resume_kinds if kind != "other"
+        }
+        self._empty_private_vec: Optional[np.ndarray] = None
 
     def _coord_pair(self, raw_coord: Any) -> Optional[Tuple[int, int]]:
         if not isinstance(raw_coord, (list, tuple)) or len(raw_coord) != 2:
@@ -360,18 +421,16 @@ class ObservationEncoder:
             building_type, (origin_x, origin_y), rotation, empty_spaces = entries[idx]
             values.append(1.0)
             type_one_hot = [0.0] * type_slot_dim
-            type_index = (
-                self.map_building_types.index(building_type)
-                if building_type in self.map_building_types
-                else len(self.map_building_types)
+            type_index = self.map_building_type_to_index.get(
+                building_type,
+                len(self.map_building_types),
             )
             type_one_hot[type_index] = 1.0
             values.extend(type_one_hot)
             rotation_one_hot = [0.0] * rotation_slot_dim
-            rotation_index = (
-                self.map_building_rotations.index(rotation)
-                if rotation in self.map_building_rotations
-                else len(self.map_building_rotations)
+            rotation_index = self.map_building_rotation_to_index.get(
+                rotation,
+                len(self.map_building_rotations),
             )
             rotation_one_hot[rotation_index] = 1.0
             values.extend(rotation_one_hot)
@@ -540,11 +599,7 @@ class ObservationEncoder:
         slot_dim = len(self.rotation_types) + 1
         values = [0.0] * slot_dim
         normalized = str(raw_rotation or "").strip().lower()
-        index = (
-            self.rotation_types.index(normalized)
-            if normalized in self.rotation_types
-            else len(self.rotation_types)
-        )
+        index = self.rotation_type_to_index.get(normalized, len(self.rotation_types))
         values[index] = 1.0
         return values
 
@@ -552,11 +607,7 @@ class ObservationEncoder:
         slot_dim = len(self.card_types) + 1
         values = [0.0] * slot_dim
         normalized = str(raw_type or "").strip().lower()
-        index = (
-            self.card_types.index(normalized)
-            if normalized in self.card_types
-            else len(self.card_types)
-        )
+        index = self.card_type_to_index.get(normalized, len(self.card_types))
         values[index] = 1.0
         return values
 
@@ -799,9 +850,7 @@ class ObservationEncoder:
         resume_kind_one_hot: List[float] = []
         for item in self.pending_resume_kinds:
             if item == "other":
-                is_other = bool(resume_kind) and resume_kind not in {
-                    known for known in self.pending_resume_kinds if known != "other"
-                }
+                is_other = bool(resume_kind) and resume_kind not in self.pending_resume_kind_set
                 resume_kind_one_hot.append(1.0 if is_other else 0.0)
                 continue
             resume_kind_one_hot.append(1.0 if resume_kind == item else 0.0)
@@ -852,6 +901,9 @@ class ObservationEncoder:
         info = dict(player or {})
         action_upgraded = dict(info.get("action_upgraded") or {})
         action_order = list(info.get("action_order") or [])
+        action_order_positions = {
+            str(action_name): idx + 1 for idx, action_name in enumerate(action_order)
+        }
         association_workers = dict(info.get("association_workers_by_task") or {})
         zoo_map_grid = list(info.get("zoo_map_grid") or [])
         zoo_map_buildings = list(info.get("zoo_map_buildings") or [])
@@ -916,10 +968,8 @@ class ObservationEncoder:
         for action_name in self.main_actions:
             vec.append(1.0 if bool(action_upgraded.get(action_name, False)) else 0.0)
         for action_name in self.main_actions:
-            if action_name in action_order:
-                vec.append(_norm(action_order.index(action_name) + 1, float(len(self.main_actions))))
-            else:
-                vec.append(0.0)
+            action_position = action_order_positions.get(action_name, 0)
+            vec.append(_norm(action_position, float(len(self.main_actions))))
         for task_kind in self.association_tasks:
             vec.append(_norm(association_workers.get(task_kind, 0), 4.0))
         vec.extend(self._encode_main_action_count_map(multiplier_tokens, scale=4.0))
@@ -1275,6 +1325,7 @@ class ObservationEncoder:
         state: main.GameState,
         *,
         public_vec: Optional[np.ndarray] = None,
+        private_obs_by_player: Optional[Sequence[Dict[str, Any]]] = None,
     ) -> np.ndarray:
         if public_vec is None:
             viewer_id = 0 if state.players else 0
@@ -1282,12 +1333,16 @@ class ObservationEncoder:
             public_vec = self.encode_public_observation(public_obs)
 
         private_blocks: List[np.ndarray] = []
-        empty_private = self.encode_private_observation({})
+        if self._empty_private_vec is None:
+            self._empty_private_vec = self.encode_private_observation({})
         for player_id in range(self.max_players):
             if player_id >= len(state.players):
-                private_blocks.append(np.zeros_like(empty_private))
+                private_blocks.append(np.zeros_like(self._empty_private_vec))
                 continue
-            private_obs = main.build_private_observation(state, viewer_player_id=player_id)
+            if private_obs_by_player is not None and player_id < len(private_obs_by_player):
+                private_obs = private_obs_by_player[player_id]
+            else:
+                private_obs = main.build_private_observation(state, viewer_player_id=player_id)
             private_blocks.append(self.encode_private_observation(private_obs))
 
         return np.concatenate(
@@ -1295,11 +1350,42 @@ class ObservationEncoder:
             axis=0,
         ).astype(np.float32)
 
-    def encode_from_state(self, state: main.GameState, viewer_player_id: int) -> Tuple[np.ndarray, np.ndarray]:
+    def encode_local_state_from_state(
+        self,
+        state: main.GameState,
+        viewer_player_id: int,
+    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
         public_obs = main.build_public_observation(state, viewer_player_id=viewer_player_id)
         private_obs = main.build_private_observation(state, viewer_player_id=viewer_player_id)
         public_vec = self.encode_public_observation(public_obs)
         private_vec = self.encode_private_observation(private_obs)
-        local_vec = np.concatenate([public_vec, private_vec], axis=0).astype(np.float32)
-        global_vec = self.encode_global_state_from_state(state, public_vec=public_vec)
+        return (
+            np.concatenate([public_vec, private_vec], axis=0).astype(np.float32),
+            public_vec,
+            private_obs,
+        )
+
+    def encode_from_state(
+        self,
+        state: main.GameState,
+        viewer_player_id: int,
+        *,
+        include_global: bool = True,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        local_vec, public_vec, viewer_private_obs = self.encode_local_state_from_state(state, viewer_player_id)
+        if not include_global:
+            return local_vec, self._empty_global_vec
+        private_obs_by_player: List[Dict[str, Any]] = []
+        for player_id in range(len(state.players)):
+            if player_id == int(viewer_player_id):
+                private_obs_by_player.append(viewer_private_obs)
+                continue
+            private_obs_by_player.append(
+                main.build_private_observation(state, viewer_player_id=player_id)
+            )
+        global_vec = self.encode_global_state_from_state(
+            state,
+            public_vec=public_vec,
+            private_obs_by_player=private_obs_by_player,
+        )
         return local_vec, global_vec

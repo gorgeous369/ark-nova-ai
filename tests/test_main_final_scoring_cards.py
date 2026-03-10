@@ -12,8 +12,8 @@ from main import (
     _bga_conservation_points,
     _final_score_points,
     _final_scoring_conservation_bonus_from_cards,
-    setup_game,
 )
+from tests.helpers import make_state
 
 
 _CARD_IDS = itertools.count(9000)
@@ -69,7 +69,7 @@ def _sponsor(
 
 
 def _fresh_state(seed: int = 901):
-    state = setup_game(seed=seed, player_names=["P1", "P2"])
+    state = make_state(seed)
     for player in state.players:
         player.appeal = 0
         player.conservation = 0
@@ -94,7 +94,7 @@ def _building_at(building_type: BuildingType, x: int, y: int) -> Building:
 
 
 def test_setup_game_uses_full_17_card_final_scoring_pool():
-    state = setup_game(seed=902, player_names=["P1", "P2"], include_marine_world=True)
+    state = make_state(902, include_marine_world=True)
 
     all_cards = list(state.final_scoring_deck)
     for player in state.players:

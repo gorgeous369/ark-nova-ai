@@ -1,5 +1,7 @@
 import pytest
 
+from tests.helpers import make_state
+
 from main import (
     Action,
     ActionType,
@@ -12,7 +14,6 @@ from main import (
     build_deck,
     card_zone_report,
     legal_actions,
-    setup_game,
 )
 
 
@@ -61,7 +62,7 @@ def test_break_income_from_appeal_piecewise_track_mapping():
 
 
 def test_cards_action_non_upgraded_cannot_draw_from_display():
-    state = setup_game(seed=501, player_names=["P1", "P2"])
+    state = make_state(501)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["cards", "build", "animals", "association", "sponsors"]
@@ -79,7 +80,7 @@ def test_cards_action_non_upgraded_cannot_draw_from_display():
 
 
 def test_cards_action_upgraded_respects_reputation_range_for_display_draw():
-    state = setup_game(seed=502, player_names=["P1", "P2"])
+    state = make_state(502)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["animals", "build", "cards", "association", "sponsors"]  # cards strength=3
@@ -99,7 +100,7 @@ def test_cards_action_upgraded_respects_reputation_range_for_display_draw():
     assert len(p0.hand) == hand_before + 1
     assert any(card.name == display_card_name for card in p0.hand)
 
-    state_2 = setup_game(seed=503, player_names=["P1", "P2"])
+    state_2 = make_state(503)
     p0_2 = state_2.players[0]
     state_2.current_player = 0
     p0_2.action_order = ["animals", "build", "cards", "association", "sponsors"]
@@ -117,7 +118,7 @@ def test_cards_action_upgraded_respects_reputation_range_for_display_draw():
 
 
 def test_cards_action_draw_and_discard_goes_to_global_discard():
-    state = setup_game(seed=504, player_names=["P1", "P2"])
+    state = make_state(504)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["cards", "build", "animals", "association", "sponsors"]
@@ -137,7 +138,7 @@ def test_cards_action_draw_and_discard_goes_to_global_discard():
 
 
 def test_cards_action_non_upgraded_requires_exact_deck_draw_count():
-    state = setup_game(seed=506, player_names=["P1", "P2"])
+    state = make_state(506)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["animals", "build", "cards", "association", "sponsors"]  # cards strength=3
@@ -155,7 +156,7 @@ def test_cards_action_non_upgraded_requires_exact_deck_draw_count():
 
 
 def test_cards_prompt_non_upgraded_does_not_ask_deck_count(monkeypatch):
-    state = setup_game(seed=507, player_names=["P1", "P2"])
+    state = make_state(507)
     p0 = state.players[0]
     p0.action_upgraded["cards"] = False
 
@@ -174,7 +175,7 @@ def test_cards_prompt_non_upgraded_does_not_ask_deck_count(monkeypatch):
 
 
 def test_reputation_milestones_grant_expected_rewards(monkeypatch):
-    state = setup_game(seed=505, player_names=["P1", "P2"])
+    state = make_state(505)
     p0 = state.players[0]
     p0.reputation = 4
     p0.workers = 1
@@ -196,7 +197,7 @@ def test_reputation_milestones_grant_expected_rewards(monkeypatch):
 
 
 def test_reputation_caps_at_9_without_association_upgrade():
-    state = setup_game(seed=509, player_names=["P1", "P2"])
+    state = make_state(509)
     p0 = state.players[0]
     p0.reputation = 8
     p0.action_upgraded["association"] = False
@@ -208,7 +209,7 @@ def test_reputation_caps_at_9_without_association_upgrade():
 
 
 def test_reputation_overflow_above_15_converts_to_appeal_with_association_upgrade():
-    state = setup_game(seed=510, player_names=["P1", "P2"])
+    state = make_state(510)
     p0 = state.players[0]
     p0.action_upgraded["association"] = True
     p0.reputation = 14
@@ -227,7 +228,7 @@ def test_cards_use_number_and_instance_id_and_zone_integrity():
     assert all(card.instance_id for card in deck)
     assert len({card.instance_id for card in deck}) == len(deck)
 
-    state = setup_game(seed=508, player_names=["P1", "P2"])
+    state = make_state(508)
     _validate_card_zones(state)
     report = card_zone_report(state)
     all_entries = [entry for zone in report.values() for entry in zone]

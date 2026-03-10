@@ -33,27 +33,38 @@ from arknova_engine.map_model import (
     Terrain,
     load_map_data_by_image_name,
 )
+from arknova_engine.shared_rules import (
+    ALL_PARTNER_ZOOS,
+    action_base_strength,
+    action_order_factory,
+    animals_play_limit,
+    break_income_order as shared_break_income_order,
+    BREAK_TRACK_BY_PLAYERS,
+    cards_table_values,
+    clear_action_token_maps,
+    current_donation_cost,
+    DEFAULT_MAP_IMAGE_NAME,
+    DEFAULT_NUM_PLAYERS,
+    DONATION_COST_TRACK as SHARED_DONATION_COST_TRACK,
+    FINAL_SCORING_DECK_SIZE,
+    false_map_factory,
+    MAIN_ACTION_CARDS,
+    MAX_X_TOKENS,
+    move_action_to_slot,
+    recall_workers,
+    reset_int_map,
+    STARTING_HAND_DRAW_COUNT,
+    STARTING_HAND_KEEP_COUNT,
+    STARTING_MONEY,
+    zero_map_factory,
+)
 
-
-MAX_X_TOKENS = 5
-BREAK_MAX_BY_PLAYERS = {2: 9, 3: 12, 4: 15}
+BREAK_MAX_BY_PLAYERS = BREAK_TRACK_BY_PLAYERS
 PROJECT_ROW_LIMIT_BY_PLAYERS = {2: 2, 3: 3, 4: 4}
-ALL_PARTNER_ZOOS = ("africa", "europe", "asia", "america", "australia")
 ALL_UNIVERSITIES = tuple(f"university_{i}" for i in range(1, 13))
 ALL_CONTINENT_ICONS = ALL_PARTNER_ZOOS
 ALL_CATEGORY_ICONS = ("predator", "bird", "herbivore", "reptile", "primate")
 BGA_END_GAME_TRIGGER_SCORE = 100
-
-CARDS_DRAW_TABLE_BASE = (1, 1, 2, 2, 3)
-CARDS_DISCARD_TABLE_BASE = (1, 0, 1, 0, 1)
-CARDS_SNAP_ALLOWED_BASE = (False, False, False, False, True)
-
-CARDS_DRAW_TABLE_UPGRADED = (1, 2, 2, 3, 4)
-CARDS_DISCARD_TABLE_UPGRADED = (0, 1, 0, 1, 1)
-CARDS_SNAP_ALLOWED_UPGRADED = (False, False, True, True, True)
-
-ANIMALS_PLAY_LIMIT_BASE = (0, 1, 1, 1, 2)
-ANIMALS_PLAY_LIMIT_UPGRADED = (1, 1, 2, 2, 2)
 
 ASSOCIATION_REPUTATION_GAIN = 2
 ASSOCIATION_TASK_VALUE = {
@@ -62,15 +73,9 @@ ASSOCIATION_TASK_VALUE = {
     "university": 4,
     "conservation_project": 5,
 }
-DONATION_COST_TRACK = (2, 5, 7, 10, 12)
+DONATION_COST_TRACK = SHARED_DONATION_COST_TRACK
 
-DEFAULT_NUM_PLAYERS = 2
-DEFAULT_MAP_IMAGE_NAME = "plan1a"
-STARTING_MONEY = 25
-STARTING_HAND_DRAW_COUNT = 8
-STARTING_HAND_KEEP_COUNT = 4
 ZOO_DECK_SIZE = 212
-FINAL_SCORING_DECK_SIZE = 11
 PLAYER_TOKENS_TOTAL = 25
 PLAYER_TOKENS_PLACED_ON_MAP = 7
 
@@ -100,15 +105,6 @@ class ConservationRequirementKind(str, Enum):
     DISTINCT_CONTINENT = "distinct_continent"
     DISTINCT_CATEGORY = "distinct_category"
     RELEASE = "release"
-
-
-def _empty_action_token_map() -> Dict[MainAction, int]:
-    return {action: 0 for action in MainAction}
-
-
-def _empty_association_worker_map() -> Dict[AssociationTask, int]:
-    return {task: 0 for task in AssociationTask}
-
 
 @dataclass(frozen=True)
 class BuildSelection:
@@ -468,24 +464,14 @@ class PlayerState:
     x_tokens: int = 0
     hand: List[object] = field(default_factory=list)
     hand_limit: int = 3
-    action_order: List[MainAction] = field(
-        default_factory=lambda: [
-            MainAction.ANIMALS,
-            MainAction.CARDS,
-            MainAction.BUILD,
-            MainAction.ASSOCIATION,
-            MainAction.SPONSORS,
-        ]
-    )
-    action_upgraded: Dict[MainAction, bool] = field(
-        default_factory=lambda: {action: False for action in MainAction}
-    )
-    multiplier_tokens_on_actions: Dict[MainAction, int] = field(default_factory=_empty_action_token_map)
-    venom_tokens_on_actions: Dict[MainAction, int] = field(default_factory=_empty_action_token_map)
-    constriction_tokens_on_actions: Dict[MainAction, int] = field(default_factory=_empty_action_token_map)
+    action_order: List[MainAction] = field(default_factory=action_order_factory(MainAction))
+    action_upgraded: Dict[MainAction, bool] = field(default_factory=false_map_factory(MainAction))
+    multiplier_tokens_on_actions: Dict[MainAction, int] = field(default_factory=zero_map_factory(MainAction))
+    venom_tokens_on_actions: Dict[MainAction, int] = field(default_factory=zero_map_factory(MainAction))
+    constriction_tokens_on_actions: Dict[MainAction, int] = field(default_factory=zero_map_factory(MainAction))
     active_workers: int = 1
     workers_on_association_board: int = 0
-    association_workers_by_task: Dict[AssociationTask, int] = field(default_factory=_empty_association_worker_map)
+    association_workers_by_task: Dict[AssociationTask, int] = field(default_factory=zero_map_factory(AssociationTask))
     recurring_break_income: int = 0
     partner_zoos: Set[str] = field(default_factory=set)
     universities: Set[str] = field(default_factory=set)
@@ -588,10 +574,7 @@ class GameState:
         raise ValueError(f"Conservation project slot '{slot_id}' does not exist.")
 
     def _slot_strength(self, player: PlayerState, action: MainAction) -> int:
-        try:
-            return player.action_order.index(action) + 1
-        except ValueError as exc:
-            raise ValueError(f"Action {action} not found in action order.") from exc
+        return action_base_strength(player.action_order, action)
 
     def _consume_x_tokens_for_action(self, player: PlayerState, x_spent: int) -> None:
         if x_spent < 0:
@@ -601,9 +584,7 @@ class GameState:
         player.x_tokens -= x_spent
 
     def _rotate_action_to_slot_1(self, player: PlayerState, action: MainAction) -> None:
-        idx = player.action_order.index(action)
-        used = player.action_order.pop(idx)
-        player.action_order.insert(0, used)
+        player.action_order[:] = move_action_to_slot(player.action_order, action, 1)
 
     def _complete_main_action(self, player_id: int, action: MainAction) -> None:
         player = self.player(player_id)
@@ -699,28 +680,14 @@ class GameState:
         )
 
     def _cards_table_values(self, strength: int, upgraded: bool) -> Tuple[int, int, bool]:
-        idx = min(5, strength) - 1
-        if upgraded:
-            return (
-                CARDS_DRAW_TABLE_UPGRADED[idx],
-                CARDS_DISCARD_TABLE_UPGRADED[idx],
-                CARDS_SNAP_ALLOWED_UPGRADED[idx],
-            )
-        return (
-            CARDS_DRAW_TABLE_BASE[idx],
-            CARDS_DISCARD_TABLE_BASE[idx],
-            CARDS_SNAP_ALLOWED_BASE[idx],
-        )
+        return cards_table_values(strength, upgraded)
 
     def _validate_display_index(self, idx: int) -> None:
         if idx < 0 or idx >= len(self.display):
             raise ValueError(f"Display index {idx} out of range.")
 
     def _animals_play_limit(self, strength: int, upgraded: bool) -> int:
-        idx = min(5, strength) - 1
-        if upgraded:
-            return ANIMALS_PLAY_LIMIT_UPGRADED[idx]
-        return ANIMALS_PLAY_LIMIT_BASE[idx]
+        return animals_play_limit(strength, upgraded)
 
     def _player_icon_count(self, player: PlayerState, icon: str) -> int:
         count = player.zoo_icons.get(icon, 0)
@@ -1283,7 +1250,7 @@ class GameState:
         raise ValueError(f"Unknown association task '{task.task}'.")
 
     def _current_donation_cost(self) -> int:
-        return DONATION_COST_TRACK[min(self.donation_progress, len(DONATION_COST_TRACK) - 1)]
+        return current_donation_cost(self.donation_progress)
 
     def perform_association_action(
         self,
@@ -1449,10 +1416,12 @@ class GameState:
             player.x_tokens = min(MAX_X_TOKENS, player.x_tokens + 1)
 
     def _clear_action_tokens(self, player: PlayerState) -> None:
-        for action in MainAction:
-            player.multiplier_tokens_on_actions[action] = 0
-            player.venom_tokens_on_actions[action] = 0
-            player.constriction_tokens_on_actions[action] = 0
+        clear_action_token_maps(
+            MainAction,
+            player.multiplier_tokens_on_actions,
+            player.venom_tokens_on_actions,
+            player.constriction_tokens_on_actions,
+        )
 
     def _refill_association_offers(self) -> None:
         claimed_partner_zoos: Set[str] = set()
@@ -1512,12 +1481,7 @@ class GameState:
         return 11 + (appeal - 7 + 1) // 2
 
     def _break_income_order(self) -> List[int]:
-        if self.break_trigger_player is None:
-            return list(range(len(self.players)))
-        return [
-            (self.break_trigger_player + offset) % len(self.players)
-            for offset in range(len(self.players))
-        ]
+        return shared_break_income_order(len(self.players), self.break_trigger_player)
 
     def _resolve_break(self) -> None:
         # 1) Hand limit discard.
@@ -1534,10 +1498,11 @@ class GameState:
 
         # 3) Recall workers and refill association offers.
         for player in self.players:
-            player.active_workers += player.workers_on_association_board
-            player.workers_on_association_board = 0
-            for task in AssociationTask:
-                player.association_workers_by_task[task] = 0
+            player.active_workers, player.workers_on_association_board = recall_workers(
+                player.active_workers,
+                player.workers_on_association_board,
+            )
+            reset_int_map(player.association_workers_by_task, AssociationTask)
         self._refill_association_offers()
 
         # 4) Discard display folders 1 and 2, shift and refill.

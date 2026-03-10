@@ -1,5 +1,7 @@
 import pytest
 
+from tests.helpers import make_state, set_action_strength, take_card_by_number
+
 from main import (
     Action,
     ActionType,
@@ -19,34 +21,16 @@ from main import (
     apply_action,
     legal_actions,
     list_legal_animals_options,
-    setup_game,
 )
 
 
-def _take_card_by_number_from_deck(state, number: int) -> AnimalCard:
-    for idx, card in enumerate(state.zoo_deck):
-        if card.number == number:
-            return state.zoo_deck.pop(idx)
-    for idx, card in enumerate(state.zoo_display):
-        if card.number == number:
-            return state.zoo_display.pop(idx)
-    for player in state.players:
-        for idx, card in enumerate(player.hand):
-            if card.number == number:
-                return player.hand.pop(idx)
-    for idx, card in enumerate(state.zoo_discard):
-        if card.number == number:
-            return state.zoo_discard.pop(idx)
-    raise AssertionError(f"Card #{number} not found in known zones")
-
-
 def test_sponsors_play_from_hand_is_free_and_applies_immediate_effect():
-    state = setup_game(seed=701, player_names=["P1", "P2"])
+    state = make_state(701)
     player = state.players[0]
     state.current_player = 0
-    player.action_order = ["animals", "cards", "build", "sponsors", "association"]  # strength 4
+    set_action_strength(player, "sponsors", 4)
 
-    sponsor_220 = _take_card_by_number_from_deck(state, 220)
+    sponsor_220 = take_card_by_number(state, 220)
     player.hand = [sponsor_220]
     money_before = player.money
 
@@ -75,12 +59,12 @@ def test_sponsors_play_from_hand_is_free_and_applies_immediate_effect():
 
 
 def test_sponsorship_cards_231_to_235_use_level_3_but_cost_0_and_do_not_count_their_own_badge():
-    state = setup_game(seed=7011, player_names=["P1", "P2"])
+    state = make_state(7011)
     player = state.players[0]
     state.current_player = 0
-    player.action_order = ["animals", "cards", "build", "sponsors", "association"]  # strength 4
+    set_action_strength(player, "sponsors", 4)
 
-    sponsor_233 = _take_card_by_number_from_deck(state, 233)
+    sponsor_233 = take_card_by_number(state, 233)
     player.hand = [sponsor_233]
     player.zoo_cards = [
         AnimalCard(
@@ -120,12 +104,12 @@ def test_sponsorship_cards_231_to_235_use_level_3_but_cost_0_and_do_not_count_th
 
 
 def test_sponsor_238_self_triggers_bird_money_when_played_from_hand():
-    state = setup_game(seed=7012, player_names=["P1", "P2"])
+    state = make_state(7012)
     player = state.players[0]
     state.current_player = 0
-    player.action_order = ["animals", "cards", "build", "sponsors", "association"]  # strength 4
+    set_action_strength(player, "sponsors", 4)
 
-    sponsor_238 = _take_card_by_number_from_deck(state, 238)
+    sponsor_238 = take_card_by_number(state, 238)
     player.hand = [sponsor_238]
     money_before = player.money
 
@@ -152,11 +136,11 @@ def test_sponsor_238_self_triggers_bird_money_when_played_from_hand():
 
 
 def test_sponsors_break_alternative_upgraded_gives_double_money():
-    state = setup_game(seed=702, player_names=["P1", "P2"])
+    state = make_state(702)
     player = state.players[0]
     state.current_player = 0
     player.action_upgraded["sponsors"] = True
-    player.action_order = ["animals", "cards", "build", "sponsors", "association"]  # strength 4
+    set_action_strength(player, "sponsors", 4)
     money_before = player.money
 
     apply_action(
@@ -173,12 +157,12 @@ def test_sponsors_break_alternative_upgraded_gives_double_money():
 
 
 def test_sponsor_206_requires_4_science_icons_to_play():
-    state = setup_game(seed=703, player_names=["P1", "P2"])
+    state = make_state(703)
     player = state.players[0]
     state.current_player = 0
-    player.action_order = ["animals", "cards", "build", "association", "sponsors"]  # strength 5
+    set_action_strength(player, "sponsors", 5)
 
-    sponsor_206 = _take_card_by_number_from_deck(state, 206)
+    sponsor_206 = take_card_by_number(state, 206)
     player.hand = [sponsor_206]
 
     with pytest.raises(ValueError, match="icon_science_4"):
@@ -236,13 +220,13 @@ def test_sponsor_206_requires_4_science_icons_to_play():
 
 
 def test_break_income_applies_sponsor_income_effects(monkeypatch):
-    state = setup_game(seed=704, player_names=["P1", "P2"])
+    state = make_state(704)
     player = state.players[0]
 
-    sponsor_206 = _take_card_by_number_from_deck(state, 206)
-    sponsor_209 = _take_card_by_number_from_deck(state, 209)
-    sponsor_220 = _take_card_by_number_from_deck(state, 220)
-    sponsor_231 = _take_card_by_number_from_deck(state, 231)
+    sponsor_206 = take_card_by_number(state, 206)
+    sponsor_209 = take_card_by_number(state, 209)
+    sponsor_220 = take_card_by_number(state, 220)
+    sponsor_231 = take_card_by_number(state, 231)
     player.zoo_cards.extend([sponsor_206, sponsor_209, sponsor_220, sponsor_231])
     player.zoo_cards.extend(
         [
@@ -275,7 +259,7 @@ def test_break_income_applies_sponsor_income_effects(monkeypatch):
 
 
 def test_sponsor_263_allows_large_animal_to_ignore_one_condition():
-    state = setup_game(seed=705, player_names=["P1", "P2"])
+    state = make_state(705)
     player = state.players[0]
     player.hand = [
         AnimalCard(
@@ -295,14 +279,14 @@ def test_sponsor_263_allows_large_animal_to_ignore_one_condition():
     options_without = list_legal_animals_options(state=state, player_id=0, strength=2)
     assert options_without == []
 
-    sponsor_263 = _take_card_by_number_from_deck(state, 263)
+    sponsor_263 = take_card_by_number(state, 263)
     player.zoo_cards.append(sponsor_263)
     options_with = list_legal_animals_options(state=state, player_id=0, strength=2)
     assert len(options_with) == 1
 
 
 def test_sponsor_210_places_free_kiosk_when_playing_america_icon():
-    state = setup_game(seed=706, player_names=["P1", "P2"])
+    state = make_state(706)
     player = state.players[0]
     state.current_player = 0
     player.action_order = ["cards", "animals", "build", "association", "sponsors"]  # animals strength=2
@@ -349,7 +333,7 @@ def test_sponsor_210_places_free_kiosk_when_playing_america_icon():
 
 
 def test_sponsor_228_allows_extra_small_animal_and_take_small_from_display():
-    state = setup_game(seed=707, player_names=["P1", "P2"])
+    state = make_state(707)
     player = state.players[0]
     state.current_player = 0
     player.action_order = ["cards", "animals", "build", "association", "sponsors"]  # animals strength=2
@@ -416,7 +400,7 @@ def test_sponsor_228_allows_extra_small_animal_and_take_small_from_display():
 
 
 def test_sponsor_253_plays_sponsor_from_hand_on_herbivore_trigger():
-    state = setup_game(seed=708, player_names=["P1", "P2"])
+    state = make_state(708)
     player = state.players[0]
     state.current_player = 0
     player.action_order = ["cards", "animals", "build", "association", "sponsors"]  # animals strength=2
@@ -435,7 +419,7 @@ def test_sponsor_253_plays_sponsor_from_hand_on_herbivore_trigger():
         )
     )
     player.sponsor_tokens_by_number[253] = 1
-    sponsor_220 = _take_card_by_number_from_deck(state, 220)
+    sponsor_220 = take_card_by_number(state, 220)
     herbivore_animal = AnimalCard(
         name="HerbivoreAnimal",
         cost=0,
@@ -465,7 +449,7 @@ def test_sponsor_253_plays_sponsor_from_hand_on_herbivore_trigger():
 
 
 def test_animals_legal_actions_expand_sponsor_253_followup_choices():
-    state = setup_game(seed=7081, player_names=["P1", "P2"])
+    state = make_state(7081)
     player = state.players[0]
     state.current_player = 0
     player.action_order = ["cards", "animals", "build", "association", "sponsors"]  # animals strength=2
@@ -484,8 +468,8 @@ def test_animals_legal_actions_expand_sponsor_253_followup_choices():
         )
     )
     player.sponsor_tokens_by_number[253] = 1
-    sponsor_220 = _take_card_by_number_from_deck(state, 220)
-    sponsor_238 = _take_card_by_number_from_deck(state, 238)
+    sponsor_220 = take_card_by_number(state, 220)
+    sponsor_238 = take_card_by_number(state, 238)
     herbivore_animal = AnimalCard(
         name="HerbivoreAnimal",
         cost=0,
@@ -535,7 +519,7 @@ def test_animals_legal_actions_expand_sponsor_253_followup_choices():
 
 
 def test_sponsors_legal_actions_expand_sponsor_253_followup_choices():
-    state = setup_game(seed=7082, player_names=["P1", "P2"])
+    state = make_state(7082)
     player = state.players[0]
     state.current_player = 0
     player.action_order = ["cards", "animals", "build", "association", "sponsors"]  # sponsors strength=5
@@ -565,8 +549,8 @@ def test_sponsors_legal_actions_expand_sponsor_253_followup_choices():
         number=9810,
         instance_id="s-9810",
     )
-    sponsor_220 = _take_card_by_number_from_deck(state, 220)
-    sponsor_238 = _take_card_by_number_from_deck(state, 238)
+    sponsor_220 = take_card_by_number(state, 220)
+    sponsor_238 = take_card_by_number(state, 238)
     player.hand = [trigger_sponsor, sponsor_220, sponsor_238]
 
     actions = [
@@ -597,7 +581,7 @@ def test_sponsors_legal_actions_expand_sponsor_253_followup_choices():
 
 
 def test_sponsors_actions_filter_display_sequences_that_exceed_total_money():
-    state = setup_game(seed=7083, player_names=["P1", "P2"])
+    state = make_state(7083)
     player = state.players[0]
     state.current_player = 0
     player.money = 3
@@ -660,7 +644,7 @@ def test_sponsors_actions_filter_display_sequences_that_exceed_total_money():
 
 
 def test_sponsor_257_break_income_counts_adjacent_non_empty_buildings_only(monkeypatch):
-    state = setup_game(seed=709, player_names=["P1", "P2"])
+    state = make_state(709)
     player = state.players[0]
     player.money = 0
     player.appeal = 0
@@ -703,13 +687,13 @@ def test_sponsor_257_break_income_counts_adjacent_non_empty_buildings_only(monke
 
 
 def test_playing_sponsor_243_places_unique_building():
-    state = setup_game(seed=710, player_names=["P1", "P2"])
+    state = make_state(710)
     player = state.players[0]
     state.current_player = 0
     player.reputation = 3
     player.money = 20
     player.action_order = ["animals", "cards", "build", "association", "sponsors"]  # sponsors strength=5
-    sponsor_243 = _take_card_by_number_from_deck(state, 243)
+    sponsor_243 = take_card_by_number(state, 243)
     legal = _list_legal_sponsor_unique_building_cells(state=state, player=player, sponsor_number=243)
     assert legal
     player.hand = [sponsor_243]
@@ -742,7 +726,7 @@ def test_playing_sponsor_243_places_unique_building():
 
 
 def test_sponsor_243_requires_explicit_unique_building_selection():
-    state = setup_game(seed=715, player_names=["P1", "P2"])
+    state = make_state(715)
     player = state.players[0]
     state.current_player = 0
     player.money = 20
@@ -788,7 +772,7 @@ def test_sponsor_243_requires_explicit_unique_building_selection():
 
 
 def test_sponsor_227_requires_explicit_mode():
-    state = setup_game(seed=716, player_names=["P1", "P2"])
+    state = make_state(716)
     player = state.players[0]
     state.current_player = 0
     player.money = 20
@@ -832,7 +816,7 @@ def test_sponsor_227_requires_explicit_mode():
 
 
 def test_sponsor_227_puts_non_kept_revealed_cards_to_deck_bottom():
-    state = setup_game(seed=7161, player_names=["P1", "P2"])
+    state = make_state(7161)
     player = state.players[0]
     state.current_player = 0
     player.money = 20
@@ -925,7 +909,7 @@ def test_sponsor_227_puts_non_kept_revealed_cards_to_deck_bottom():
 
 
 def test_final_score_includes_sponsor_endgame_bonus():
-    state = setup_game(seed=711, player_names=["P1", "P2"])
+    state = make_state(711)
     player = state.players[0]
     player.appeal = 10
     player.conservation = 0
@@ -952,10 +936,10 @@ def test_final_score_includes_sponsor_endgame_bonus():
 
 
 def test_sponsor_badge_overrides_do_not_double_count_dataset_badges():
-    state = setup_game(seed=712, player_names=["P1", "P2"])
+    state = make_state(712)
     player = state.players[0]
-    science_lab = _take_card_by_number_from_deck(state, 201)
-    science_institute = _take_card_by_number_from_deck(state, 223)
+    science_lab = take_card_by_number(state, 201)
+    science_institute = take_card_by_number(state, 223)
     player.zoo_cards.extend([science_lab, science_institute])
 
     icons = _player_icon_snapshot(player)
@@ -964,10 +948,10 @@ def test_sponsor_badge_overrides_do_not_double_count_dataset_badges():
 
 
 def test_sponsor_passive_science_trigger_uses_icon_count_not_card_count():
-    state = setup_game(seed=713, player_names=["P1", "P2"])
+    state = make_state(713)
     owner = state.players[0]
     actor_id = 0
-    owner.zoo_cards.append(_take_card_by_number_from_deck(state, 202))
+    owner.zoo_cards.append(take_card_by_number(state, 202))
     rep_before = owner.reputation
 
     played_card = AnimalCard(
@@ -999,7 +983,7 @@ def test_sponsor_unique_shapes_use_configured_footprints():
 
 
 def test_sponsor_unique_legal_cells_match_shape_sizes():
-    state = setup_game(seed=714, player_names=["P1", "P2"])
+    state = make_state(714)
     player = state.players[0]
     for sponsor_number, expected_size in [(243, 3), (244, 4), (249, 3), (250, 4), (254, 3), (257, 2)]:
         legal = _list_legal_sponsor_unique_building_cells(

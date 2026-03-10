@@ -75,6 +75,27 @@ from arknova_engine.turns import (
     apply_action as _apply_action_impl,
     legal_actions as _legal_actions_impl,
 )
+from arknova_engine.shared_rules import (
+    ALL_PARTNER_ZOOS,
+    BREAK_TRACK_BY_PLAYERS,
+    DEFAULT_MAP_IMAGE_NAME,
+    action_base_strength,
+    animals_play_limit,
+    break_income_order as shared_break_income_order,
+    cards_table_values,
+    clear_action_token_maps,
+    current_donation_cost,
+    false_map_factory,
+    list_factory,
+    MAIN_ACTION_CARDS,
+    MAX_X_TOKENS,
+    move_action_to_slot,
+    recall_workers,
+    reset_int_map,
+    STARTING_HAND_KEEP_COUNT,
+    STARTING_MONEY,
+    zero_map_factory,
+)
 
 
 class ActionType(str, Enum):
@@ -236,18 +257,10 @@ CONSERVATION_SPACE_10_RULE = (
 CONSERVATION_FIXED_MONEY_OPTION = "5coins"
 CONSERVATION_REWARD_THRESHOLDS: Tuple[int, int, int] = (2, 5, 8)
 CONSERVATION_SHARED_BONUS_THRESHOLDS: Tuple[int, int] = (5, 8)
-BREAK_TRACK_BY_PLAYERS: Dict[int, int] = {2: 9, 3: 12, 4: 15}
 MAX_GAME_ROUNDS: int = 100
 
-MAIN_ACTION_CARDS: Tuple[str, ...] = ("animals", "cards", "build", "association", "sponsors")
 _BUILD_ENUM_LEGAL_OPTION_CACHE: Dict[Tuple[str, str, int, Tuple[str, ...], bool, bool], List[Dict[str, Any]]] = {}
 ZOO_DECK_CARD_TYPES: Tuple[str, ...] = ("animal", "sponsor", "conservation_project")
-CARDS_DRAW_TABLE_BASE: Tuple[int, ...] = (1, 1, 2, 2, 3)
-CARDS_DISCARD_TABLE_BASE: Tuple[int, ...] = (1, 0, 1, 0, 1)
-ANIMALS_PLAY_LIMIT_BASE: Tuple[int, ...] = (0, 1, 1, 1, 2)
-ANIMALS_PLAY_LIMIT_UPGRADED: Tuple[int, ...] = (1, 1, 2, 2, 2)
-CARDS_DRAW_TABLE_UPGRADED: Tuple[int, ...] = (1, 2, 2, 3, 4)
-CARDS_DISCARD_TABLE_UPGRADED: Tuple[int, ...] = (0, 1, 0, 1, 1)
 CONTINENT_BADGE_ALIASES: Dict[str, str] = {
     "africa": "Africa",
     "europe": "Europe",
@@ -257,7 +270,6 @@ CONTINENT_BADGE_ALIASES: Dict[str, str] = {
     "australia": "Australia",
     "oceania": "Australia",
 }
-ALL_PARTNER_ZOOS: Tuple[str, ...] = ("africa", "europe", "asia", "america", "australia")
 UNIVERSITY_TYPES: Tuple[str, ...] = (
     "reputation_1_hand_limit_5",
     "science_1_reputation_2",
@@ -276,7 +288,6 @@ UNIVERSITY_REPUTATION_GAIN: Dict[str, int] = {
 UNIVERSITY_HAND_LIMIT_SET: Dict[str, int] = {
     "reputation_1_hand_limit_5": 5,
 }
-DONATION_COST_TRACK: Tuple[int, ...] = (2, 5, 7, 10, 12)
 ASSOCIATION_TASK_KINDS: Tuple[str, ...] = ("reputation", "partner_zoo", "university", "conservation_project")
 MAX_WORKERS: int = 4
 MAX_ASSOCIATION_WORKERS_PER_TASK: int = 3
@@ -505,17 +516,15 @@ BREEDING_PROJECT_BADGE_BY_NUMBER: Dict[int, str] = {
 @dataclass
 class PlayerState:
     name: str
-    money: int = 25
+    money: int = STARTING_MONEY
     appeal: int = 0
     conservation: int = 0
     reputation: int = 1
     workers: int = 1
     x_tokens: int = 0
     hand_limit: int = 3
-    action_order: List[str] = field(default_factory=lambda: list(MAIN_ACTION_CARDS))
-    action_upgraded: Dict[str, bool] = field(
-        default_factory=lambda: {action: False for action in MAIN_ACTION_CARDS}
-    )
+    action_order: List[str] = field(default_factory=list_factory(MAIN_ACTION_CARDS))
+    action_upgraded: Dict[str, bool] = field(default_factory=false_map_factory(MAIN_ACTION_CARDS))
     zoo_map: Optional[ArkNovaMap] = None
     enclosures: List[Enclosure] = field(default_factory=list)
     enclosure_objects: List[EnclosureObject] = field(default_factory=list)
@@ -529,25 +538,15 @@ class PlayerState:
     partner_zoos: Set[str] = field(default_factory=set)
     universities: Set[str] = field(default_factory=set)
     supported_conservation_projects: Set[str] = field(default_factory=set)
-    multiplier_tokens_on_actions: Dict[str, int] = field(
-        default_factory=lambda: {action: 0 for action in MAIN_ACTION_CARDS}
-    )
-    venom_tokens_on_actions: Dict[str, int] = field(
-        default_factory=lambda: {action: 0 for action in MAIN_ACTION_CARDS}
-    )
-    constriction_tokens_on_actions: Dict[str, int] = field(
-        default_factory=lambda: {action: 0 for action in MAIN_ACTION_CARDS}
-    )
-    extra_actions_granted: Dict[str, int] = field(
-        default_factory=lambda: {action: 0 for action in MAIN_ACTION_CARDS}
-    )
+    multiplier_tokens_on_actions: Dict[str, int] = field(default_factory=zero_map_factory(MAIN_ACTION_CARDS))
+    venom_tokens_on_actions: Dict[str, int] = field(default_factory=zero_map_factory(MAIN_ACTION_CARDS))
+    constriction_tokens_on_actions: Dict[str, int] = field(default_factory=zero_map_factory(MAIN_ACTION_CARDS))
+    extra_actions_granted: Dict[str, int] = field(default_factory=zero_map_factory(MAIN_ACTION_CARDS))
     extra_any_actions: int = 0
     extra_strength_actions: Dict[int, int] = field(default_factory=dict)
     camouflage_condition_ignores: int = 0
     workers_on_association_board: int = 0
-    association_workers_by_task: Dict[str, int] = field(
-        default_factory=lambda: {task: 0 for task in ASSOCIATION_TASK_KINDS}
-    )
+    association_workers_by_task: Dict[str, int] = field(default_factory=zero_map_factory(ASSOCIATION_TASK_KINDS))
     claimed_conservation_reward_spaces: Set[int] = field(default_factory=set)
     claimed_reputation_milestones: Set[int] = field(default_factory=set)
     opening_draft_drawn: List[AnimalCard] = field(default_factory=list)
@@ -571,7 +570,7 @@ class PlayerState:
 @dataclass
 class GameState:
     players: List[PlayerState]
-    map_image_name: str = "plan1a"
+    map_image_name: str = DEFAULT_MAP_IMAGE_NAME
     map_tile_bonuses: Dict[Tuple[int, int], str] = field(default_factory=dict)
     map_tile_tags: Dict[Tuple[int, int], List[str]] = field(default_factory=dict)
     map_rules: Dict[str, Any] = field(default_factory=dict)
@@ -591,7 +590,7 @@ class GameState:
     donation_progress: int = 0
     effect_log: List[str] = field(default_factory=list)
     break_progress: int = 0
-    break_max: int = 9
+    break_max: int = BREAK_TRACK_BY_PLAYERS[2]
     break_trigger_player: Optional[int] = None
     pending_decision_kind: str = ""
     pending_decision_player_id: Optional[int] = None
@@ -670,7 +669,7 @@ class GameState:
         elif reward == "2_reputation":
             _increase_reputation(state=self, player=player, amount=2, allow_interactive=False)
         elif reward == "3_x_tokens":
-            player.x_tokens = min(5, int(player.x_tokens) + 3)
+            player.x_tokens = min(MAX_X_TOKENS, int(player.x_tokens) + 3)
         elif reward == "3_cards":
             player.hand.extend(_draw_from_zoo_deck(self, 3))
         else:
@@ -1404,8 +1403,7 @@ def _map_rule_worker_gain_rewards(state: GameState) -> List[Dict[str, Any]]:
 
 
 def _current_donation_cost(state: GameState) -> int:
-    idx = min(state.donation_progress, len(DONATION_COST_TRACK) - 1)
-    return DONATION_COST_TRACK[idx]
+    return current_donation_cost(state.donation_progress)
 
 
 def _association_task_strength_cost(player: PlayerState, task_kind: str) -> int:
@@ -1846,7 +1844,7 @@ def _begin_next_opening_draft_pending_if_needed(state: GameState) -> bool:
     if player_id is None:
         return False
     player = state.players[player_id]
-    keep_target = min(4, len(player.opening_draft_drawn))
+    keep_target = min(STARTING_HAND_KEEP_COUNT, len(player.opening_draft_drawn))
     if keep_target <= 0:
         return False
     _set_pending_decision(
@@ -1876,9 +1874,7 @@ def _action_token_line(token_map: Dict[str, int]) -> str:
 
 
 def _action_base_strength(player: PlayerState, card_name: str) -> int:
-    if card_name not in player.action_order:
-        raise ValueError(f"Unknown action card '{card_name}'.")
-    return player.action_order.index(card_name) + 1
+    return action_base_strength(player.action_order, card_name)
 
 
 def _constriction_penalty(player: PlayerState, card_name: str) -> int:
@@ -3320,7 +3316,7 @@ def _apply_reputation_gain_with_details(
             player.conservation += 1
             continue
         if milestone in {12, 15}:
-            player.x_tokens = min(5, int(player.x_tokens) + 1)
+            player.x_tokens = min(MAX_X_TOKENS, int(player.x_tokens) + 1)
             continue
 
 
@@ -4003,6 +3999,20 @@ def _enumerate_concrete_build_actions(
     actions: List[Action] = []
     max_build_steps = 2 if upgraded else 1
 
+    def _resolve_build_details(details_payload: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str]]:
+        return _resolve_action_detail_variants_by_simulation(
+            state=state,
+            player_id=player_id,
+            base_details=details_payload,
+            executor=lambda sim_state, sim_player, sim_details: _perform_build_action_effect(
+                state=sim_state,
+                player=sim_player,
+                strength=strength,
+                details=sim_details,
+                player_id=player_id,
+            ),
+        )
+
     def _build_options_cache_key(
         cached_state: GameState,
         remaining_strength: int,
@@ -4089,7 +4099,7 @@ def _enumerate_concrete_build_actions(
                 next_player.reputation += 1
                 continue
             if bonus_name == "x_token":
-                next_player.x_tokens = min(5, int(next_player.x_tokens) + 1)
+                next_player.x_tokens = min(MAX_X_TOKENS, int(next_player.x_tokens) + 1)
                 continue
             if bonus_name == "action_to_slot_1":
                 queued_choice = _pop_detail_queue_entry(choice_details, "bonus_action_to_slot_1_choices")
@@ -4135,16 +4145,26 @@ def _enumerate_concrete_build_actions(
             if int(option.get("size", 0)) <= min_total_size_exclusive:
                 continue
             for bonus_details, bonus_label in _enumerate_build_bonus_choice_variants(state, player_id, option):
-                actions.append(
-                    _make_concrete_action(
-                        template_action,
-                        label=_build_step_action_label(option, bonus_label),
-                        extra_details=_merge_list_detail_fragments(
-                            {"selections": [_build_selection_payload(option)]},
-                            bonus_details,
-                        ),
-                    )
+                base_details = _merge_list_detail_fragments(
+                    {"selections": [_build_selection_payload(option)]},
+                    bonus_details,
                 )
+                resolved_variants = (
+                    [(copy.deepcopy(base_details), "")]
+                    if not bonus_details
+                    else _resolve_build_details(base_details)
+                )
+                for resolved_details, resolved_label in resolved_variants:
+                    final_label = _build_step_action_label(option, bonus_label)
+                    if resolved_label:
+                        final_label = f"{final_label} ; {resolved_label}"
+                    actions.append(
+                        _make_concrete_action(
+                            template_action,
+                            label=final_label,
+                            extra_details=resolved_details,
+                        )
+                    )
         return actions
 
     seen_sequences: Set[str] = set()
@@ -4185,27 +4205,37 @@ def _enumerate_concrete_build_actions(
                 )
                 next_label_steps = label_steps + [_build_step_action_label(option, step_bonus_label)]
                 next_total_size = built_size_total + int(option.get("size", 0))
-                key = json.dumps(
-                    _merge_list_detail_fragments(
-                        {"selections": next_selection_sequence},
-                        next_accumulated_bonus_details,
-                    ),
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    ensure_ascii=True,
+                base_details = _merge_list_detail_fragments(
+                    {"selections": next_selection_sequence},
+                    next_accumulated_bonus_details,
                 )
-                if next_total_size > min_total_size_exclusive and key not in seen_sequences:
-                    seen_sequences.add(key)
-                    actions.append(
-                        _make_concrete_action(
-                            template_action,
-                            label=" ; then ".join(next_label_steps),
-                            extra_details=_merge_list_detail_fragments(
-                                {"selections": next_selection_sequence},
-                                next_accumulated_bonus_details,
-                            ),
+                requires_resolution = len(next_selection_sequence) > 1 or bool(next_accumulated_bonus_details)
+                resolved_variants = (
+                    [(copy.deepcopy(base_details), "")]
+                    if not requires_resolution
+                    else _resolve_build_details(base_details)
+                )
+                if next_total_size > min_total_size_exclusive:
+                    for resolved_details, resolved_label in resolved_variants:
+                        key = json.dumps(
+                            resolved_details,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            ensure_ascii=True,
                         )
-                    )
+                        if key in seen_sequences:
+                            continue
+                        seen_sequences.add(key)
+                        final_label = " ; then ".join(next_label_steps)
+                        if resolved_label:
+                            final_label = f"{final_label} ; {resolved_label}"
+                        actions.append(
+                            _make_concrete_action(
+                                template_action,
+                                label=final_label,
+                                extra_details=resolved_details,
+                            )
+                        )
 
                 next_remaining_strength = remaining_strength - int(option.get("size", 0))
                 if next_remaining_strength <= 0:
@@ -4480,6 +4510,8 @@ def legal_actions(
     player: PlayerState,
     state: Optional[GameState] = None,
     player_id: Optional[int] = None,
+    *,
+    concrete: bool = True,
 ) -> List[Action]:
     if state is not None and player_id is not None and str(state.pending_decision_kind or "").strip():
         return _enumerate_pending_decision_actions(state, player, player_id)
@@ -4489,8 +4521,19 @@ def legal_actions(
         action_factory=Action,
         main_action_type=ActionType.MAIN_ACTION,
         x_token_action_type=ActionType.X_TOKEN,
-        max_x_tokens=5,
+        max_x_tokens=MAX_X_TOKENS,
     )
+    return _annotate_legal_actions(player, actions, state=state, player_id=player_id, concrete=concrete)
+
+
+def _annotate_legal_actions(
+    player: PlayerState,
+    actions: Sequence[Action],
+    *,
+    state: Optional[GameState] = None,
+    player_id: Optional[int] = None,
+    concrete: bool = True,
+) -> List[Action]:
     annotated: List[Action] = []
     for action in actions:
         if action.type != ActionType.MAIN_ACTION:
@@ -4558,46 +4601,101 @@ def legal_actions(
             updated_annotated.append(action)
         annotated = updated_annotated
 
-    if state is None or player_id is None:
+    if state is None or player_id is None or not concrete:
         return annotated
+    return materialize_legal_actions(state, player, player_id, annotated)
 
+
+def materialize_action_candidates(
+    state: GameState,
+    player: PlayerState,
+    player_id: int,
+    action: Action,
+) -> List[Action]:
+    concrete_actions: List[Action] = []
+    if action.type == ActionType.X_TOKEN:
+        return [
+            _make_concrete_action(
+                action,
+                card_name=action_name,
+            )
+            for action_name in player.action_order
+        ]
+    if action.type != ActionType.MAIN_ACTION:
+        return [action]
+
+    card_name = str(action.card_name or "")
+    if card_name == "animals":
+        concrete_actions.extend(_enumerate_concrete_animals_actions(state, player, player_id, action))
+    elif card_name == "sponsors":
+        concrete_actions.extend(_enumerate_concrete_sponsors_actions(state, player, player_id, action))
+    elif card_name == "association":
+        concrete_actions.extend(_enumerate_concrete_association_actions(state, player, player_id, action))
+    elif card_name == "build":
+        concrete_actions.extend(_enumerate_concrete_build_actions(state, player, player_id, action))
+    elif card_name == "cards":
+        concrete_actions.extend(_enumerate_concrete_cards_actions(state, player, action))
+    elif card_name:
+        concrete_actions.append(_make_concrete_action(action))
+
+    return concrete_actions
+
+
+def _materialization_prune_key(action: Action) -> Optional[Tuple[Any, ...]]:
+    if action.type != ActionType.MAIN_ACTION:
+        return None
+    card_name = str(action.card_name or "").strip()
+    details = dict(action.details or {})
+    effective_strength = int(details.get("effective_strength", 0))
+    if effective_strength <= 0:
+        return None
+    if card_name in {"animals", "cards", "sponsors", "association"}:
+        return (card_name, effective_strength)
+    if card_name == "build":
+        return (
+            card_name,
+            effective_strength,
+            int(details.get("min_total_size_exclusive", 0)),
+        )
+    return None
+
+
+def _prune_dominated_materialization_actions(actions: Sequence[Action]) -> List[Action]:
+    best_x_by_key: Dict[Tuple[Any, ...], int] = {}
+    for action in actions:
+        prune_key = _materialization_prune_key(action)
+        if prune_key is None:
+            continue
+        x_spent = int(action.value or 0)
+        current_best = best_x_by_key.get(prune_key)
+        if current_best is None or x_spent < current_best:
+            best_x_by_key[prune_key] = x_spent
+
+    pruned: List[Action] = []
+    emitted_keys: Set[Tuple[Any, ...]] = set()
+    for action in actions:
+        prune_key = _materialization_prune_key(action)
+        if prune_key is None:
+            pruned.append(action)
+            continue
+        if int(action.value or 0) != best_x_by_key.get(prune_key):
+            continue
+        if prune_key in emitted_keys:
+            continue
+        emitted_keys.add(prune_key)
+        pruned.append(action)
+    return pruned
+
+
+def materialize_legal_actions(
+    state: GameState,
+    player: PlayerState,
+    player_id: int,
+    actions: Sequence[Action],
+) -> List[Action]:
     concrete: List[Action] = []
-    for action in annotated:
-        if action.type == ActionType.X_TOKEN:
-            for action_name in player.action_order:
-                concrete.append(
-                    _make_concrete_action(
-                        action,
-                        card_name=action_name,
-                    )
-                )
-            continue
-        if action.type != ActionType.MAIN_ACTION:
-            concrete.append(action)
-            continue
-        card_name = str(action.card_name or "")
-        if card_name == "animals":
-            concrete.extend(_enumerate_concrete_animals_actions(state, player, player_id, action))
-            continue
-
-        if card_name == "sponsors":
-            concrete.extend(_enumerate_concrete_sponsors_actions(state, player, player_id, action))
-            continue
-
-        if card_name == "association":
-            concrete.extend(_enumerate_concrete_association_actions(state, player, player_id, action))
-            continue
-
-        if card_name == "build":
-            concrete.extend(_enumerate_concrete_build_actions(state, player, player_id, action))
-            continue
-
-        if card_name == "cards":
-            concrete.extend(_enumerate_concrete_cards_actions(state, player, action))
-            continue
-
-        if card_name:
-            concrete.append(_make_concrete_action(action))
+    for action in _prune_dominated_materialization_actions(actions):
+        concrete.extend(materialize_action_candidates(state, player, player_id, action))
     concrete = _dedupe_dominated_concrete_sponsors_actions(concrete)
     concrete = _dedupe_dominated_concrete_animals_actions(concrete)
     concrete = _dedupe_dominated_concrete_build_actions(concrete)
@@ -4634,14 +4732,7 @@ def _move_action_order_to_slot(
     chosen_action: str,
     slot_number: int,
 ) -> List[str]:
-    order = list(action_order)
-    if chosen_action not in order:
-        return order
-    idx = order.index(chosen_action)
-    card = order.pop(idx)
-    target_index = max(0, min(len(order), int(slot_number) - 1))
-    order.insert(target_index, card)
-    return order
+    return move_action_to_slot(action_order, chosen_action, slot_number)
 
 
 def _rotate_action_card_to_slot(player: PlayerState, chosen_action: str, slot_number: int) -> int:
@@ -4661,20 +4752,7 @@ def _rotate_action_card_to_slot_5(player: PlayerState, chosen_action: str) -> in
 
 
 def _cards_table_values(strength: int, upgraded: bool) -> Tuple[int, int, bool]:
-    if strength <= 0:
-        return 0, 0, False
-    idx = min(5, max(1, strength)) - 1
-    if upgraded:
-        return (
-            CARDS_DRAW_TABLE_UPGRADED[idx],
-            CARDS_DISCARD_TABLE_UPGRADED[idx],
-            strength >= 3,
-        )
-    return (
-        CARDS_DRAW_TABLE_BASE[idx],
-        CARDS_DISCARD_TABLE_BASE[idx],
-        strength >= 5,
-    )
+    return cards_table_values(strength, upgraded)
 
 
 def _reputation_display_limit(reputation: int) -> int:
@@ -5645,18 +5723,6 @@ def _building_layout_key(building: Building) -> Tuple[Tuple[int, int], ...]:
     return tuple(sorted((tile.x, tile.y) for tile in building.layout))
 
 
-def _dedupe_legal_buildings_by_footprint(legal: Sequence[Building]) -> List[Building]:
-    dedup_seen: Set[Tuple[str, Tuple[Tuple[int, int], ...]]] = set()
-    deduped: List[Building] = []
-    for building in legal:
-        key = (building.type.name, _building_layout_key(building))
-        if key in dedup_seen:
-            continue
-        dedup_seen.add(key)
-        deduped.append(building)
-    return deduped
-
-
 def _building_cells_text(building: Building) -> str:
     cells = sorted((tile.x, tile.y) for tile in building.layout)
     return "[" + ",".join(f"({x},{y})" for x, y in cells) + "]"
@@ -5703,7 +5769,6 @@ def list_legal_build_options(
         max_building_size=max_size,
         already_built_buildings=already_built_types or set(),
     )
-    legal = _dedupe_legal_buildings_by_footprint(legal)
     legal.sort(
         key=lambda b: (
             _building_type_label(b.type),
@@ -5864,7 +5929,7 @@ def _apply_build_placement_bonus(
     if bonus == "5coins":
         player.money += 5
     elif bonus == "x_token":
-        player.x_tokens = min(5, player.x_tokens + 1)
+        player.x_tokens = min(MAX_X_TOKENS, player.x_tokens + 1)
     elif bonus == "reputation":
         _increase_reputation(state, player, 1, allow_interactive=allow_interactive)
     elif bonus == "card_in_reputation_range":
@@ -6200,7 +6265,7 @@ def _apply_map_effect_code(
         return
 
     if code == "gain_3_x_tokens":
-        player.x_tokens = min(5, int(player.x_tokens) + 3)
+        player.x_tokens = min(MAX_X_TOKENS, int(player.x_tokens) + 3)
         state.effect_log.append(f"{source}:{player.name}:{code}")
         return
 
@@ -6743,7 +6808,7 @@ def _apply_reputation_milestone_reward(
         player.conservation += 1
         return
     if milestone in {12, 15}:
-        player.x_tokens = min(5, int(player.x_tokens) + 1)
+        player.x_tokens = min(MAX_X_TOKENS, int(player.x_tokens) + 1)
         return
 
 
@@ -6809,18 +6874,16 @@ def _break_income_from_appeal(appeal: int) -> int:
 
 
 def _break_income_order(state: GameState) -> List[int]:
-    total = len(state.players)
-    trigger = state.break_trigger_player
-    if trigger is None or trigger < 0 or trigger >= total:
-        return list(range(total))
-    return [(trigger + offset) % total for offset in range(total)]
+    return shared_break_income_order(len(state.players), state.break_trigger_player)
 
 
 def _clear_action_tokens_for_break(player: PlayerState) -> None:
-    for action in MAIN_ACTION_CARDS:
-        player.multiplier_tokens_on_actions[action] = 0
-        player.venom_tokens_on_actions[action] = 0
-        player.constriction_tokens_on_actions[action] = 0
+    clear_action_token_maps(
+        MAIN_ACTION_CARDS,
+        player.multiplier_tokens_on_actions,
+        player.venom_tokens_on_actions,
+        player.constriction_tokens_on_actions,
+    )
 
 
 def _replenish_display_after_break(state: GameState) -> None:
@@ -6879,7 +6942,7 @@ def _apply_sponsor_break_income_effects_for_player(state: GameState, player: Pla
     if 206 in sponsor_numbers:
         player.conservation += 1
     if 209 in sponsor_numbers:
-        player.x_tokens = min(5, player.x_tokens + 1)
+        player.x_tokens = min(MAX_X_TOKENS, player.x_tokens + 1)
     if 220 in sponsor_numbers:
         player.money += 3
     for sponsor_no, icon_name in SPONSOR_ICON_INCOME_THRESHOLDS.items():
@@ -6907,10 +6970,12 @@ def _apply_break_pre_income_stages(state: GameState) -> None:
     # 3) Association board: recall workers and refresh market.
     for player in state.players:
         if int(player.workers_on_association_board) > 0:
-            player.workers = min(MAX_WORKERS, int(player.workers) + int(player.workers_on_association_board))
-            player.workers_on_association_board = 0
-        for task in ASSOCIATION_TASK_KINDS:
-            player.association_workers_by_task[task] = 0
+            player.workers, player.workers_on_association_board = recall_workers(
+                player.workers,
+                player.workers_on_association_board,
+                max_workers=MAX_WORKERS,
+            )
+        reset_int_map(player.association_workers_by_task, ASSOCIATION_TASK_KINDS)
     _refresh_association_market(state)
 
     # 4) Replenish display by discarding folders 1 and 2.
@@ -7044,7 +7109,7 @@ def _advance_break_track(state: GameState, steps: int, trigger_player: int) -> b
         state=state,
         steps=steps,
         trigger_player=trigger_player,
-        max_x_tokens=5,
+        max_x_tokens=MAX_X_TOKENS,
     )
     if triggered:
         state.break_trigger_player = trigger_player
@@ -7284,7 +7349,6 @@ def _perform_build_action_effect(
             max_building_size=remaining_size,
             already_built_buildings=built_this_action,
         )
-        legal = _dedupe_legal_buildings_by_footprint(legal)
         if not legal:
             break
         legal.sort(
@@ -7357,7 +7421,6 @@ def _perform_build_action_effect(
                 max_building_size=len(built_type.layout),
                 already_built_buildings=set(),
             )
-            legal_extra = _dedupe_legal_buildings_by_footprint(legal_extra)
             legal_extra = [building for building in legal_extra if building.type == built_type]
             legal_extra.sort(
                 key=lambda b: (
@@ -7387,12 +7450,7 @@ def _perform_build_action_effect(
 
 
 def _animals_play_limit(strength: int, upgraded: bool) -> int:
-    if strength <= 0:
-        return 0
-    idx = min(5, max(1, strength)) - 1
-    if upgraded:
-        return ANIMALS_PLAY_LIMIT_UPGRADED[idx]
-    return ANIMALS_PLAY_LIMIT_BASE[idx]
+    return animals_play_limit(strength, upgraded)
 
 
 def _find_enclosure_object(player: PlayerState, enclosure: Enclosure) -> Optional[EnclosureObject]:
@@ -8455,7 +8513,6 @@ def _perform_animals_action_effect(
                     max_building_size=1,
                     already_built_buildings=set(),
                 )
-                legal = _dedupe_legal_buildings_by_footprint(legal)
                 legal = [
                     building for building in legal if building.type in {BuildingType.KIOSK, BuildingType.PAVILION}
                 ]
@@ -8874,7 +8931,7 @@ def _perform_animals_action_effect(
             if amount <= 0:
                 return 0
             before = player.x_tokens
-            player.x_tokens = min(5, player.x_tokens + amount)
+            player.x_tokens = min(MAX_X_TOKENS, player.x_tokens + amount)
             return player.x_tokens - before
 
         def _effect_count_icon(icon_name: str) -> int:
@@ -9034,7 +9091,6 @@ def _perform_animals_action_effect(
                     max_building_size=max_size,
                     already_built_buildings=set(),
                 )
-                legal = _dedupe_legal_buildings_by_footprint(legal)
                 legal = [b for b in legal if b.type == BuildingType.LARGE_BIRD_AVIARY]
                 if not legal:
                     break
@@ -9913,7 +9969,6 @@ def _place_free_building_of_type_if_possible(
         max_building_size=len(building_type.layout),
         already_built_buildings=set(),
     )
-    legal = _dedupe_legal_buildings_by_footprint(legal)
     legal = [building for building in legal if building.type == building_type]
     if not legal:
         return False
@@ -10258,7 +10313,7 @@ def _apply_sponsor_passive_triggers_on_card_play(
 
         primate_icons = int(played_icon_counts.get("primate", 0))
         if owner_is_actor and 248 in sponsor_numbers and primate_icons > 0:
-            owner.x_tokens = min(5, owner.x_tokens + primate_icons)
+            owner.x_tokens = min(MAX_X_TOKENS, owner.x_tokens + primate_icons)
 
         africa_icons = int(played_icon_counts.get("africa", 0))
         if owner_is_actor and 214 in sponsor_numbers and africa_icons > 0 and owner.action_order:
@@ -10637,7 +10692,7 @@ def _apply_sponsor_immediate_effects(
         messages.append(f"immediate(science_to_appeal)={gain}")
 
     if number == 209:
-        player.x_tokens = min(5, player.x_tokens + 1)
+        player.x_tokens = min(MAX_X_TOKENS, player.x_tokens + 1)
         messages.append("immediate(+1_x_token)")
 
     if number in {210, 211, 212, 213, 214}:
@@ -10683,7 +10738,7 @@ def _apply_sponsor_immediate_effects(
         messages.append(f"immediate(cp_from_science_up_to_3)={cp_gain}")
 
     if number in {224, 225}:
-        player.x_tokens = min(5, player.x_tokens + 1)
+        player.x_tokens = min(MAX_X_TOKENS, player.x_tokens + 1)
         messages.append("immediate(+1_x_token)")
 
     if number == 226:
@@ -11398,8 +11453,9 @@ def _resolve_manual_opening_drafts(state: GameState, manual_player_names: Set[st
         player = state.players[player_id]
         if player.name not in manual_player_names:
             break
+        human = HumanPlayer()
         actions = legal_actions(player, state=state, player_id=player_id)
-        action = HumanPlayer().choose_action(state, actions)
+        action = human.choose_action(state, actions)
         apply_action(state, action)
 
 
@@ -11771,7 +11827,7 @@ def _apply_conservation_reward_choice(
                 details=details,
             )
         elif reward == "3_x_tokens":
-            player.x_tokens = min(5, int(player.x_tokens) + 3)
+            player.x_tokens = min(MAX_X_TOKENS, int(player.x_tokens) + 3)
         elif reward == "3_cards":
             player.hand.extend(_draw_from_zoo_deck(state, 3))
         elif reward == "partner_zoo":
@@ -12036,11 +12092,11 @@ def apply_action(state: GameState, action: Action) -> None:
             _validate_card_zones(state)
             return
     elif action.type == ActionType.X_TOKEN:
-        if int(player.x_tokens) >= 5:
+        if int(player.x_tokens) >= MAX_X_TOKENS:
             raise ValueError("Cannot take X action at max X-token limit.")
         chosen = action.card_name or player.action_order[-1]
         _rotate_action_card_to_slot_1(player, chosen)
-        player.x_tokens = min(5, int(player.x_tokens) + 1)
+        player.x_tokens = min(MAX_X_TOKENS, int(player.x_tokens) + 1)
     else:
         raise ValueError("Unsupported action type in this runner.")
 
@@ -12457,8 +12513,12 @@ def play_game(
             else int(state.current_player)
         )
         player = state.players[actor_id]
-        actions = legal_actions(player, state=state, player_id=actor_id)
         agent = agents[player.name]
+        actions = legal_actions(
+            player,
+            state=state,
+            player_id=actor_id,
+        )
         action = agent.choose_action(state, actions)
         effect_log_cursor = len(state.effect_log)
         apply_action(state, action)
@@ -12515,4 +12575,4 @@ def main_cli() -> None:
 if __name__ == "__main__":
     main_cli()
 # python main.py --seed 7
-# python tools/rl/train_self_play.py --rollout-workers 8 --algo masked_ppo --updates 100 --episodes-per-update 32 --output-dir runs/self_play_masked --resume-from runs/self_play_masked/checkpoint_0080.pt
+# python tools/rl/train_self_play.py --rollout-workers 8 --algo masked_ppo --updates 100 --episodes-per-update 16 --output-dir runs/self_play_masked --resume-from runs/self_play_masked/checkpoint_0080.pt

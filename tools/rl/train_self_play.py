@@ -72,31 +72,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--terminal-reward-scale",
         type=float,
-        default=1.0,
+        default=0.2,
         help="Scale for terminal score-diff reward",
     )
     parser.add_argument(
         "--endgame-trigger-reward",
         type=float,
-        default=2.0,
+        default=1.0,
         help="Reward added when the acting player triggers endgame (reaches score threshold)",
     )
     parser.add_argument(
         "--endgame-speed-bonus",
         type=float,
-        default=2.0,
+        default=6.0,
         help="Additional bonus scaled by how early endgame is triggered",
     )
     parser.add_argument(
         "--terminal-win-bonus",
         type=float,
-        default=3.0,
+        default=2.0,
         help="Extra terminal reward for finishing above all opponents",
     )
     parser.add_argument(
         "--terminal-loss-penalty",
         type=float,
-        default=3.0,
+        default=2.0,
         help="Extra terminal penalty for finishing below the top opponent score",
     )
     parser.add_argument(

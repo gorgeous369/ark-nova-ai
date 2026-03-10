@@ -6,12 +6,12 @@ from main import (
     CONSERVATION_SPACE_10_RULE,
     CONSERVATION_SPACE_2_FIXED_OPTIONS,
     TWO_PLAYER_BLOCKED_LEVELS,
-    setup_game,
 )
+from tests.helpers import make_state
 
 
 def test_setup_game_contains_requested_opening_information():
-    state = setup_game(seed=406, player_names=["P1", "P2"])
+    state = make_state(406)
     opening = state.opening_setup
 
     assert opening.conservation_space_2_fixed_options == list(CONSERVATION_SPACE_2_FIXED_OPTIONS)
@@ -48,8 +48,8 @@ def test_setup_game_contains_requested_opening_information():
 
 
 def test_setup_game_opening_information_is_seed_deterministic():
-    state_1 = setup_game(seed=999, player_names=["P1", "P2"])
-    state_2 = setup_game(seed=999, player_names=["P1", "P2"])
+    state_1 = make_state(999)
+    state_2 = make_state(999)
 
     assert state_1.opening_setup == state_2.opening_setup
     assert state_1.players[0].final_scoring_cards == state_2.players[0].final_scoring_cards
@@ -57,7 +57,7 @@ def test_setup_game_opening_information_is_seed_deterministic():
 
 
 def test_selected_base_conservation_projects_are_removed_from_public_zoo_card_zones():
-    state = setup_game(seed=42, player_names=["P1", "P2"])
+    state = make_state(42)
     selected_numbers = {int(project.data_id[1:4]) for project in state.opening_setup.base_conservation_projects}
 
     public_zones = [state.zoo_deck, state.zoo_display, state.zoo_discard]
@@ -75,7 +75,7 @@ def test_selected_base_conservation_projects_are_removed_from_public_zoo_card_zo
 
 
 def test_cp_5_and_8_random_tiles_are_shared_while_5coins_is_repeatable():
-    state = setup_game(seed=1234, player_names=["P1", "P2"])
+    state = make_state(1234)
     p0 = state.players[0]
     p1 = state.players[1]
 

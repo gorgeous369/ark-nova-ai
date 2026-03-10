@@ -9,12 +9,12 @@ from main import (
     build_player_observation,
     build_private_observation,
     build_public_observation,
-    setup_game,
 )
+from tests.helpers import make_state
 
 
 def test_public_observation_hides_private_card_faces_and_keeps_counts():
-    state = setup_game(seed=601, player_names=["P1", "P2"])
+    state = make_state(601)
     p0 = state.players[0]
     p1 = state.players[1]
 
@@ -47,7 +47,7 @@ def test_public_observation_hides_private_card_faces_and_keeps_counts():
 
 
 def test_public_observation_is_invariant_when_opponent_private_faces_change():
-    state_a = setup_game(seed=602, player_names=["P1", "P2"])
+    state_a = make_state(602)
     state_b = copy.deepcopy(state_a)
 
     opponent_a = state_a.players[1]
@@ -70,7 +70,7 @@ def test_public_observation_is_invariant_when_opponent_private_faces_change():
 
 
 def test_private_observation_contains_only_viewer_hidden_faces():
-    state = setup_game(seed=603, player_names=["P1", "P2"])
+    state = make_state(603)
     p0 = state.players[0]
     p1 = state.players[1]
 
@@ -95,11 +95,10 @@ def test_private_observation_contains_only_viewer_hidden_faces():
 
 
 def test_player_observation_contains_public_and_private_sections():
-    state = setup_game(seed=604, player_names=["P1", "P2"])
+    state = make_state(604)
 
     observation = build_player_observation(state, viewer_player_id=0)
 
     assert set(observation.keys()) == {"public", "private"}
     assert observation["public"]["viewer_player_id"] == 0
     assert observation["private"]["viewer_player_id"] == 0
-

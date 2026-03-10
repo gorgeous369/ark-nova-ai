@@ -13,8 +13,8 @@ from main import (
     apply_action,
     legal_actions,
     list_legal_association_options,
-    setup_game,
 )
+from tests.helpers import make_state
 
 
 def _seed_project_icons(player, project_id: str, count: int) -> None:
@@ -85,7 +85,7 @@ def _seed_project_icons(player, project_id: str, count: int) -> None:
 
 
 def test_setup_initializes_association_market():
-    state = setup_game(seed=601, player_names=["P1", "P2"])
+    state = make_state(601)
 
     assert state.available_partner_zoos == {"africa", "europe", "asia", "america", "australia"}
     assert state.available_universities == {
@@ -102,7 +102,7 @@ def test_setup_initializes_association_market():
 
 
 def test_association_partner_zoo_is_shared_until_break_refresh(monkeypatch):
-    state = setup_game(seed=602, player_names=["P1", "P2"])
+    state = make_state(602)
     p0, p1 = state.players
     state.current_player = 0
     p0.action_order = ["cards", "animals", "association", "build", "sponsors"]  # association strength=3
@@ -135,7 +135,7 @@ def test_association_partner_zoo_is_shared_until_break_refresh(monkeypatch):
 
 
 def test_association_university_reputation_type_applies_bonus():
-    state = setup_game(seed=603, player_names=["P1", "P2"])
+    state = make_state(603)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["cards", "animals", "build", "association", "sponsors"]  # association strength=4
@@ -158,7 +158,7 @@ def test_association_university_reputation_type_applies_bonus():
 
 
 def test_association_strength_5_can_support_base_conservation_project():
-    state = setup_game(seed=604, player_names=["P1", "P2"])
+    state = make_state(604)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["cards", "animals", "build", "sponsors", "association"]  # association strength=5
@@ -183,7 +183,7 @@ def test_association_strength_5_can_support_base_conservation_project():
 
 
 def test_species_diversity_does_not_count_science_rock_or_water():
-    state = setup_game(seed=6041, player_names=["P1", "P2"])
+    state = make_state(6041)
     player = state.players[0]
     player.zoo_cards = [
         AnimalCard(
@@ -236,7 +236,7 @@ def test_species_diversity_does_not_count_science_rock_or_water():
 
 
 def test_bird_breeding_program_requires_matching_badge_animal_and_partner_zoo():
-    state = setup_game(seed=6042, player_names=["P1", "P2"])
+    state = make_state(6042)
     player = state.players[0]
     player.zoo_cards = [
         AnimalCard(
@@ -267,7 +267,7 @@ def test_bird_breeding_program_requires_matching_badge_animal_and_partner_zoo():
 
 
 def test_association_supports_bird_breeding_program_from_hand_with_reputation_gain():
-    state = setup_game(seed=6043, player_names=["P1", "P2"])
+    state = make_state(6043)
     player = state.players[0]
     state.current_player = 0
     player.action_order = ["cards", "animals", "build", "sponsors", "association"]
@@ -318,7 +318,7 @@ def test_association_supports_bird_breeding_program_from_hand_with_reputation_ga
 
 
 def test_species_and_habitat_diversity_use_5_4_3_thresholds_and_5_3_2_rewards():
-    state = setup_game(seed=60431, player_names=["P1", "P2"])
+    state = make_state(60431)
     player = state.players[0]
     state.current_player = 0
     player.action_order = ["cards", "animals", "build", "sponsors", "association"]
@@ -361,7 +361,7 @@ def test_species_and_habitat_diversity_use_5_4_3_thresholds_and_5_3_2_rewards():
 
 
 def test_special_conservation_project_requirement_values():
-    state = setup_game(seed=6044, player_names=["P1", "P2"])
+    state = make_state(6044)
     player = state.players[0]
     player.universities.add("science_2")
     player.zoo_cards = [
@@ -419,7 +419,7 @@ def test_special_conservation_project_requirement_values():
 
 
 def test_association_upgraded_can_support_display_conservation_project_and_pay_display_cost():
-    state = setup_game(seed=6045, player_names=["P1", "P2"])
+    state = make_state(6045)
     player = state.players[0]
     state.current_player = 0
     player.action_order = ["cards", "animals", "build", "sponsors", "association"]
@@ -456,7 +456,7 @@ def test_association_upgraded_can_support_display_conservation_project_and_pay_d
 
 
 def test_two_player_new_conservation_projects_keep_max_three_and_discard_oldest():
-    state = setup_game(seed=6046, player_names=["P1", "P2"])
+    state = make_state(6046)
     p0, p1 = state.players
     p0.action_order = ["cards", "animals", "build", "sponsors", "association"]  # association strength=5
     p1.action_order = ["cards", "animals", "build", "sponsors", "association"]  # association strength=5
@@ -561,7 +561,7 @@ def test_two_player_new_conservation_projects_keep_max_three_and_discard_oldest(
 
 
 def test_association_conservation_project_slot_is_blocked_if_occupied():
-    state = setup_game(seed=607, player_names=["P1", "P2"])
+    state = make_state(607)
     p0, p1 = state.players
     project_id = state.opening_setup.base_conservation_projects[0].data_id
     _seed_project_icons(p0, project_id, 5)
@@ -610,7 +610,7 @@ def test_association_conservation_project_slot_is_blocked_if_occupied():
 
 
 def test_association_conservation_project_requires_icon_threshold():
-    state = setup_game(seed=618, player_names=["P1", "P2"])
+    state = make_state(618)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["cards", "animals", "build", "sponsors", "association"]  # association strength=5
@@ -628,7 +628,7 @@ def test_association_conservation_project_requires_icon_threshold():
 
 
 def test_upgraded_association_strength_7_unlocks_reputation_plus_display_project_sequence():
-    state = setup_game(seed=619, player_names=["P1", "P2"])
+    state = make_state(619)
     player = state.players[0]
     state.current_player = 0
     player.action_order = ["cards", "animals", "build", "sponsors", "association"]
@@ -669,7 +669,7 @@ def test_upgraded_association_strength_7_unlocks_reputation_plus_display_project
 
 
 def test_upgraded_association_executes_multitask_sequence_with_donation():
-    state = setup_game(seed=620, player_names=["P1", "P2"])
+    state = make_state(620)
     player = state.players[0]
     state.current_player = 0
     player.action_order = ["cards", "animals", "build", "sponsors", "association"]
@@ -716,7 +716,7 @@ def test_upgraded_association_executes_multitask_sequence_with_donation():
 
 
 def test_upgraded_association_strength_7_includes_university_partner_and_donation_combos():
-    state = setup_game(seed=621, player_names=["P1", "P2"])
+    state = make_state(621)
     player = state.players[0]
     state.current_player = 0
     player.action_order = ["cards", "animals", "build", "sponsors", "association"]
@@ -742,7 +742,7 @@ def test_upgraded_association_strength_7_includes_university_partner_and_donatio
 
 
 def test_association_conservation_project_respects_two_player_blocked_level():
-    state = setup_game(seed=619, player_names=["P1", "P2"])
+    state = make_state(619)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["cards", "animals", "build", "sponsors", "association"]  # association strength=5
@@ -766,7 +766,7 @@ def test_association_conservation_project_respects_two_player_blocked_level():
 
 
 def test_association_same_task_second_time_requires_two_workers(monkeypatch):
-    state = setup_game(seed=608, player_names=["P1", "P2"])
+    state = make_state(608)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["cards", "association", "animals", "build", "sponsors"]  # association strength=2
@@ -819,7 +819,7 @@ def test_association_same_task_second_time_requires_two_workers(monkeypatch):
 
 
 def test_association_donation_requires_upgrade_and_uses_progressive_cost(monkeypatch):
-    state = setup_game(seed=605, player_names=["P1", "P2"])
+    state = make_state(605)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["cards", "association", "animals", "build", "sponsors"]  # association strength=2
@@ -834,7 +834,7 @@ def test_association_donation_requires_upgrade_and_uses_progressive_cost(monkeyp
             ),
         )
 
-    upgraded_state = setup_game(seed=606, player_names=["P1", "P2"])
+    upgraded_state = make_state(606)
     p0 = upgraded_state.players[0]
     upgraded_state.current_player = 0
     p0.action_order = ["cards", "association", "animals", "build", "sponsors"]  # strength=2
@@ -870,7 +870,7 @@ def test_association_donation_requires_upgrade_and_uses_progressive_cost(monkeyp
 
 
 def test_association_donation_cannot_be_done_alone_without_task():
-    state = setup_game(seed=607, player_names=["P1", "P2"])
+    state = make_state(607)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["cards", "association", "animals", "build", "sponsors"]  # association strength=2

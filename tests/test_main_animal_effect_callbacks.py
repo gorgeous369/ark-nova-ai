@@ -6,12 +6,12 @@ from main import (
     SetupCardRef,
     _ensure_player_map_initialized,
     _perform_animals_action_effect,
-    setup_game,
 )
+from tests.helpers import make_state
 
 
 def _prepare_basic_animals_play_state(seed: int = 610):
-    state = setup_game(seed=seed, player_names=["P1", "P2"])
+    state = make_state(seed)
     player = state.players[0]
     player.money = 25
     player.reputation = 6

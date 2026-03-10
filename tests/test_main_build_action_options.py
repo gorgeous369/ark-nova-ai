@@ -1,3 +1,5 @@
+from tests.helpers import make_state
+
 from main import (
     AnimalCard,
     Action,
@@ -9,13 +11,12 @@ from main import (
     legal_actions,
     list_legal_animals_options,
     list_legal_build_options,
-    setup_game,
 )
 from arknova_engine.map_model import BuildingType
 
 
 def test_build_options_initial_follow_border_adjacency_rule():
-    state = setup_game(seed=601, player_names=["P1", "P2"])
+    state = make_state(601)
     p0 = state.players[0]
     assert p0.zoo_map is not None
 
@@ -36,7 +37,7 @@ def test_build_options_initial_follow_border_adjacency_rule():
 
 
 def test_build_options_are_deduplicated_by_footprint():
-    state = setup_game(seed=604, player_names=["P1", "P2"])
+    state = make_state(604)
     options = list_legal_build_options(state=state, player_id=0, strength=5)
 
     keys = {
@@ -50,7 +51,7 @@ def test_build_options_are_deduplicated_by_footprint():
 
 
 def test_size5_options_match_all_unique_legal_footprints():
-    state = setup_game(seed=606, player_names=["P1", "P2"])
+    state = make_state(606)
     p0 = state.players[0]
     assert p0.zoo_map is not None
 
@@ -77,7 +78,7 @@ def test_size5_options_match_all_unique_legal_footprints():
 
 
 def test_build_action_uses_serialized_selection_and_places_building():
-    state = setup_game(seed=602, player_names=["P1", "P2"])
+    state = make_state(602)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["build", "animals", "cards", "association", "sponsors"]
@@ -121,7 +122,7 @@ def test_build_action_uses_serialized_selection_and_places_building():
 
 
 def test_partner_zoo_discount_applies_per_matching_continent_badge():
-    state = setup_game(seed=608, player_names=["P1", "P2"])
+    state = make_state(608)
     p0 = state.players[0]
     p0.partner_zoos.add("asia")
     p0.money = 20
@@ -178,7 +179,7 @@ def test_partner_zoo_discount_applies_per_matching_continent_badge():
 
 
 def test_partner_zoo_requirement_must_match_the_animal_continent_badge():
-    state = setup_game(seed=609, player_names=["P1", "P2"])
+    state = make_state(609)
     p0 = state.players[0]
     p0.money = 20
     p0.enclosures = [Enclosure(size=2, occupied=False)]
@@ -220,7 +221,7 @@ def test_partner_zoo_requirement_must_match_the_animal_continent_badge():
 
 
 def test_build_placement_bonus_x_token_is_applied():
-    state = setup_game(seed=603, player_names=["P1", "P2"])
+    state = make_state(603)
     p0 = state.players[0]
     state.current_player = 0
     p0.action_order = ["build", "animals", "cards", "association", "sponsors"]
@@ -250,7 +251,7 @@ def test_build_placement_bonus_x_token_is_applied():
 
 
 def test_animals_action_updates_enclosure_object_animals_inside():
-    state = setup_game(seed=605, player_names=["P1", "P2"])
+    state = make_state(605)
     p0 = state.players[0]
     p0.money = 50
     state.current_player = 0
@@ -295,7 +296,7 @@ def test_animals_action_updates_enclosure_object_animals_inside():
 
 
 def test_upgraded_animals_options_include_two_play_permutations():
-    state = setup_game(seed=607, player_names=["P1", "P2"])
+    state = make_state(607)
     p0 = state.players[0]
     state.current_player = 0
     p0.money = 50
@@ -352,7 +353,7 @@ def test_upgraded_animals_options_include_two_play_permutations():
 
 
 def test_upgraded_animals_strength5_grants_one_reputation():
-    state = setup_game(seed=608, player_names=["P1", "P2"])
+    state = make_state(608)
     p0 = state.players[0]
     state.current_player = 0
     p0.reputation = 0
@@ -373,7 +374,7 @@ def test_upgraded_animals_strength5_grants_one_reputation():
 
 
 def test_animals_option_totals_include_reputation_and_apply_it():
-    state = setup_game(seed=609, player_names=["P1", "P2"])
+    state = make_state(609)
     p0 = state.players[0]
     state.current_player = 0
     p0.money = 50
@@ -411,7 +412,7 @@ def test_animals_option_totals_include_reputation_and_apply_it():
 
 
 def test_americas_badge_maps_to_continent_america():
-    state = setup_game(seed=610, player_names=["P1", "P2"])
+    state = make_state(610)
     p0 = state.players[0]
     p0.zoo_cards = [
         AnimalCard(
@@ -436,7 +437,7 @@ def test_americas_badge_maps_to_continent_america():
 
 
 def test_animals_required_icons_gate_playability():
-    state = setup_game(seed=611, player_names=["P1", "P2"])
+    state = make_state(611)
     p0 = state.players[0]
     state.current_player = 0
     p0.money = 50
@@ -493,7 +494,7 @@ def test_animals_required_icons_gate_playability():
 
 
 def test_upgraded_build_can_place_reptile_house_and_register_host_enclosure():
-    state = setup_game(seed=612, player_names=["P1", "P2"])
+    state = make_state(612)
     p0 = state.players[0]
     state.current_player = 0
     p0.money = 50
@@ -526,7 +527,7 @@ def test_upgraded_build_can_place_reptile_house_and_register_host_enclosure():
 
 
 def test_reptile_house_can_host_multiple_animals_with_special_space_values():
-    state = setup_game(seed=613, player_names=["P1", "P2"])
+    state = make_state(613)
     p0 = state.players[0]
     state.current_player = 0
     p0.money = 50
@@ -599,7 +600,7 @@ def test_reptile_house_can_host_multiple_animals_with_special_space_values():
 
 
 def test_standard_enclosure_still_holds_only_one_animal_even_when_animals_is_upgraded():
-    state = setup_game(seed=614, player_names=["P1", "P2"])
+    state = make_state(614)
     p0 = state.players[0]
     p0.money = 50
     p0.action_upgraded["animals"] = True
@@ -635,7 +636,7 @@ def test_standard_enclosure_still_holds_only_one_animal_even_when_animals_is_upg
 
 
 def test_legal_actions_filters_two_play_animals_sequence_invalidated_by_trade_effect():
-    state = setup_game(seed=615, player_names=["P1", "P2"])
+    state = make_state(615)
     p0 = state.players[0]
     state.current_player = 0
     p0.money = 50
@@ -704,7 +705,7 @@ def test_legal_actions_filters_two_play_animals_sequence_invalidated_by_trade_ef
 
 
 def test_legal_actions_filter_trade_sequence_invalidated_by_sponsor_228_followup(monkeypatch):
-    state = setup_game(seed=616, player_names=["P1", "P2"])
+    state = make_state(616)
     p0 = state.players[0]
     state.current_player = 0
     p0.money = 50
