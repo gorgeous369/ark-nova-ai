@@ -596,6 +596,69 @@ def test_sponsors_legal_actions_expand_sponsor_253_followup_choices():
     }
 
 
+def test_sponsors_actions_filter_display_sequences_that_exceed_total_money():
+    state = setup_game(seed=7083, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.money = 3
+    player.reputation = 6
+    player.action_upgraded["sponsors"] = True
+    player.action_order = ["animals", "cards", "build", "association", "sponsors"]  # sponsors strength=5
+
+    display_filler = AnimalCard(
+        name="DisplaySponsorFiller",
+        cost=1,
+        size=0,
+        appeal=0,
+        conservation=0,
+        card_type="sponsor",
+        number=9801,
+        instance_id="display-filler",
+    )
+    sponsor_a = AnimalCard(
+        name="DisplaySponsorA",
+        cost=1,
+        size=0,
+        appeal=0,
+        conservation=0,
+        card_type="sponsor",
+        number=9802,
+        instance_id="display-a",
+    )
+    sponsor_b = AnimalCard(
+        name="DisplaySponsorB",
+        cost=1,
+        size=0,
+        appeal=0,
+        conservation=0,
+        card_type="sponsor",
+        number=9803,
+        instance_id="display-b",
+    )
+    state.zoo_display = [display_filler, sponsor_a, sponsor_b]
+
+    actions = [
+        action
+        for action in legal_actions(player, state=state, player_id=0)
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "sponsors"
+        and not bool((action.details or {}).get("use_break_ability"))
+    ]
+
+    selection_lists = [
+        [
+            str(selection.get("card_instance_id") or "")
+            for selection in list((action.details or {}).get("sponsor_selections") or [])
+        ]
+        for action in actions
+    ]
+
+    assert [str(sponsor_a.instance_id)] in selection_lists
+    assert [str(sponsor_b.instance_id)] in selection_lists
+    assert [str(sponsor_a.instance_id), str(sponsor_b.instance_id)] not in selection_lists
+    assert [str(sponsor_b.instance_id), str(sponsor_a.instance_id)] not in selection_lists
+
+
 def test_sponsor_257_break_income_counts_adjacent_non_empty_buildings_only(monkeypatch):
     state = setup_game(seed=709, player_names=["P1", "P2"])
     player = state.players[0]

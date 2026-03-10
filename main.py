@@ -4449,20 +4449,18 @@ def _enumerate_concrete_sponsors_actions(
                     card_label += f" ({fragment_label})"
                 label_parts.append(card_label)
                 extra_details = _merge_detail_fragments(extra_details, fragment_details)
-            resolved_variants = [(copy.deepcopy(extra_details), "")]
-            if int(player.sponsor_tokens_by_number.get(253, 0)) > 0:
-                resolved_variants = _resolve_action_detail_variants_by_simulation(
-                    state=state,
+            resolved_variants = _resolve_action_detail_variants_by_simulation(
+                state=state,
+                player_id=player_id,
+                base_details=extra_details,
+                executor=lambda sim_state, sim_player, sim_details: _perform_sponsors_action_effect(
+                    state=sim_state,
+                    player=sim_player,
+                    strength=strength,
+                    details=sim_details,
                     player_id=player_id,
-                    base_details=extra_details,
-                    executor=lambda sim_state, sim_player, sim_details: _perform_sponsors_action_effect(
-                        state=sim_state,
-                        player=sim_player,
-                        strength=strength,
-                        details=sim_details,
-                        player_id=player_id,
-                    ),
-                )
+                ),
+            )
             for resolved_details, resolved_label in resolved_variants:
                 final_label = " + ".join(label_parts)
                 if resolved_label:
