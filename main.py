@@ -12517,4 +12517,7 @@ def main_cli() -> None:
 if __name__ == "__main__":
     main_cli()
 # python main.py --seed 7
-# python tools/rl/train_self_play.py --algo masked_ppo --updates 100 --episodes-per-update 8 --output-dir runs/self_play_masked --resume-from runs/self_play_masked/checkpoint_0020.pt
+# python tools/rl/train_self_play.py --rollout-workers 2 --device mps --algo masked_ppo --updates 100 --episodes-per-update 32 --output-dir runs/self_play_masked --resume-from runs/self_play_masked/checkpoint_0080.pt
+# 1. device=mps + rollout_workers>1 不再真正并行，会 fallback
+# 2. device=mps + rollout_workers=1 可以正常训练
+# 3. device=cpu + rollout_workers>1 才是现在可用的并行加速方案

@@ -32,6 +32,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--device", type=str, default="cpu", help="Torch device")
+    parser.add_argument(
+        "--rollout-workers",
+        type=int,
+        default=1,
+        help="Parallel worker processes used to collect rollout episodes",
+    )
     parser.add_argument("--updates", type=int, default=200, help="PPO update iterations")
     parser.add_argument(
         "--episodes-per-update",
@@ -95,6 +101,24 @@ def parse_args() -> argparse.Namespace:
         help="Checkpoint save frequency (updates)",
     )
     parser.add_argument(
+        "--fixed-eval-interval",
+        type=int,
+        default=20,
+        help="Run fixed-checkpoint evaluation every N updates (0 disables)",
+    )
+    parser.add_argument(
+        "--fixed-eval-episodes",
+        type=int,
+        default=8,
+        help="Episodes per fixed evaluation run",
+    )
+    parser.add_argument(
+        "--fixed-eval-opponent",
+        type=str,
+        default="",
+        help="Optional fixed opponent checkpoint path; defaults to checkpoint_0000.pt or earliest checkpoint in output dir",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default="runs/self_play",
@@ -124,6 +148,7 @@ def main_cli() -> None:
         algo=args.algo,
         seed=args.seed,
         device=args.device,
+        rollout_workers=args.rollout_workers,
         total_updates=args.updates,
         episodes_per_update=args.episodes_per_update,
         learning_rate=args.lr,
@@ -141,6 +166,9 @@ def main_cli() -> None:
         terminal_win_bonus=args.terminal_win_bonus,
         terminal_loss_penalty=args.terminal_loss_penalty,
         checkpoint_interval=args.checkpoint_interval,
+        fixed_eval_interval=args.fixed_eval_interval,
+        fixed_eval_episodes=args.fixed_eval_episodes,
+        fixed_eval_opponent=args.fixed_eval_opponent,
     )
     output_dir = Path(args.output_dir)
     resume_from = Path(args.resume_from) if str(args.resume_from).strip() else None
@@ -148,7 +176,8 @@ def main_cli() -> None:
         "starting training: "
         f"algo={config.algo} updates={config.total_updates} "
         f"episodes_per_update={config.episodes_per_update} "
-        f"device={config.device} output_dir={output_dir} "
+        f"device={config.device} rollout_workers={config.rollout_workers} "
+        f"output_dir={output_dir} "
         f"resume_from={resume_from if resume_from is not None else '-'}"
     )
     train_self_play(
