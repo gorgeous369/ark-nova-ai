@@ -31,7 +31,12 @@ def parse_args() -> argparse.Namespace:
         help="Training variant",
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--device", type=str, default="cpu", help="Torch device")
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        help="Training device for model updates: cpu | cuda[:index] (mps requests fall back to cpu)",
+    )
     parser.add_argument(
         "--rollout-workers",
         type=int,

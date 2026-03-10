@@ -481,10 +481,11 @@ def _update_model(
                     hidden=hidden,
                     global_state_vec=global_t if model.use_centralized_value else None,
                 )
-                dist = Categorical(logits=logits[0])
+                step_log_probs = torch.log_softmax(logits[0], dim=-1)
+                step_probs = torch.softmax(logits[0], dim=-1)
                 action_index_t = torch.tensor(step.action_index, dtype=torch.long, device=device)
-                new_logprob = dist.log_prob(action_index_t)
-                entropy = dist.entropy()
+                new_logprob = step_log_probs[action_index_t]
+                entropy = -(step_probs * step_log_probs).sum()
                 new_value = values.squeeze(0)
 
                 old_logprob = torch.tensor(float(step.old_logprob), dtype=torch.float32, device=device)
@@ -607,9 +608,46 @@ def _parallel_rollout_unavailable_reason(
 ) -> str:
     if int(requested_workers) <= 1:
         return ""
-    if device.type == "mps":
-        return "MPS backend is unstable with parallel rollout worker snapshots"
+    if device.type != "cpu":
+        return f"parallel rollout requires cpu inference workers, got {device.type}"
     return ""
+
+
+def _resolve_training_device(requested_device: str) -> torch.device:
+    requested = str(requested_device or "cpu").strip().lower()
+    if requested in {"", "auto", "cpu", "mps"}:
+        return torch.device("cpu")
+    return torch.device(requested)
+
+
+def _inference_device_for_training_device(device: torch.device) -> torch.device:
+    del device
+    return torch.device("cpu")
+
+
+def _build_policy_bundle_from_model_snapshot(
+    *,
+    name: str,
+    source_model: MaskedActorCritic,
+    config: PPOTrainConfig,
+    device: torch.device,
+) -> PolicyBundle:
+    snapshot_model, snapshot_obs_encoder, snapshot_action_encoder = _build_model_and_encoders(
+        config=config,
+        device=device,
+    )
+    if device.type == "cpu":
+        snapshot_state_dict = _state_dict_to_cpu(source_model.state_dict())
+    else:
+        snapshot_state_dict = source_model.state_dict()
+    snapshot_model.load_state_dict(snapshot_state_dict)
+    snapshot_model.eval()
+    return PolicyBundle(
+        name=name,
+        model=snapshot_model,
+        obs_encoder=snapshot_obs_encoder,
+        action_encoder=snapshot_action_encoder,
+    )
 
 
 def _restore_torch_rng_states(
@@ -770,9 +808,26 @@ def train_self_play(
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(config.seed)
 
-    device = torch.device(config.device)
+    requested_device = str(config.device or "auto")
+    device = _resolve_training_device(requested_device)
+    inference_device = _inference_device_for_training_device(device)
     model, obs_encoder, action_encoder = _build_model_and_encoders(config=config, device=device)
     optimizer = torch.optim.Adam(model.parameters(), lr=float(config.learning_rate))
+    requested_device_lower = requested_device.strip().lower()
+    if requested_device_lower in {"", "auto", "mps"}:
+        print(
+            "device policy: "
+            f"requested={requested_device_lower or 'cpu'}; using cpu for training and inference."
+        )
+    print(
+        "resolved devices: "
+        f"requested={requested_device} training={device.type} inference={inference_device.type}"
+    )
+    if inference_device != device:
+        print(
+            "inference device fallback: "
+            f"training stays on {device.type}, rollout/fixed-eval inference uses {inference_device.type}."
+        )
 
     loaded_update = 0
     all_metrics: List[TrainUpdateMetrics] = []
@@ -833,7 +888,7 @@ def train_self_play(
         else:
             fixed_eval_bundle = load_policy_bundle_from_checkpoint(
                 fixed_eval_opponent_path,
-                device=device,
+                device=inference_device,
                 name=f"fixed:{fixed_eval_opponent_path.stem}",
             )
             print(f"fixed evaluation opponent: {fixed_eval_opponent_path}")
@@ -846,7 +901,7 @@ def train_self_play(
     rollout_executor: Optional[Executor] = None
     requested_rollout_workers = int(getattr(config, "rollout_workers", 1) or 1)
     parallel_rollout_reason = _parallel_rollout_unavailable_reason(
-        device=device,
+        device=inference_device,
         requested_workers=requested_rollout_workers,
     )
     if parallel_rollout_reason:
@@ -869,14 +924,29 @@ def train_self_play(
             rollout_executor = None
     try:
         for update_idx in range(start_update, end_update + 1):
+            rollout_model = model
+            rollout_obs_encoder = obs_encoder
+            rollout_action_encoder = action_encoder
+            rollout_device = device
+            if inference_device != device:
+                rollout_bundle = _build_policy_bundle_from_model_snapshot(
+                    name=f"rollout:{update_idx:04d}",
+                    source_model=model,
+                    config=config,
+                    device=inference_device,
+                )
+                rollout_model = rollout_bundle.model
+                rollout_obs_encoder = rollout_bundle.obs_encoder
+                rollout_action_encoder = rollout_bundle.action_encoder
+                rollout_device = inference_device
             rollout_started_at = time.perf_counter()
             rollout_steps, rollout_stats = _collect_rollout(
-                model=model,
-                obs_encoder=obs_encoder,
-                action_encoder=action_encoder,
+                model=rollout_model,
+                obs_encoder=rollout_obs_encoder,
+                action_encoder=rollout_action_encoder,
                 config=config,
                 rng=rng,
-                device=device,
+                device=rollout_device,
                 update_index=update_idx,
                 rollout_executor=rollout_executor,
             )
@@ -958,18 +1028,18 @@ def train_self_play(
                 )
             )
             if should_run_fixed_eval:
-                current_bundle = PolicyBundle(
+                current_bundle = _build_policy_bundle_from_model_snapshot(
                     name=f"current:{update_idx:04d}",
-                    model=model,
-                    obs_encoder=obs_encoder,
-                    action_encoder=action_encoder,
+                    source_model=model,
+                    config=config,
+                    device=inference_device,
                 )
                 fixed_eval_metrics = evaluate_policy_matchup(
                     policy_a=current_bundle,
                     policy_b=fixed_eval_bundle,
                     episodes=fixed_eval_episodes,
                     seed=int(config.seed) + int(update_idx) * 10_000,
-                    device=device,
+                    device=inference_device,
                     deterministic=bool(getattr(config, "fixed_eval_deterministic", True)),
                 )
                 fixed_reason_text = ", ".join(
