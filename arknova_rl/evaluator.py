@@ -129,16 +129,11 @@ def evaluate_policy_matchup(
                         f"No legal actions during evaluation for actor={actor_id} pending={state.pending_decision_kind!r}."
                     )
 
-                state_vec, global_vec = bundle.obs_encoder.encode_from_state(
-                    state,
-                    actor_id,
-                    include_global=bool(bundle.model.use_centralized_value),
-                )
+                state_vec = bundle.obs_encoder.encode_from_state(state, actor_id)
                 action_features = bundle.action_encoder.encode_many(legal)
                 action_mask = np.ones((len(legal),), dtype=np.float32)
 
                 state_t = torch.as_tensor(state_vec, dtype=torch.float32, device=device).unsqueeze(0)
-                global_t = torch.as_tensor(global_vec, dtype=torch.float32, device=device).unsqueeze(0)
                 action_t = torch.as_tensor(action_features, dtype=torch.float32, device=device).unsqueeze(0)
                 mask_t = torch.as_tensor(action_mask, dtype=torch.float32, device=device).unsqueeze(0)
 
@@ -149,7 +144,6 @@ def evaluate_policy_matchup(
                         action_features=action_t,
                         action_mask=mask_t,
                         hidden=hidden,
-                        global_state_vec=global_t if bundle.model.use_centralized_value else None,
                     )
                 if bundle.model.use_lstm:
                     hidden_by_seat[actor_id] = (

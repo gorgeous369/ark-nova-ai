@@ -1,12 +1,13 @@
 from dataclasses import asdict
 from types import SimpleNamespace
 
+import numpy as np
 import torch
 
 from arknova_rl.config import PPOTrainConfig
 from arknova_rl.trainer import (
     EpisodeRolloutResult,
-    RolloutStep,
+    RolloutSequence,
     _build_model_and_encoders,
     _collect_rollout_chunk_worker,
     _state_dict_to_cpu,
@@ -30,17 +31,18 @@ def test_collect_rollout_chunk_worker_returns_episode_results(monkeypatch):
         observed_specs.append((int(kwargs["episode_index"]), int(kwargs["episode_seed"])))
         return EpisodeRolloutResult(
             episode_index=int(kwargs["episode_index"]),
-            rollout_steps=[
-                RolloutStep(
+            rollout_sequences=[
+                RolloutSequence(
                     sequence_key=(int(kwargs["episode_index"]), 0),
                     actor_id=0,
-                    state_vec=torch.zeros(1, dtype=torch.float32).numpy(),
-                    global_state_vec=torch.zeros(1, dtype=torch.float32).numpy(),
-                    action_features=torch.zeros((1, 1), dtype=torch.float32).numpy(),
-                    action_mask=torch.ones(1, dtype=torch.float32).numpy(),
-                    action_index=0,
-                    old_logprob=0.0,
-                    old_value=0.0,
+                    state_vec=torch.zeros((1, 1), dtype=torch.float32).numpy(),
+                    action_features=torch.zeros((1, 1, 1), dtype=torch.float32).numpy(),
+                    action_mask=np.ones((1, 1), dtype=np.bool_),
+                    action_count=np.ones((1,), dtype=np.int32),
+                    action_index=np.zeros((1,), dtype=np.int64),
+                    old_logprob=np.zeros((1,), dtype=np.float32),
+                    old_value=np.zeros((1,), dtype=np.float32),
+                    reward=np.zeros((1,), dtype=np.float32),
                 )
             ],
             completed_rounds=1,
@@ -70,7 +72,7 @@ def test_collect_rollout_chunk_worker_returns_episode_results(monkeypatch):
     assert len(results) == 2
     assert {result.episode_index for result in results} == {0, 1}
     assert observed_specs == [(0, 111), (1, 222)]
-    assert all(result.rollout_steps for result in results)
+    assert all(result.rollout_sequences for result in results)
     assert all(result.completed_rounds > 0 for result in results)
     assert all(result.elapsed_seconds >= 0.0 for result in results)
     assert len(loaded_state_dicts) == 1

@@ -1060,6 +1060,15 @@
       "source_url": "https://ark-nova.ender-wiggin.com/card/277",
       "number": 277,
       "title": "FIELD RESEARCH TYPE D ORCAS",
+      "level": 6,
+      "reputation": 3,
+      "required_icons": {
+        "science": 2,
+        "seaanimal": 1
+      },
+      "badges": [
+        "Science"
+      ],
       "site_card_id": 277
     },
     {

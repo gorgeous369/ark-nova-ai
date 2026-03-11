@@ -6,6 +6,7 @@ the runtime loop so main.py can stay focused on game rules and interaction.
 
 from __future__ import annotations
 
+from collections import Counter
 from functools import lru_cache
 import json
 from pathlib import Path
@@ -50,6 +51,28 @@ def resolve_cards_dataset_path(repo_root: Optional[Path] = None) -> Path:
     return root / "data" / "cards" / "cards.json"
 
 
+def resolve_cards_dataset_paths(
+    repo_root: Optional[Path] = None,
+    *,
+    include_promo: bool = False,
+) -> Tuple[Path, ...]:
+    root = repo_root or _repo_root()
+    data_dir = root / "data" / "cards"
+    candidates = [
+        data_dir / "cards.base.json",
+        data_dir / "cards.marine_world.json",
+    ]
+    if include_promo:
+        candidates.append(data_dir / "cards.promo.json")
+    paths = tuple(path for path in candidates if path.exists())
+    if paths:
+        return paths
+    combined = data_dir / "cards.json"
+    if combined.exists():
+        return (combined,)
+    return tuple()
+
+
 @lru_cache(maxsize=8)
 def _load_cards_payload(dataset_path: str) -> Dict[str, Any]:
     path = Path(dataset_path)
@@ -57,6 +80,54 @@ def _load_cards_payload(dataset_path: str) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"Cards payload must be object: {path}")
     return payload
+
+
+def load_combined_cards_payload(
+    *,
+    repo_root: Optional[Path] = None,
+    include_promo: bool = False,
+) -> Dict[str, Any]:
+    paths = resolve_cards_dataset_paths(repo_root=repo_root, include_promo=include_promo)
+    cards: List[Dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    source: Optional[str] = None
+    max_card_id_scanned: Optional[int] = None
+
+    for path in paths:
+        payload = _load_cards_payload(str(path))
+        if source is None:
+            source = str(payload.get("source") or "").strip() or None
+        raw_max_scanned = payload.get("max_card_id_scanned")
+        if isinstance(raw_max_scanned, int):
+            if max_card_id_scanned is None:
+                max_card_id_scanned = raw_max_scanned
+            else:
+                max_card_id_scanned = max(max_card_id_scanned, raw_max_scanned)
+        raw_cards = payload.get("cards", [])
+        if not isinstance(raw_cards, list):
+            continue
+        for raw_card in raw_cards:
+            if not isinstance(raw_card, dict):
+                continue
+            data_id = str(raw_card.get("data_id") or "").strip()
+            if data_id and data_id in seen_ids:
+                continue
+            if data_id:
+                seen_ids.add(data_id)
+            cards.append(raw_card)
+
+    by_type = Counter(str(card.get("type") or "unknown") for card in cards)
+    merged_payload: Dict[str, Any] = {
+        "source": source or "split_dataset_merge",
+        "cards": cards,
+        "stats": {
+            "total": len(cards),
+            "by_type": dict(sorted(by_type.items())),
+        },
+    }
+    if max_card_id_scanned is not None:
+        merged_payload["max_card_id_scanned"] = max_card_id_scanned
+    return merged_payload
 
 
 def load_animal_cards_from_dataset(
@@ -135,6 +206,11 @@ def load_animal_cards_from_dataset(
             if "large_bird_aviary_size" in card
             else None
         )
+        max_appeal = (
+            _safe_int(card.get("max_appeal"), default=0)
+            if "max_appeal" in card
+            else None
+        )
         base_instance = str(number)
         counter = seen_instance.get(base_instance, 0) + 1
         seen_instance[base_instance] = counter
@@ -160,6 +236,7 @@ def load_animal_cards_from_dataset(
                 large_bird_aviary_size=large_bird_aviary_size,
                 number=number,
                 instance_id=instance_id,
+                max_appeal=max_appeal,
             )
         )
 

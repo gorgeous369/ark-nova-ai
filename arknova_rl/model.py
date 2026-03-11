@@ -16,22 +16,18 @@ class MaskedActorCritic(nn.Module):
         *,
         state_dim: int,
         action_dim: int,
-        global_state_dim: int,
         hidden_size: int = 256,
         lstm_size: int = 128,
         action_hidden_size: int = 128,
         use_lstm: bool = True,
-        use_centralized_value: bool = False,
     ) -> None:
         super().__init__()
         self.state_dim = int(state_dim)
         self.action_dim = int(action_dim)
-        self.global_state_dim = int(global_state_dim)
         self.hidden_size = int(hidden_size)
         self.lstm_size = int(lstm_size)
         self.action_hidden_size = int(action_hidden_size)
         self.use_lstm = bool(use_lstm)
-        self.use_centralized_value = bool(use_centralized_value)
 
         self.state_encoder = nn.Sequential(
             nn.Linear(self.state_dim, self.hidden_size),
@@ -62,20 +58,8 @@ class MaskedActorCritic(nn.Module):
             nn.Linear(self.hidden_size, 1),
         )
 
-        if self.use_centralized_value:
-            self.global_encoder = nn.Sequential(
-                nn.Linear(self.global_state_dim, self.hidden_size),
-                nn.ReLU(),
-                nn.Linear(self.hidden_size, self.hidden_size),
-                nn.ReLU(),
-            )
-            value_input_dim = state_latent_dim + self.hidden_size
-        else:
-            self.global_encoder = None
-            value_input_dim = state_latent_dim
-
         self.value_head = nn.Sequential(
-            nn.Linear(value_input_dim, self.hidden_size),
+            nn.Linear(state_latent_dim, self.hidden_size),
             nn.ReLU(),
             nn.Linear(self.hidden_size, 1),
         )
@@ -99,16 +83,14 @@ class MaskedActorCritic(nn.Module):
         action_features: torch.Tensor,
         action_mask: torch.Tensor,
         hidden: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-        global_state_vec: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
         """Forward one environment step.
 
         Args:
             state_vec: [B, state_dim]
             action_features: [B, N, action_dim]
-            action_mask: [B, N] (1 for legal, 0 for invalid)
+            action_mask: [B, N] (`bool` or 1/0 numeric; true for legal)
             hidden: optional LSTM hidden state
-            global_state_vec: [B, global_state_dim] for centralized critic
         """
         if state_vec.ndim != 2:
             raise ValueError("state_vec must be [B, state_dim].")
@@ -142,16 +124,7 @@ class MaskedActorCritic(nn.Module):
         policy_input = torch.cat([expanded_state, action_latent], dim=-1)
         logits = self.policy_head(policy_input).squeeze(-1)
 
-        legal_mask = action_mask > 0.5
+        legal_mask = action_mask if action_mask.dtype == torch.bool else action_mask > 0.5
         logits = logits.masked_fill(~legal_mask, -1e9)
-
-        if self.use_centralized_value:
-            if global_state_vec is None:
-                raise ValueError("global_state_vec is required when use_centralized_value=True.")
-            global_latent = self.global_encoder(global_state_vec)
-            value_input = torch.cat([state_latent, global_latent], dim=-1)
-        else:
-            value_input = state_latent
-        values = self.value_head(value_input).squeeze(-1)
+        values = self.value_head(state_latent).squeeze(-1)
         return logits, values, hidden
-

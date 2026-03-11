@@ -1,4 +1,4 @@
-"""Train Ark Nova self-play agents with Masked PPO/Recurrent PPO/MAPPO.
+"""Train Ark Nova self-play agents with Masked PPO/Recurrent PPO.
 
 Example:
     .venv/bin/python tools/rl/train_self_play.py \
@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
         "--algo",
         type=str,
         default="masked_ppo",
-        choices=["masked_ppo", "recurrent_ppo", "mappo"],
+        choices=["masked_ppo", "recurrent_ppo"],
         help="Training variant",
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")

@@ -5,11 +5,18 @@ from main import (
     ActionType,
     AnimalCard,
     BASE_CONSERVATION_PROJECT_LEVELS,
+    Building,
+    BuildingType,
+    HexTile,
+    Rotation,
     SetupCardRef,
+    _apply_animal_to_enclosure,
     _blocked_level_by_project,
     _make_conservation_project_hand_card,
     _project_requirement_value,
+    _record_animal_placement,
     _resolve_break,
+    _register_enclosure_building,
     apply_action,
     legal_actions,
     list_legal_association_options,
@@ -82,6 +89,28 @@ def _seed_project_icons(player, project_id: str, count: int) -> None:
             )
 
     player.zoo_cards.extend(cards)
+
+
+def _install_zoo_animal(
+    player,
+    *,
+    building: Building,
+    card: AnimalCard,
+    spaces_used: int = 1,
+):
+    assert player.zoo_map is not None
+    player.zoo_map.add_building(building)
+    _register_enclosure_building(player, building)
+    enclosure = player.enclosures[-1]
+    player.zoo_cards.append(card)
+    _apply_animal_to_enclosure(player, enclosure, spaces_used)
+    _record_animal_placement(
+        player,
+        card=card,
+        enclosure=enclosure,
+        spaces_used=spaces_used,
+    )
+    return enclosure
 
 
 def test_setup_initializes_association_market():
@@ -416,6 +445,138 @@ def test_special_conservation_project_requirement_values():
     assert _project_requirement_value(player, "P130_SmallAnimals") == 3
     assert _project_requirement_value(player, "P131_LargeAnimals") == 2
     assert _project_requirement_value(player, "P132_Research") == 7
+
+
+def test_release_project_lists_bucketed_animals_and_releases_standard_enclosure():
+    state = make_state(60441)
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "sponsors", "association"]
+    state.opening_setup.base_conservation_projects = [
+        SetupCardRef(
+            data_id="P113_ReleaseBavarianForest",
+            title="BAVARIAN FOREST NATIONAL PARK",
+        )
+    ]
+    state.opening_setup.two_player_blocked_project_levels = []
+    state.conservation_project_slots = {
+        "P113_ReleaseBavarianForest": {
+            "left_level": None,
+            "middle_level": None,
+            "right_level": None,
+        }
+    }
+
+    big_enclosure = Building(BuildingType.SIZE_4, HexTile(0, 1), Rotation.ROT_0)
+    small_enclosure = Building(BuildingType.SIZE_2, HexTile(2, 0), Rotation.ROT_0)
+    big_animal = AnimalCard(
+        name="europe-big",
+        cost=0,
+        size=4,
+        appeal=5,
+        conservation=0,
+        badges=("Europe",),
+        instance_id="release-europe-big",
+    )
+    small_animal = AnimalCard(
+        name="europe-small",
+        cost=0,
+        size=2,
+        appeal=2,
+        conservation=0,
+        badges=("Europe",),
+        instance_id="release-europe-small",
+    )
+    _install_zoo_animal(player, building=big_enclosure, card=big_animal)
+    _install_zoo_animal(player, building=small_enclosure, card=small_animal)
+    player.appeal = 7
+
+    options = list_legal_association_options(state=state, player_id=0, strength=5)
+    bavarian = [item for item in options if item.get("project_id") == "P113_ReleaseBavarianForest"]
+    assert {item["project_level"] for item in bavarian} == {"left_level", "right_level"}
+    assert {
+        item["released_animal_instance_id"]
+        for item in bavarian
+    } == {"release-europe-big", "release-europe-small"}
+    assert _project_requirement_value(player, "P113_ReleaseBavarianForest") == 2
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            card_name="association",
+            details={
+                "task_kind": "conservation_project",
+                "project_id": "P113_ReleaseBavarianForest",
+                "project_level": "left_level",
+                "released_animal_instance_id": "release-europe-big",
+            },
+        ),
+    )
+
+    assert state.conservation_project_slots["P113_ReleaseBavarianForest"]["left_level"] == 0
+    assert player.conservation == 5
+    assert player.appeal == 2
+    assert "release-europe-big" not in player.animal_placements
+    assert big_enclosure.empty_spaces == int(big_enclosure.type.max_capacity)
+    assert small_enclosure.empty_spaces == 0
+    assert any(card.instance_id == "release-europe-big" for card in state.zoo_discard)
+
+
+def test_release_project_from_hand_grants_reputation_and_frees_special_enclosure():
+    state = make_state(60442)
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "sponsors", "association"]
+
+    reptile_house = Building(BuildingType.REPTILE_HOUSE, HexTile(0, 1), Rotation.ROT_0)
+    reptile = AnimalCard(
+        name="sea-cave-reptile",
+        cost=0,
+        size=3,
+        appeal=4,
+        conservation=0,
+        badges=("Reptile",),
+        reptile_house_size=2,
+        instance_id="release-reptile",
+    )
+    _install_zoo_animal(player, building=reptile_house, card=reptile, spaces_used=2)
+    player.appeal = 4
+    reputation_before = player.reputation
+    player.hand.append(
+        _make_conservation_project_hand_card(
+            SetupCardRef(data_id="P121_ReleaseSeaCave", title="SEA CAVE"),
+            "proj-121",
+        )
+    )
+
+    options = list_legal_association_options(state=state, player_id=0, strength=5)
+    sea_cave = [item for item in options if item.get("project_id") == "P121_ReleaseSeaCave"]
+    assert {item["project_level"] for item in sea_cave} == {"middle_level"}
+    assert sea_cave[0]["released_animal_instance_id"] == "release-reptile"
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            card_name="association",
+            details={
+                "task_kind": "conservation_project",
+                "project_id": "P121_ReleaseSeaCave",
+                "project_level": "middle_level",
+                "released_animal_instance_id": "release-reptile",
+            },
+        ),
+    )
+
+    assert state.conservation_project_slots["P121_ReleaseSeaCave"]["middle_level"] == 0
+    assert "P121_ReleaseSeaCave" in player.supported_conservation_projects
+    assert player.conservation == 4
+    assert player.reputation == reputation_before + 1
+    assert player.appeal == 0
+    assert reptile_house.empty_spaces == int(reptile_house.type.max_capacity)
+    assert all(card.instance_id != "proj-121" for card in player.hand)
+    assert any(card.instance_id == "release-reptile" for card in state.zoo_discard)
 
 
 def test_association_upgraded_can_support_display_conservation_project_and_pay_display_cost():

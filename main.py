@@ -129,6 +129,7 @@ class AnimalCard:
     large_bird_aviary_size: Optional[int] = None
     number: int = -1
     instance_id: str = ""
+    max_appeal: Optional[int] = None
 
 
 @dataclass
@@ -151,6 +152,15 @@ class EnclosureObject:
     animals_inside: int
     origin: Tuple[int, int]
     rotation: str
+
+
+@dataclass(frozen=True)
+class AnimalPlacement:
+    enclosure_origin: Optional[Tuple[int, int]]
+    rotation: str
+    enclosure_size: int
+    enclosure_type: str
+    spaces_used: int
 
 
 @dataclass
@@ -313,13 +323,8 @@ SPONSOR_MIN_REPUTATION_OVERRIDES: Dict[int, int] = {
     245: 3,
     263: 6,
 }
-SPONSOR_MAX_APPEAL_25_OVERRIDES: Set[int] = {207, 222, 258, 259, 260, 264}
+SPONSOR_MAX_APPEAL_25_OVERRIDES: Set[int] = {222, 258, 259, 260, 264}
 SPONSOR_REQUIRED_ICON_OVERRIDES: Dict[int, Tuple[Tuple[str, int], ...]] = {
-    231: (("primate", 1),),
-    232: (("reptile", 1),),
-    233: (("bird", 1),),
-    234: (("predator", 1),),
-    235: (("herbivore", 1),),
 }
 SPONSOR_GLOBAL_ICON_MONEY_TRIGGERS: Dict[int, str] = {
     236: "primate",
@@ -453,6 +458,56 @@ PROJECT_LEVEL_REWARDS_BY_NUMBER: Dict[int, Tuple[Tuple[str, int, int, int], ...]
         ("middle_level", 4, 3, 0),
         ("right_level", 3, 2, 0),
     ),
+    113: (
+        ("left_level", 0, 5, 0),
+        ("middle_level", 0, 4, 0),
+        ("right_level", 0, 3, 0),
+    ),
+    114: (
+        ("left_level", 0, 5, 0),
+        ("middle_level", 0, 4, 0),
+        ("right_level", 0, 3, 0),
+    ),
+    115: (
+        ("left_level", 0, 5, 0),
+        ("middle_level", 0, 4, 0),
+        ("right_level", 0, 3, 0),
+    ),
+    116: (
+        ("left_level", 0, 5, 0),
+        ("middle_level", 0, 4, 0),
+        ("right_level", 0, 3, 0),
+    ),
+    117: (
+        ("left_level", 0, 5, 0),
+        ("middle_level", 0, 4, 0),
+        ("right_level", 0, 3, 0),
+    ),
+    118: (
+        ("left_level", 0, 5, 0),
+        ("middle_level", 0, 4, 0),
+        ("right_level", 0, 3, 0),
+    ),
+    119: (
+        ("left_level", 0, 5, 0),
+        ("middle_level", 0, 4, 0),
+        ("right_level", 0, 3, 0),
+    ),
+    120: (
+        ("left_level", 0, 5, 0),
+        ("middle_level", 0, 4, 0),
+        ("right_level", 0, 3, 0),
+    ),
+    121: (
+        ("left_level", 0, 5, 0),
+        ("middle_level", 0, 4, 0),
+        ("right_level", 0, 3, 0),
+    ),
+    122: (
+        ("left_level", 0, 5, 0),
+        ("middle_level", 0, 4, 0),
+        ("right_level", 0, 3, 0),
+    ),
     123: (
         ("left_level", 1, 2, 2),
         ("middle_level", 1, 1, 2),
@@ -511,6 +566,24 @@ BREEDING_PROJECT_BADGE_BY_NUMBER: Dict[int, str] = {
     126: "herbivore",
     127: "primate",
 }
+RELEASE_PROJECT_REQUIREMENT_BY_NUMBER: Dict[int, Tuple[str, str]] = {
+    113: ("europe", "continent"),
+    114: ("america", "continent"),
+    115: ("asia", "continent"),
+    116: ("africa", "continent"),
+    117: ("australia", "continent"),
+    118: ("predator", "category"),
+    119: ("bird", "category"),
+    120: ("herbivore", "category"),
+    121: ("reptile", "category"),
+    122: ("primate", "category"),
+}
+RELEASE_PROJECT_SIZE_BUCKET_BY_LEVEL: Dict[str, str] = {
+    "left_level": "4+",
+    "middle_level": "3",
+    "right_level": "2-",
+}
+RELEASE_PROJECT_PLAY_BONUS_REPUTATION: int = 1
 
 
 @dataclass
@@ -530,6 +603,7 @@ class PlayerState:
     enclosure_objects: List[EnclosureObject] = field(default_factory=list)
     hand: List[AnimalCard] = field(default_factory=list)
     zoo_cards: List[AnimalCard] = field(default_factory=list)
+    animal_placements: Dict[str, AnimalPlacement] = field(default_factory=dict)
     deck: List[AnimalCard] = field(default_factory=list)
     discard: List[AnimalCard] = field(default_factory=list)
     pouched_cards: List[AnimalCard] = field(default_factory=list)
@@ -1311,6 +1385,8 @@ def _sponsor_min_reputation(card: AnimalCard) -> int:
 
 
 def _sponsor_max_appeal(card: AnimalCard) -> Optional[int]:
+    if card.max_appeal is not None:
+        return max(0, int(card.max_appeal))
     if card.number in SPONSOR_MAX_APPEAL_25_OVERRIDES:
         return 25
     return None
@@ -1604,6 +1680,20 @@ def _project_level_rewards(project_id: str) -> Tuple[Tuple[str, int, int, int], 
     if number in PROJECT_LEVEL_REWARDS_BY_NUMBER:
         return PROJECT_LEVEL_REWARDS_BY_NUMBER[number]
     return tuple((level_name, needed_icons, conservation_gain, 0) for level_name, needed_icons, conservation_gain in BASE_CONSERVATION_PROJECT_LEVELS)
+
+
+def _project_release_requirement(project_id: str) -> Optional[Tuple[str, str]]:
+    return RELEASE_PROJECT_REQUIREMENT_BY_NUMBER.get(_project_number_from_data_id(project_id))
+
+
+def _project_release_size_bucket(project_id: str, level_name: str) -> Optional[str]:
+    if _project_release_requirement(project_id) is None:
+        return None
+    return RELEASE_PROJECT_SIZE_BUCKET_BY_LEVEL.get(str(level_name or "").strip())
+
+
+def _project_play_bonus_reputation(project_id: str) -> int:
+    return RELEASE_PROJECT_PLAY_BONUS_REPUTATION if _project_release_requirement(project_id) is not None else 0
 
 
 def _ensure_conservation_project_slots(state: GameState, project_id: str) -> None:
@@ -2314,6 +2404,7 @@ def _merge_detail_fragments(*fragments: Dict[str, Any]) -> Dict[str, Any]:
     for fragment in fragments:
         for key, value in fragment.items():
             if key in {
+                "pilfering_choices",
                 "sponsor_unique_building_selections",
                 "sponsor_263_build_details",
                 "sponsor_253_plays",
@@ -2504,44 +2595,113 @@ def _resolve_action_detail_variants_by_simulation(
     invalid_effect_log_prefixes: Sequence[str] = (),
 ) -> List[Tuple[Dict[str, Any], str]]:
     resolved: List[Tuple[Dict[str, Any], str]] = []
+    visiting: Set[str] = set()
 
     def _recurse(details_payload: Dict[str, Any], label_parts: List[str]) -> None:
-        sim_state = copy.deepcopy(state)
-        sim_player = sim_state.players[player_id]
-        sim_details = copy.deepcopy(details_payload)
-        sim_details["_allow_interactive"] = False
-        sim_details["_expand_implicit_choices"] = True
-        effect_log_len_before = len(sim_state.effect_log)
-        rng_state = random.getstate()
+        payload_key = json.dumps(details_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        if payload_key in visiting:
+            return
+        visiting.add(payload_key)
         try:
-            executor(sim_state, sim_player, sim_details)
-        except _ActionDetailExpansionRequired as pending:
-            random.setstate(rng_state)
-            for extra_details, extra_label in pending.variants:
-                next_details = _merge_detail_fragments(details_payload, extra_details)
-                next_labels = list(label_parts)
-                if extra_label:
-                    next_labels.append(extra_label)
-                _recurse(next_details, next_labels)
-            return
-        except ValueError:
-            random.setstate(rng_state)
-            return
-        finally:
-            random.setstate(rng_state)
-
-        if invalid_effect_log_prefixes:
-            recent_effects = sim_state.effect_log[effect_log_len_before:]
-            if any(
-                any(str(entry).startswith(prefix) for prefix in invalid_effect_log_prefixes)
-                for entry in recent_effects
-            ):
+            sim_state = copy.deepcopy(state)
+            sim_player = sim_state.players[player_id]
+            sim_details = copy.deepcopy(details_payload)
+            sim_details["_allow_interactive"] = False
+            sim_details["_expand_implicit_choices"] = True
+            effect_log_len_before = len(sim_state.effect_log)
+            rng_state = random.getstate()
+            try:
+                executor(sim_state, sim_player, sim_details)
+            except _ActionDetailExpansionRequired as pending:
+                random.setstate(rng_state)
+                for extra_details, extra_label in pending.variants:
+                    next_details = _merge_detail_fragments(details_payload, extra_details)
+                    next_labels = list(label_parts)
+                    if extra_label:
+                        next_labels.append(extra_label)
+                    _recurse(next_details, next_labels)
                 return
+            except ValueError:
+                random.setstate(rng_state)
+                return
+            finally:
+                random.setstate(rng_state)
 
-        label = " ; ".join(part for part in label_parts if part)
-        resolved.append((copy.deepcopy(details_payload), label))
+            if invalid_effect_log_prefixes:
+                recent_effects = sim_state.effect_log[effect_log_len_before:]
+                if any(
+                    any(str(entry).startswith(prefix) for prefix in invalid_effect_log_prefixes)
+                    for entry in recent_effects
+                ):
+                    return
+
+            label = " ; ".join(part for part in label_parts if part)
+            resolved.append((copy.deepcopy(details_payload), label))
+        finally:
+            visiting.discard(payload_key)
 
     _recurse(copy.deepcopy(base_details), [])
+    return resolved or []
+
+
+def _resolve_pending_action_variants_by_simulation(
+    *,
+    state: GameState,
+    base_action: Action,
+    invalid_effect_log_prefixes: Sequence[str] = (),
+) -> List[Tuple[Dict[str, Any], str]]:
+    resolved: List[Tuple[Dict[str, Any], str]] = []
+    visiting: Set[str] = set()
+
+    def _recurse(action_details: Dict[str, Any], label_parts: List[str]) -> None:
+        payload_key = json.dumps(action_details, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        if payload_key in visiting:
+            return
+        visiting.add(payload_key)
+        try:
+            sim_state = copy.deepcopy(state)
+            sim_action_details = copy.deepcopy(action_details)
+            sim_action_details["_allow_interactive"] = False
+            sim_action_details["_expand_implicit_choices"] = True
+            sim_action = Action(
+                base_action.type,
+                value=base_action.value,
+                card_name=base_action.card_name,
+                details=sim_action_details,
+            )
+            effect_log_len_before = len(sim_state.effect_log)
+            rng_state = random.getstate()
+            try:
+                apply_action(sim_state, sim_action)
+            except _ActionDetailExpansionRequired as pending:
+                random.setstate(rng_state)
+                for extra_details, extra_label in pending.variants:
+                    next_details = _merge_detail_fragments(action_details, extra_details)
+                    next_labels = list(label_parts)
+                    if extra_label:
+                        next_labels.append(extra_label)
+                    _recurse(next_details, next_labels)
+                return
+            except ValueError:
+                random.setstate(rng_state)
+                return
+            finally:
+                random.setstate(rng_state)
+
+            if invalid_effect_log_prefixes:
+                recent_effects = sim_state.effect_log[effect_log_len_before:]
+                if any(
+                    any(str(entry).startswith(prefix) for prefix in invalid_effect_log_prefixes)
+                    for entry in recent_effects
+                ):
+                    return
+
+            label = " ; ".join(part for part in label_parts if part)
+            resolved.append((copy.deepcopy(action_details), label))
+        finally:
+            visiting.discard(payload_key)
+
+    _recurse(copy.deepcopy(dict(base_action.details or {})), [])
     return resolved or []
 
 
@@ -3999,8 +4159,25 @@ def _enumerate_pending_revealed_cards_keep_actions(
         revealed_source = str(payload.get("revealed_source") or "").strip().lower()
         if revealed_source:
             action_details["revealed_source"] = revealed_source
-        actions.append(Action(ActionType.PENDING_DECISION, details=action_details))
-    return actions
+        resolved_variants = _resolve_pending_action_variants_by_simulation(
+            state=state,
+            base_action=Action(ActionType.PENDING_DECISION, details=action_details),
+        )
+        for resolved_details, resolved_label in resolved_variants:
+            final_label = action_label if not resolved_label else f"{action_label} ; {resolved_label}"
+            final_action_details = copy.deepcopy(resolved_details)
+            final_action_details["action_label"] = final_label
+            actions.append(Action(ActionType.PENDING_DECISION, details=final_action_details))
+
+    deduped: List[Action] = []
+    seen_keys: Set[str] = set()
+    for action in actions:
+        key = json.dumps(action.details or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(action)
+    return deduped
 
 
 def _enumerate_pending_revealed_final_scoring_actions(
@@ -4044,6 +4221,125 @@ def _enumerate_pending_revealed_final_scoring_actions(
             )
         )
     return actions
+
+
+def _resolve_revealed_keep_cards(
+    state: GameState,
+    player: PlayerState,
+    *,
+    revealed_cards: Sequence[AnimalCard],
+    keep_target: int,
+    choose_from_cards: Optional[Sequence[AnimalCard]] = None,
+    revealed_source: str = "",
+    choose_ids_fn: Optional[Callable[[Sequence[AnimalCard]], List[str]]] = None,
+    queue_pending_fn: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Tuple[int, int]:
+    revealed = [card for card in revealed_cards if isinstance(card, AnimalCard)]
+    if not revealed:
+        return 0, 0
+    target = min(max(0, int(keep_target)), len(revealed))
+    if target <= 0:
+        state.zoo_discard.extend(revealed)
+        return len(revealed), 0
+    candidate_source = revealed if choose_from_cards is None else choose_from_cards
+    candidates = [
+        card for card in list(candidate_source)
+        if isinstance(card, AnimalCard)
+    ]
+    if len(candidates) < target:
+        state.zoo_discard.extend(revealed)
+        return len(revealed), 0
+
+    if len(candidates) <= target:
+        chosen_ids = [
+            str(card.instance_id or "").strip()
+            for card in candidates
+            if str(card.instance_id or "").strip()
+        ]
+    elif choose_ids_fn is not None:
+        chosen_ids = [
+            str(item).strip()
+            for item in list(choose_ids_fn(candidates) or [])
+            if str(item).strip()
+        ]
+    elif queue_pending_fn is not None:
+        payload: Dict[str, Any] = {
+            "keep_target": target,
+            "revealed_cards": copy.deepcopy(revealed),
+        }
+        if revealed_source:
+            payload["revealed_source"] = str(revealed_source)
+        queue_pending_fn(payload)
+        return len(revealed), 0
+    else:
+        raise ValueError("Revealed keep resolution requires either chooser or pending queue.")
+
+    if len(chosen_ids) != target or len(set(chosen_ids)) != target:
+        raise ValueError("Revealed keep resolution requires exactly keep_target distinct card ids.")
+    valid_ids = {
+        str(card.instance_id or "").strip()
+        for card in candidates
+        if str(card.instance_id or "").strip()
+    }
+    if any(card_id not in valid_ids for card_id in chosen_ids):
+        raise ValueError("Chosen revealed card is not a legal matching choice.")
+
+    kept_cards: List[AnimalCard] = []
+    discarded_cards: List[AnimalCard] = []
+    remaining_ids = list(chosen_ids)
+    for revealed_card in revealed:
+        card_id = str(revealed_card.instance_id or "").strip()
+        if card_id in remaining_ids:
+            kept_cards.append(revealed_card)
+            remaining_ids.remove(card_id)
+        else:
+            discarded_cards.append(revealed_card)
+    if remaining_ids:
+        raise ValueError("Chosen revealed card could not be resolved from revealed cards.")
+
+    player.hand.extend(kept_cards)
+    state.zoo_discard.extend(discarded_cards)
+    return len(revealed), len(kept_cards)
+
+
+def _resolve_revealed_keep_one_by_type(
+    state: GameState,
+    player: PlayerState,
+    *,
+    revealed_cards: Sequence[AnimalCard],
+    card_type_filter: str = "",
+    revealed_source: str = "",
+    choose_matching_ids_fn: Optional[Callable[[Sequence[AnimalCard]], List[str]]] = None,
+    queue_pending_fn: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Tuple[int, int]:
+    wanted = str(card_type_filter or "").strip().lower()
+    revealed = [card for card in revealed_cards if isinstance(card, AnimalCard)]
+    matching = [
+        card
+        for card in revealed
+        if not wanted or str(card.card_type).strip().lower() == wanted
+    ]
+    return _resolve_revealed_keep_cards(
+        state,
+        player,
+        revealed_cards=revealed,
+        keep_target=1,
+        choose_from_cards=matching,
+        revealed_source=revealed_source,
+        choose_ids_fn=choose_matching_ids_fn,
+        queue_pending_fn=(
+            None
+            if queue_pending_fn is None
+            else (
+                lambda payload: queue_pending_fn(
+                    {
+                        **payload,
+                        **({"card_type_filter": wanted} if wanted else {}),
+                    }
+                )
+            )
+        ),
+    )
 
 
 def _enumerate_pending_final_scoring_discard_actions(
@@ -4936,6 +5232,7 @@ def _enumerate_concrete_build_actions(
     strength = int((template_action.details or {}).get("effective_strength", 0))
     min_total_size_exclusive = int((template_action.details or {}).get("min_total_size_exclusive", 0))
     upgraded = bool(player.action_upgraded["build"])
+    has_engineer = _player_has_sponsor(player, 217)
     actions: List[Action] = []
     max_build_steps = 2 if upgraded else 1
 
@@ -5092,6 +5389,8 @@ def _enumerate_concrete_build_actions(
                 resolved_variants = (
                     [(copy.deepcopy(base_details), "")]
                     if not bonus_details
+                    and not has_engineer
+                    and not (_player_has_sponsor(player, 221) and bool(option.get("placement_bonuses")))
                     else _resolve_build_details(base_details)
                 )
                 for resolved_details, resolved_label in resolved_variants:
@@ -5149,7 +5448,12 @@ def _enumerate_concrete_build_actions(
                     {"selections": next_selection_sequence},
                     next_accumulated_bonus_details,
                 )
-                requires_resolution = len(next_selection_sequence) > 1 or bool(next_accumulated_bonus_details)
+                requires_resolution = (
+                    len(next_selection_sequence) > 1
+                    or bool(next_accumulated_bonus_details)
+                    or has_engineer
+                    or (_player_has_sponsor(player, 221) and bool(option.get("placement_bonuses")))
+                )
                 resolved_variants = (
                     [(copy.deepcopy(base_details), "")]
                     if not requires_resolution
@@ -5795,9 +6099,9 @@ def _sponsor_endgame_bonus(state: GameState, player: PlayerState) -> Tuple[int, 
         distinct_continents = sum(1 for _, amount in snapshot["continents"].items() if int(amount) > 0)
         if distinct_continents >= 5:
             bonus_conservation += 1
-    if 241 in sponsor_numbers and _all_terrain_spaces_adjacent_to_buildings(player, Terrain.WATER):
+    if 241 in sponsor_numbers and _all_terrain_spaces_connected(player, Terrain.WATER):
         bonus_conservation += 1
-    if 242 in sponsor_numbers and _all_terrain_spaces_adjacent_to_buildings(player, Terrain.ROCK):
+    if 242 in sponsor_numbers and _all_terrain_spaces_connected(player, Terrain.ROCK):
         bonus_conservation += 1
     if 243 in sponsor_numbers and int(inventory.get("herbivore", 0)) >= 6:
         bonus_conservation += 1
@@ -6573,10 +6877,9 @@ def _count_placement_bonus_spaces_not_adjacent_to_buildings(
     return total
 
 
-def _all_terrain_spaces_adjacent_to_buildings(player: PlayerState, terrain: Terrain) -> bool:
+def _remaining_terrain_cells(player: PlayerState, terrain: Terrain) -> Set[Tuple[int, int]]:
     if player.zoo_map is None:
-        return False
-    adjacent = _spaces_adjacent_to_player_buildings(player)
+        return set()
     covered = _player_all_covered_cells(player)
     terrain_cells: Set[Tuple[int, int]] = set()
     for tile in player.zoo_map.grid:
@@ -6585,9 +6888,34 @@ def _all_terrain_spaces_adjacent_to_buildings(player: PlayerState, terrain: Terr
             continue
         if player.zoo_map.map_data.terrain.get(tile) == terrain:
             terrain_cells.add(pair)
+    return terrain_cells
+
+
+def _all_terrain_spaces_adjacent_to_buildings(player: PlayerState, terrain: Terrain) -> bool:
+    adjacent = _spaces_adjacent_to_player_buildings(player)
+    terrain_cells = _remaining_terrain_cells(player, terrain)
     if not terrain_cells:
         return False
     return terrain_cells.issubset(adjacent)
+
+
+def _all_terrain_spaces_connected(player: PlayerState, terrain: Terrain) -> bool:
+    terrain_cells = _remaining_terrain_cells(player, terrain)
+    if not terrain_cells:
+        return False
+    connected: Set[Tuple[int, int]] = set()
+    frontier = [next(iter(terrain_cells))]
+    while frontier:
+        cell = frontier.pop()
+        if cell in connected:
+            continue
+        connected.add(cell)
+        frontier.extend(
+            neighbor
+            for neighbor in _xy_neighbors(cell)
+            if neighbor in terrain_cells and neighbor not in connected
+        )
+    return connected == terrain_cells
 
 
 def _apply_cover_money_from_sponsors_241_242(player: PlayerState, building: Building) -> None:
@@ -6617,6 +6945,208 @@ def _increment_enclosure_animals_inside(player: PlayerState, enclosure: Enclosur
         if item.origin == (ox, oy) and item.rotation == enclosure.rotation and item.size == enclosure.size:
             item.animals_inside += 1
             return
+
+
+def _decrement_enclosure_animals_inside(player: PlayerState, enclosure: Enclosure) -> None:
+    if enclosure.origin is None:
+        return
+    ox, oy = enclosure.origin
+    for item in player.enclosure_objects:
+        if item.origin == (ox, oy) and item.rotation == enclosure.rotation and item.size == enclosure.size:
+            item.animals_inside = max(0, int(item.animals_inside) - 1)
+            return
+
+
+def _animal_instance_id(card: AnimalCard) -> str:
+    return str(getattr(card, "instance_id", "") or "").strip()
+
+
+def _record_animal_placement(
+    player: PlayerState,
+    *,
+    card: AnimalCard,
+    enclosure: Enclosure,
+    spaces_used: int,
+) -> None:
+    instance_id = _animal_instance_id(card)
+    if not instance_id:
+        return
+    player.animal_placements[instance_id] = AnimalPlacement(
+        enclosure_origin=tuple(enclosure.origin) if enclosure.origin is not None else None,
+        rotation=str(enclosure.rotation),
+        enclosure_size=int(enclosure.size),
+        enclosure_type=str(enclosure.enclosure_type),
+        spaces_used=max(0, int(spaces_used)),
+    )
+
+
+def _stored_animal_placement(player: PlayerState, card: AnimalCard) -> Optional[AnimalPlacement]:
+    instance_id = _animal_instance_id(card)
+    if not instance_id:
+        return None
+    return player.animal_placements.get(instance_id)
+
+
+def _infer_animal_placement(player: PlayerState, card: AnimalCard) -> Optional[AnimalPlacement]:
+    candidates: List[Tuple[Tuple[int, str, Tuple[int, int]], Enclosure, int]] = []
+    for enclosure in player.enclosures:
+        spaces_used = _animal_enclosure_spaces_needed(card, enclosure)
+        if spaces_used is None or spaces_used <= 0:
+            continue
+        if _enclosure_used_capacity(enclosure) < spaces_used:
+            continue
+        if not _enclosure_has_animals(enclosure):
+            continue
+        origin = tuple(enclosure.origin) if enclosure.origin is not None else (-1, -1)
+        sort_key = (
+            int(enclosure.size),
+            str(enclosure.enclosure_type),
+            origin,
+        )
+        candidates.append((sort_key, enclosure, spaces_used))
+    if not candidates:
+        return None
+    _, enclosure, spaces_used = sorted(candidates, key=lambda item: item[0])[0]
+    return AnimalPlacement(
+        enclosure_origin=tuple(enclosure.origin) if enclosure.origin is not None else None,
+        rotation=str(enclosure.rotation),
+        enclosure_size=int(enclosure.size),
+        enclosure_type=str(enclosure.enclosure_type),
+        spaces_used=max(0, int(spaces_used)),
+    )
+
+
+def _animal_placement(player: PlayerState, card: AnimalCard) -> Optional[AnimalPlacement]:
+    stored = _stored_animal_placement(player, card)
+    if stored is not None:
+        return stored
+    return _infer_animal_placement(player, card)
+
+
+def _animal_matches_release_project_requirement(card: AnimalCard, project_id: str) -> bool:
+    requirement = _project_release_requirement(project_id)
+    if requirement is None or card.card_type != "animal":
+        return False
+    required_icon, requirement_group = requirement
+    icon_counts = _card_icon_counts(card)
+    if requirement_group == "continent":
+        return int(icon_counts.get(required_icon, 0)) > 0
+    if requirement_group == "category":
+        return int(icon_counts.get(required_icon, 0)) > 0
+    return False
+
+
+def _eligible_release_project_animals(
+    player: PlayerState,
+    project_id: str,
+    *,
+    level_name: Optional[str] = None,
+) -> List[AnimalCard]:
+    required_bucket = _project_release_size_bucket(project_id, str(level_name or "").strip()) if level_name else None
+    candidates: List[AnimalCard] = []
+    for card in player.zoo_cards:
+        if card.card_type != "animal":
+            continue
+        if not _animal_matches_release_project_requirement(card, project_id):
+            continue
+        if required_bucket is not None and _animal_release_size_bucket_label(card) != required_bucket:
+            continue
+        if _animal_placement(player, card) is None:
+            continue
+        candidates.append(card)
+    candidates.sort(
+        key=lambda item: (
+            _animal_release_size_bucket_label(item),
+            int(item.size),
+            int(item.number),
+            str(item.name),
+            _animal_instance_id(item),
+        )
+    )
+    return candidates
+
+
+def _release_attached_pouched_cards_for_host(
+    state: GameState,
+    player: PlayerState,
+    *,
+    host_instance_id: str,
+) -> None:
+    host_key = str(host_instance_id or "").strip()
+    if not host_key:
+        return
+    attached = list(player.pouched_cards_by_host.pop(host_key, []))
+    if not attached:
+        return
+    remaining_pouched: List[AnimalCard] = []
+    attached_ids = {_card_identity(card) for card in attached}
+    for card in player.pouched_cards:
+        if _card_identity(card) in attached_ids:
+            continue
+        remaining_pouched.append(card)
+    player.pouched_cards = remaining_pouched
+    state.zoo_discard.extend(attached)
+
+
+def _remove_animal_from_enclosure(
+    player: PlayerState,
+    *,
+    card: AnimalCard,
+    placement: AnimalPlacement,
+) -> None:
+    enclosure: Optional[Enclosure] = None
+    if placement.enclosure_origin is not None:
+        enclosure = _find_player_enclosure_by_origin_rotation_size(
+            player,
+            origin=placement.enclosure_origin,
+            rotation=str(placement.rotation),
+            size=int(placement.enclosure_size),
+        )
+    if enclosure is None:
+        raise ValueError("Released animal enclosure is not available.")
+    spaces_used = max(0, int(placement.spaces_used))
+    if _enclosure_is_standard(enclosure):
+        enclosure.used_capacity = 0
+    else:
+        enclosure.used_capacity = max(0, _enclosure_used_capacity(enclosure) - spaces_used)
+    _sync_enclosure_occupied(enclosure)
+    _decrement_enclosure_animals_inside(player, enclosure)
+
+    if enclosure.origin is None:
+        return
+    building = _find_zoo_building_by_origin_rotation_size(
+        player=player,
+        origin=enclosure.origin,
+        rotation=enclosure.rotation,
+        size=enclosure.size,
+    )
+    if building is None:
+        return
+    if building.type.subtype == BuildingSubType.ENCLOSURE_BASIC:
+        building.empty_spaces = int(building.type.max_capacity)
+    elif spaces_used > 0:
+        building.empty_spaces = min(int(building.type.max_capacity), int(building.empty_spaces) + spaces_used)
+
+
+def _apply_release_project_for_animal(
+    state: GameState,
+    player: PlayerState,
+    *,
+    card: AnimalCard,
+) -> None:
+    placement = _animal_placement(player, card)
+    if placement is None:
+        raise ValueError("Selected released animal does not have a known enclosure placement.")
+    player.appeal -= int(card.appeal)
+    _remove_animal_from_enclosure(player, card=card, placement=placement)
+    host_instance_id = _animal_instance_id(card)
+    if host_instance_id:
+        player.animal_placements.pop(host_instance_id, None)
+        _release_attached_pouched_cards_for_host(state, player, host_instance_id=host_instance_id)
+    if card not in player.zoo_cards:
+        raise ValueError("Selected released animal is not in the zoo.")
+    player.zoo_cards.remove(card)
+    state.zoo_discard.append(card)
 
 
 def _apply_animal_to_enclosure(player: PlayerState, enclosure: Enclosure, spaces_used: int) -> None:
@@ -6950,13 +7480,57 @@ def _apply_build_placement_bonus(
     ):
         covered = _player_all_covered_cells(player)
         extra_candidates = sorted(
-            coord
+            (coord, coord_bonus)
             for coord, coord_bonus in state.map_tile_bonuses.items()
             if coord_bonus and coord not in covered and coord != bonus_coord
         )
         if extra_candidates:
-            picked_coord = extra_candidates[0]
-            picked_bonus = state.map_tile_bonuses[picked_coord]
+            queued_choice = _pop_detail_queue_entry(details, "archaeologist_bonus_choices")
+            picked_coord: Optional[Tuple[int, int]] = None
+            picked_bonus = ""
+            valid_candidates = {coord: bonus_name for coord, bonus_name in extra_candidates}
+
+            if queued_choice is not None:
+                raw_coord = queued_choice.get("coord")
+                if (
+                    isinstance(raw_coord, (list, tuple))
+                    and len(raw_coord) == 2
+                    and isinstance(raw_coord[0], int)
+                    and isinstance(raw_coord[1], int)
+                ):
+                    candidate_coord = (int(raw_coord[0]), int(raw_coord[1]))
+                    if candidate_coord in valid_candidates:
+                        picked_coord = candidate_coord
+                        picked_bonus = valid_candidates[candidate_coord]
+                if picked_coord is None:
+                    raise ValueError("archaeologist_bonus_choices selected bonus space is not legal.")
+
+            if picked_coord is None and allow_interactive and len(extra_candidates) > 1:
+                print("Archeologist: choose 1 extra placement bonus to gain.")
+                for idx, (coord, bonus_name) in enumerate(extra_candidates, start=1):
+                    print(f"{idx}. {coord}: {bonus_name}")
+                while True:
+                    raw = input(f"Select bonus [1-{len(extra_candidates)}]: ").strip()
+                    if raw.isdigit():
+                        picked_index = int(raw)
+                        if 1 <= picked_index <= len(extra_candidates):
+                            picked_coord, picked_bonus = extra_candidates[picked_index - 1]
+                            break
+                    print("Please enter a valid number.")
+
+            if picked_coord is None and bool(details.get("_expand_implicit_choices")) and len(extra_candidates) > 1:
+                variants: List[Tuple[Dict[str, Any], str]] = []
+                for coord, bonus_name in extra_candidates:
+                    variants.append(
+                        (
+                            {"archaeologist_bonus_choices": [{"coord": [coord[0], coord[1]]}]},
+                            f"sponsor221({coord}:{bonus_name})",
+                        )
+                    )
+                raise _ActionDetailExpansionRequired(variants)
+
+            if picked_coord is None:
+                picked_coord, picked_bonus = extra_candidates[0]
             _apply_build_placement_bonus(
                 state=state,
                 player=player,
@@ -8248,6 +8822,7 @@ def _perform_build_action_effect(
     details = details or {}
     upgraded = player.action_upgraded["build"]
     allow_interactive = bool(details.get("_allow_interactive", False) or details.get("_interactive", False))
+    expand_implicit_choices = bool(details.get("_expand_implicit_choices"))
     skip_post_build_effects = bool(details.get("_skip_post_build_effects", False))
     has_diversity_researcher = _player_has_sponsor(player, 219)
     selections_raw = details.get("selections")
@@ -8404,6 +8979,7 @@ def _perform_build_action_effect(
             BuildingType.REPTILE_HOUSE,
             BuildingType.LARGE_BIRD_AVIARY,
         }
+        legal_engineer_choices: List[Building] = []
         for built_type in built_type_sequence:
             if built_type in excluded:
                 continue
@@ -8416,29 +8992,77 @@ def _perform_build_action_effect(
             legal_extra = [building for building in legal_extra if building.type == built_type]
             legal_extra.sort(
                 key=lambda b: (
+                    b.type.name,
                     _building_layout_key(b),
                     b.origin_hex.x,
                     b.origin_hex.y,
                     b.rotation.value,
                 )
             )
-            picked_extra: Optional[Building] = None
-            for candidate in legal_extra:
-                extra_cost = len(candidate.layout) * 2
-                if player.money >= extra_cost:
-                    picked_extra = candidate
-                    break
-            if picked_extra is None:
-                continue
-            _commit_building(
-                picked_extra,
-                count_for_action_strength=False,
-                mark_type_for_action=False,
+            legal_engineer_choices.extend(
+                candidate
+                for candidate in legal_extra
+                if player.money >= len(candidate.layout) * 2
             )
-            state.effect_log.append(
-                f"sponsor_217_extra_build type={picked_extra.type.name} cells={_building_layout_xy(picked_extra)}"
-            )
-            break
+
+        if legal_engineer_choices:
+            queued_choice = _pop_detail_queue_entry(details, "engineer_extra_build_choices")
+            if queued_choice is not None:
+                if bool(queued_choice.get("skip")):
+                    return
+                selection = queued_choice.get("selection") if "selection" in queued_choice else queued_choice
+                if not isinstance(selection, dict):
+                    raise ValueError("engineer_extra_build_choices entries must contain a selection object.")
+                picked_extra = _find_legal_building_by_serialized_selection(legal_engineer_choices, selection)
+                if picked_extra is None:
+                    raise ValueError("engineer_extra_build_choices selected placement is not legal.")
+                _commit_building(
+                    picked_extra,
+                    count_for_action_strength=False,
+                    mark_type_for_action=False,
+                )
+                state.effect_log.append(
+                    f"sponsor_217_extra_build type={picked_extra.type.name} cells={_building_layout_xy(picked_extra)}"
+                )
+                return
+
+            if allow_interactive:
+                print("Engineer: choose one extra building of the same kind to build, or skip.")
+                print("1. Skip")
+                for idx, candidate in enumerate(legal_engineer_choices, start=2):
+                    print(f"{idx}. {candidate.type.name} {_building_cells_text(candidate)}")
+                while True:
+                    raw = input(f"Select placement [1-{len(legal_engineer_choices) + 1}]: ").strip()
+                    if raw.isdigit():
+                        picked = int(raw)
+                        if picked == 1:
+                            return
+                        if 2 <= picked <= len(legal_engineer_choices) + 1:
+                            chosen = legal_engineer_choices[picked - 2]
+                            _commit_building(
+                                chosen,
+                                count_for_action_strength=False,
+                                mark_type_for_action=False,
+                            )
+                            state.effect_log.append(
+                                f"sponsor_217_extra_build type={chosen.type.name} cells={_building_layout_xy(chosen)}"
+                            )
+                            return
+                    print("Please enter a valid number.")
+
+            if expand_implicit_choices:
+                variants: List[Tuple[Dict[str, Any], str]] = [
+                    ({"engineer_extra_build_choices": [{"skip": True}]}, "sponsor217(skip)")
+                ]
+                variants.extend(
+                    _enumerate_building_choice_variants(
+                        legal_engineer_choices,
+                        detail_key="engineer_extra_build_choices",
+                        label_prefix="sponsor217",
+                    )
+                )
+                raise _ActionDetailExpansionRequired(variants)
+            return
 
 
 def _animals_play_limit(strength: int, upgraded: bool) -> int:
@@ -8703,6 +9327,8 @@ def _project_requirement_value(player: PlayerState, project_id: str) -> int:
         return int(inventory.get("herbivore", 0))
     if number == 112:
         return int(inventory.get("bird", 0))
+    if number in RELEASE_PROJECT_REQUIREMENT_BY_NUMBER:
+        return len(_eligible_release_project_animals(player, project_id))
     if number in BREEDING_PROJECT_BADGE_BY_NUMBER:
         return 1 if _breeding_program_requirement_met(player, BREEDING_PROJECT_BADGE_BY_NUMBER[number]) else 0
     if number == 128:
@@ -9488,12 +10114,72 @@ def _perform_animals_action_effect(
                 extra_candidates.append((ranking, step, extra_card))
         if extra_candidates:
             extra_candidates.sort(key=lambda item: item[0])
-            _, chosen_step, chosen_card = extra_candidates[0]
-            selected_plays.append(chosen_step)
-            resolved_cards.append(chosen_card)
-            state.effect_log.append(
-                f"sponsor_228_extra_small_animal card={chosen_card.number} enclosure={chosen_step['enclosure_index']}"
-            )
+            queued_choice = _pop_detail_queue_entry(details, "sponsor_228_extra_play_choices")
+            chosen_step: Optional[Dict[str, Any]] = None
+            chosen_card: Optional[AnimalCard] = None
+
+            if queued_choice is not None:
+                if not bool(queued_choice.get("skip")):
+                    requested_card_id = str(queued_choice.get("card_instance_id") or "").strip()
+                    requested_enclosure_index = int(queued_choice.get("enclosure_index", -1))
+                    for _, candidate_step, candidate_card in extra_candidates:
+                        if (
+                            str(candidate_step.get("card_instance_id") or "").strip() == requested_card_id
+                            and int(candidate_step.get("enclosure_index", -1)) == requested_enclosure_index
+                        ):
+                            chosen_step = candidate_step
+                            chosen_card = candidate_card
+                            break
+                    if chosen_step is None or chosen_card is None:
+                        raise ValueError("sponsor_228_extra_play_choices selected extra animal play is not legal.")
+            elif interactive_effect_prompts:
+                print("WAZA Small Animal Program: choose 1 further small animal to play, or skip.")
+                print("1. Skip")
+                for idx, (_, candidate_step, candidate_card) in enumerate(extra_candidates, start=2):
+                    enclosure_no = int(candidate_step.get("enclosure_index", -1)) + 1
+                    print(
+                        f"{idx}. #{candidate_card.number} {candidate_card.name} -> enclosure {enclosure_no} "
+                        f"(cost={int(candidate_step.get('card_cost', 0))})"
+                    )
+                while True:
+                    raw = input(f"Select extra animal [1-{len(extra_candidates) + 1}]: ").strip()
+                    if raw.isdigit():
+                        picked = int(raw)
+                        if picked == 1:
+                            break
+                        if 2 <= picked <= len(extra_candidates) + 1:
+                            _, chosen_step, chosen_card = extra_candidates[picked - 2]
+                            break
+                    print("Please enter a valid number.")
+            elif expand_implicit_choices:
+                variants: List[Tuple[Dict[str, Any], str]] = [
+                    ({"sponsor_228_extra_play_choices": [{"skip": True}]}, "sponsor228-extra(skip)")
+                ]
+                for _, candidate_step, candidate_card in extra_candidates:
+                    enclosure_no = int(candidate_step.get("enclosure_index", -1)) + 1
+                    variants.append(
+                        (
+                            {
+                                "sponsor_228_extra_play_choices": [
+                                    {
+                                        "card_instance_id": str(candidate_step.get("card_instance_id") or ""),
+                                        "enclosure_index": int(candidate_step.get("enclosure_index", -1)),
+                                    }
+                                ]
+                            },
+                            f"sponsor228-extra(#{candidate_card.number}->{enclosure_no})",
+                        )
+                    )
+                raise _ActionDetailExpansionRequired(variants)
+            else:
+                _, chosen_step, chosen_card = extra_candidates[0]
+
+            if chosen_step is not None and chosen_card is not None:
+                selected_plays.append(chosen_step)
+                resolved_cards.append(chosen_card)
+                state.effect_log.append(
+                    f"sponsor_228_extra_small_animal card={chosen_card.number} enclosure={chosen_step['enclosure_index']}"
+                )
 
     for play_index, (card, play) in enumerate(zip(resolved_cards, selected_plays)):
         current_remaining_plays = [copy.deepcopy(item) for item in selected_plays[play_index + 1:]]
@@ -9551,6 +10237,12 @@ def _perform_animals_action_effect(
         player.hand.remove(card)
         player.zoo_cards.append(card)
         _apply_animal_to_enclosure(player, enclosure, spaces_used)
+        _record_animal_placement(
+            player,
+            card=card,
+            enclosure=enclosure,
+            spaces_used=spaces_used,
+        )
         _apply_map_passive_on_standard_enclosure_occupied(
             state=state,
             player=player,
@@ -9708,43 +10400,33 @@ def _perform_animals_action_effect(
             if not drawn:
                 return 0, 0
             keep_target = min(max(0, int(keep_count)), len(drawn))
-            if keep_target >= len(drawn):
-                player.hand.extend(drawn)
-                return len(drawn), len(drawn)
-            if interactive_effect_prompts:
-                chosen_ids = _choose_exact_card_instance_ids(
-                    drawn,
-                    choose_count=keep_target,
-                    queued_choices=queued_deck_keep_card_choices,
-                    detail_key="deck_keep_card_choices",
-                    label_prefix="keep ",
-                    prompt_title="Choose deck card(s) to keep.",
-                )
-            else:
-                _queue_animals_followup_pending(
-                    "revealed_cards_keep",
-                    {
-                        "keep_target": keep_target,
-                        "revealed_cards": copy.deepcopy(drawn),
-                        "revealed_source": "zoo_deck",
-                    },
-                )
-                return len(drawn), 0
-            kept_cards: List[AnimalCard] = []
-            discarded_cards: List[AnimalCard] = []
-            remaining_ids = list(chosen_ids)
-            for drawn_card in drawn:
-                card_id = str(drawn_card.instance_id or "").strip()
-                if card_id in remaining_ids:
-                    kept_cards.append(drawn_card)
-                    remaining_ids.remove(card_id)
-                else:
-                    discarded_cards.append(drawn_card)
-            if remaining_ids:
-                raise ValueError("deck_keep_card_choices could not be resolved from drawn deck cards.")
-            player.hand.extend(kept_cards)
-            state.zoo_discard.extend(discarded_cards)
-            return len(drawn), len(kept_cards)
+            return _resolve_revealed_keep_cards(
+                state,
+                player,
+                revealed_cards=drawn,
+                keep_target=keep_target,
+                revealed_source="zoo_deck",
+                choose_ids_fn=(
+                    (
+                        lambda candidates: _choose_exact_card_instance_ids(
+                            candidates,
+                            choose_count=keep_target,
+                            queued_choices=queued_deck_keep_card_choices,
+                            detail_key="deck_keep_card_choices",
+                            label_prefix="keep ",
+                            prompt_title="Choose deck card(s) to keep.",
+                        )
+                    )
+                    if interactive_effect_prompts
+                    else None
+                ),
+                queue_pending_fn=(
+                    lambda payload: _queue_animals_followup_pending(
+                        "revealed_cards_keep",
+                        payload,
+                    )
+                ),
+            )
 
         def _effect_reveal_keep_by_card_type(draw_count: int, card_type_filter: str) -> Tuple[int, int]:
             if draw_count <= 0 or not state.zoo_deck:
@@ -9753,47 +10435,33 @@ def _perform_animals_action_effect(
             drawn = _draw_from_zoo_deck(state, max(0, int(draw_count)))
             if not drawn:
                 return 0, 0
-            matching = [card_obj for card_obj in drawn if str(card_obj.card_type).lower() == wanted]
-            if not matching:
-                state.zoo_discard.extend(drawn)
-                return len(drawn), 0
-            if len(matching) == 1:
-                chosen_ids = [str(matching[0].instance_id or "").strip()]
-            elif interactive_effect_prompts:
-                chosen_ids = _choose_exact_card_instance_ids(
-                    matching,
-                    choose_count=1,
-                    queued_choices=queued_deck_keep_card_choices,
-                    detail_key="deck_keep_card_choices",
-                    label_prefix=f"keep {wanted} ",
-                    prompt_title=f"Choose 1 {wanted} card to keep.",
-                )
-            else:
-                _queue_animals_followup_pending(
-                    "revealed_cards_keep",
-                    {
-                        "keep_target": 1,
-                        "revealed_cards": copy.deepcopy(drawn),
-                        "revealed_source": f"reveal_{wanted}",
-                        "card_type_filter": wanted,
-                    },
-                )
-                return len(drawn), 0
-            kept_cards: List[AnimalCard] = []
-            discarded_cards: List[AnimalCard] = []
-            remaining_ids = list(chosen_ids)
-            for drawn_card in drawn:
-                card_id = str(drawn_card.instance_id or "").strip()
-                if card_id in remaining_ids:
-                    kept_cards.append(drawn_card)
-                    remaining_ids.remove(card_id)
-                else:
-                    discarded_cards.append(drawn_card)
-            if remaining_ids:
-                raise ValueError("deck_keep_card_choices could not be resolved from revealed cards.")
-            player.hand.extend(kept_cards)
-            state.zoo_discard.extend(discarded_cards)
-            return len(drawn), len(kept_cards)
+            return _resolve_revealed_keep_one_by_type(
+                state,
+                player,
+                revealed_cards=drawn,
+                card_type_filter=wanted,
+                revealed_source=f"reveal_{wanted}",
+                choose_matching_ids_fn=(
+                    (
+                        lambda matching: _choose_exact_card_instance_ids(
+                            matching,
+                            choose_count=1,
+                            queued_choices=queued_deck_keep_card_choices,
+                            detail_key="deck_keep_card_choices",
+                            label_prefix=f"keep {wanted} ",
+                            prompt_title=f"Choose 1 {wanted} card to keep.",
+                        )
+                    )
+                    if interactive_effect_prompts
+                    else None
+                ),
+                queue_pending_fn=(
+                    lambda payload: _queue_animals_followup_pending(
+                        "revealed_cards_keep",
+                        payload,
+                    )
+                ),
+            )
 
         def _effect_digging(loop_count: int) -> int:
             completed = 0
@@ -10419,7 +11087,7 @@ def _perform_animals_action_effect(
                 eligible_target_ids = list(target_group.get("target_ids") or [])
                 if not eligible_target_ids:
                     continue
-                choice_payload: Optional[Dict[str, Any]] = None
+                target_choice_payload: Optional[Dict[str, Any]] = None
                 if len(eligible_target_ids) == 1:
                     target_id = int(eligible_target_ids[0])
                 elif interactive_effect_prompts:
@@ -10441,12 +11109,12 @@ def _perform_animals_action_effect(
                             )
                         target_id = int(sorted(int(item) for item in eligible_target_ids)[0])
                     else:
-                        choice_payload = queued_pilfering_choices.pop(0)
+                        target_choice_payload = queued_pilfering_choices.pop(0)
                         target_id = _resolve_target_player_id_from_payload(
                             state,
                             eligible_target_ids,
                             effect_name="Pilfering",
-                            payload=choice_payload,
+                            payload=target_choice_payload,
                         )
                 target_player = state.players[target_id]
                 can_take_money = int(target_player.money) >= 5
@@ -10485,9 +11153,14 @@ def _perform_animals_action_effect(
                                     break
                             print("Please enter a valid number.")
                 elif can_take_money and can_take_card:
-                    if choice_payload is None:
+                    loss_choice_payload = (
+                        target_choice_payload
+                        if target_choice_payload is not None and "choice" in target_choice_payload
+                        else None
+                    )
+                    if loss_choice_payload is None:
                         if queued_pilfering_choices:
-                            choice_payload = queued_pilfering_choices.pop(0)
+                            loss_choice_payload = queued_pilfering_choices.pop(0)
                         elif expand_implicit_choices:
                             variants: List[Tuple[Dict[str, Any], str]] = [
                                 (
@@ -10525,10 +11198,10 @@ def _perform_animals_action_effect(
                             raise _ActionDetailExpansionRequired(variants)
                         else:
                             choice = "money"
-                    if choice_payload is not None:
+                    if loss_choice_payload is not None:
                         choice, chosen_card_index = _resolve_pilfering_choice_from_details(
                             target_player=target_player,
-                            choice_payload=choice_payload,
+                            choice_payload=loss_choice_payload,
                             can_take_money=can_take_money,
                             can_take_card=can_take_card,
                         )
@@ -11783,6 +12456,77 @@ def list_legal_association_options(
                 project_slots = state.conservation_project_slots.get(project.data_id) or {}
                 blocked_level = blocked_by_project.get(project.data_id, "")
                 project_icon_reduction = icon_reduction if _is_base_conservation_project(project.data_id) else 0
+                release_requirement = _project_release_requirement(project.data_id)
+                if release_requirement is not None:
+                    required_icon, requirement_group = release_requirement
+                    requirement_label = (
+                        _partner_zoo_label(required_icon)
+                        if requirement_group == "continent"
+                        else required_icon.title()
+                    )
+                    for level_name, needed_icons, conservation_gain, reputation_gain in _project_level_rewards(project.data_id):
+                        if level_name == blocked_level:
+                            continue
+                        owner = project_slots.get(level_name)
+                        if owner is not None:
+                            continue
+                        release_size_bucket = _project_release_size_bucket(project.data_id, level_name)
+                        if not release_size_bucket:
+                            continue
+                        eligible_animals = _eligible_release_project_animals(
+                            player,
+                            project.data_id,
+                            level_name=level_name,
+                        )
+                        if not eligible_animals:
+                            continue
+                        reward_parts = [f"+{conservation_gain} CP"]
+                        if reputation_gain > 0:
+                            reward_parts.append(f"+{reputation_gain} reputation")
+                        if (
+                            project_from_hand_index is not None
+                            or project_from_display_index is not None
+                        ):
+                            bonus_rep = _project_play_bonus_reputation(project.data_id)
+                            if bonus_rep > 0:
+                                reward_parts.append(f"+{bonus_rep} reputation on add")
+                        for released_animal in eligible_animals:
+                            released_animal_id = _animal_instance_id(released_animal)
+                            description = (
+                                f"Support conservation project ({source_label}): {project.data_id} | {project.title} "
+                                f"[{level_name}: release {release_size_bucket} {requirement_label} "
+                                f"-> {', '.join(reward_parts)}, animal={_format_zoo_animal_line(released_animal)}, "
+                                f"workers={required}"
+                            )
+                            if display_extra_cost > 0:
+                                description += f", display_cost={display_extra_cost}"
+                            description += "]"
+                            option = {
+                                "task_kind": "conservation_project",
+                                "project_id": project.data_id,
+                                "project_title": project.title,
+                                "project_level": level_name,
+                                "strength_cost": conservation_strength_requirement,
+                                "required_icons": needed_icons,
+                                "icon_value": icon_value,
+                                "icon_reduction_used": False,
+                                "conservation_gain": conservation_gain,
+                                "reputation_gain": reputation_gain,
+                                "workers_needed": required,
+                                "description": description,
+                                "release_size_bucket": release_size_bucket,
+                                "release_requirement_icon": required_icon,
+                                "release_requirement_group": requirement_group,
+                                "released_animal_instance_id": released_animal_id,
+                                "released_animal_name": released_animal.name,
+                            }
+                            if project_from_hand_index is not None:
+                                option["project_from_hand_index"] = project_from_hand_index
+                            if project_from_display_index is not None:
+                                option["project_from_display_index"] = project_from_display_index
+                                option["project_display_extra_cost"] = display_extra_cost
+                            options.append(option)
+                    return
                 for level_name, needed_icons, conservation_gain, reputation_gain in _project_level_rewards(project.data_id):
                     if level_name == blocked_level:
                         continue
@@ -11881,6 +12625,9 @@ def _association_task_request_from_option(
             request["project_from_hand_index"] = int(option["project_from_hand_index"])
         if option.get("project_from_display_index") is not None:
             request["project_from_display_index"] = int(option["project_from_display_index"])
+        released_animal_instance_id = str(option.get("released_animal_instance_id") or "").strip()
+        if released_animal_instance_id:
+            request["released_animal_instance_id"] = released_animal_instance_id
     if isinstance(reward_details, dict):
         request = _merge_list_detail_fragments(request, reward_details)
     return request
@@ -11962,6 +12709,10 @@ def _association_task_label(option: Dict[str, Any], reward_label: str = "") -> s
             f"{_compact_association_project_level(str(option.get('project_level') or ''))}"
             f"({reward})"
         )
+        release_bucket = str(option.get("release_size_bucket") or "").strip()
+        released_animal_name = str(option.get("released_animal_name") or "").strip()
+        if release_bucket and released_animal_name:
+            label += f" release[{release_bucket}:{released_animal_name}]"
         if bool(option.get("icon_reduction_used")):
             label += " -1icon"
     else:
@@ -12030,6 +12781,11 @@ def _resolve_association_requested_option(
                         details.get("project_from_display_index") is None
                         or option.get("project_from_display_index") == int(details.get("project_from_display_index"))
                     )
+                    and (
+                        not str(details.get("released_animal_instance_id") or "").strip()
+                        or str(option.get("released_animal_instance_id") or "").strip()
+                        == str(details.get("released_animal_instance_id") or "").strip()
+                    )
                 )
             )
         ),
@@ -12047,10 +12803,16 @@ def _resolve_association_requested_option(
             for option in options
             if option.get("task_kind") == "conservation_project"
             and option.get("project_id") == project_id
+            and (
+                not details.get("project_level")
+                or option.get("project_level") == details.get("project_level")
+            )
         ]
         if len(candidates) == 1:
             selected = candidates[0]
         elif len(candidates) > 1:
+            if any(str(option.get("released_animal_instance_id") or "").strip() for option in candidates):
+                raise ValueError("released_animal_instance_id is required when multiple legal release animals exist.")
             raise ValueError("project_level is required when multiple legal conservation project levels exist.")
     if selected is None:
         raise ValueError("Requested association task is not legal.")
@@ -12156,8 +12918,47 @@ def _apply_association_selected_option(
         owner = slots.get(project_level)
         if owner is not None:
             raise ValueError("Selected conservation project slot is already occupied.")
+        release_card: Optional[AnimalCard] = None
+        if _project_release_requirement(project_id) is not None:
+            eligible_animals = _eligible_release_project_animals(
+                player,
+                project_id,
+                level_name=project_level,
+            )
+            if not eligible_animals:
+                raise ValueError("Player does not have a legal animal to release for this conservation project.")
+            released_animal_instance_id = str(selected.get("released_animal_instance_id") or "").strip()
+            if released_animal_instance_id:
+                release_card = next(
+                    (
+                        card
+                        for card in eligible_animals
+                        if _animal_instance_id(card) == released_animal_instance_id
+                    ),
+                    None,
+                )
+                if release_card is None:
+                    raise ValueError("Selected released animal is not legal for this conservation project.")
+            elif len(eligible_animals) == 1:
+                release_card = eligible_animals[0]
+            else:
+                raise ValueError("released_animal_instance_id is required when multiple legal release animals exist.")
+        play_bonus_reputation = _project_play_bonus_reputation(project_id)
+        if play_bonus_reputation > 0:
+            _increase_reputation(
+                state=state,
+                player=player,
+                amount=play_bonus_reputation,
+                allow_interactive=allow_interactive,
+            )
         slots[project_level] = player_id
         player.supported_conservation_projects.add(project_id)
+        if release_card is not None:
+            _apply_release_project_for_animal(
+                state,
+                player,
+                card=release_card,
+            )
         player.conservation += int(selected.get("conservation_gain", 0))
         reputation_gain = int(selected.get("reputation_gain", 0))
         if reputation_gain > 0:
@@ -12269,7 +13070,7 @@ def _distinct_continent_and_category_types_from_cards(cards: Sequence[AnimalCard
             if continent is not None:
                 types.add(_canonical_icon_key(continent))
                 continue
-            if badge in {"science", "water", "rock", "bear"}:
+            if badge in {"science", "water", "rock"}:
                 continue
             types.add(badge)
     return types
@@ -12594,6 +13395,14 @@ def _finalize_sponsor_card_play(
     details = details or {}
     allow_interactive = bool(details.get("_allow_interactive", False) or details.get("_interactive", False))
     player.zoo_cards.append(card)
+    player.appeal += int(card.appeal)
+    _increase_reputation(
+        state=state,
+        player=player,
+        amount=int(card.reputation_gain),
+        allow_interactive=allow_interactive,
+    )
+    player.conservation += int(card.conservation)
     messages = _apply_sponsor_immediate_effects(
         state=state,
         player=player,
@@ -13113,20 +13922,35 @@ def _apply_sponsor_passive_triggers_on_card_play(
                 revealed = _draw_from_zoo_deck(state, 2)
                 if not revealed:
                     continue
-                _set_pending_decision(
+                _, kept = _resolve_revealed_keep_cards(
                     state,
-                    kind="revealed_cards_keep",
-                    player_id=owner_id,
-                    payload=_pending_payload_for_hidden_choice(
-                        owner_id=owner_id,
-                        effect_code="sponsor_249",
-                        remaining_249=bird_icons - idx - 1,
-                        remaining_252=predator_icons_for_resume,
-                        revealed_cards=revealed,
-                        revealed_source="sponsor_249",
+                    owner,
+                    revealed_cards=revealed,
+                    keep_target=1,
+                    revealed_source="sponsor_249",
+                    queue_pending_fn=(
+                        lambda payload, idx=idx: _set_pending_decision(
+                            state,
+                            kind="revealed_cards_keep",
+                            player_id=owner_id,
+                            payload={
+                                **_pending_payload_for_hidden_choice(
+                                    owner_id=owner_id,
+                                    effect_code="sponsor_249",
+                                    remaining_249=bird_icons - idx - 1,
+                                    remaining_252=predator_icons_for_resume,
+                                    revealed_cards=revealed,
+                                    revealed_source="sponsor_249",
+                                ),
+                                **payload,
+                            },
+                        )
                     ),
                 )
-                return True
+                if str(state.pending_decision_kind or "").strip():
+                    return True
+                if kept > 0:
+                    continue
 
         if _should_run("250") and owner_is_actor and 250 in sponsor_numbers:
             reptile_icons = int(played_icon_counts.get("reptile", 0))
@@ -13157,21 +13981,36 @@ def _apply_sponsor_passive_triggers_on_card_play(
                 revealed = _draw_from_zoo_deck(state, predator_count)
                 if not revealed:
                     continue
-                _set_pending_decision(
+                _, kept = _resolve_revealed_keep_one_by_type(
                     state,
-                    kind="revealed_cards_keep",
-                    player_id=owner_id,
-                    payload=_pending_payload_for_hidden_choice(
-                        owner_id=owner_id,
-                        effect_code="sponsor_252",
-                        remaining_249=0,
-                        remaining_252=predator_icons - idx - 1,
-                        revealed_cards=revealed,
-                        card_type_filter="animal",
-                        revealed_source="sponsor_252",
+                    owner,
+                    revealed_cards=revealed,
+                    card_type_filter="animal",
+                    revealed_source="sponsor_252",
+                    queue_pending_fn=(
+                        lambda payload, idx=idx: _set_pending_decision(
+                            state,
+                            kind="revealed_cards_keep",
+                            player_id=owner_id,
+                            payload={
+                                **_pending_payload_for_hidden_choice(
+                                    owner_id=owner_id,
+                                    effect_code="sponsor_252",
+                                    remaining_249=0,
+                                    remaining_252=predator_icons - idx - 1,
+                                    revealed_cards=revealed,
+                                    card_type_filter="animal",
+                                    revealed_source="sponsor_252",
+                                ),
+                                **payload,
+                            },
+                        )
                     ),
                 )
-                return True
+                if str(state.pending_decision_kind or "").strip():
+                    return True
+                if kept > 0:
+                    continue
 
         if _should_run("253") and owner_is_actor and 253 in sponsor_numbers:
             herbivore_icons = int(played_icon_counts.get("herbivore", 0))
@@ -13397,15 +14236,6 @@ def _apply_sponsor_immediate_effects(
             allow_interactive=allow_interactive,
         )
         messages.append(f"immediate(draw_1_from_deck_or_reputation_range)={1 if taken else 0}")
-    if number == 254:
-        _increase_reputation(
-            state=state,
-            player=player,
-            amount=1,
-            allow_interactive=allow_interactive,
-        )
-        player.conservation += 1
-        messages.append("immediate(+1_reputation,+1_conservation)")
 
     if number == 203:
         universities = len(player.universities)
@@ -13423,16 +14253,6 @@ def _apply_sponsor_immediate_effects(
         gain = 2 * int(inventory.get("science", 0))
         player.money += gain
         messages.append(f"immediate(science_x2_money)={gain}")
-
-    if number == 205:
-        _increase_reputation(
-            state=state,
-            player=player,
-            amount=2,
-            allow_interactive=allow_interactive,
-        )
-        player.conservation += 1
-        messages.append("immediate(+2_reputation,+1_conservation)")
 
     if number == 206:
         gain = 2 * int(player.supported_conservation_project_actions)
@@ -13505,15 +14325,6 @@ def _apply_sponsor_immediate_effects(
         player.x_tokens = min(MAX_X_TOKENS, player.x_tokens + 1)
         messages.append("immediate(+1_x_token)")
 
-    if number == 226:
-        _increase_reputation(
-            state=state,
-            player=player,
-            amount=2,
-            allow_interactive=allow_interactive,
-        )
-        messages.append("immediate(+2_reputation)")
-
     if number == 227:
         selected_mode = str(details.get("sponsor_227_mode") or "").strip().lower()
         if selected_mode not in {"small", "large"}:
@@ -13572,10 +14383,6 @@ def _apply_sponsor_immediate_effects(
         gain = (int(inventory.get("rock", 0)) // 2) * 3
         player.appeal += gain
         messages.append(f"immediate(rock_pairs_to_appeal_x3)={gain}")
-
-    if number in {255, 256}:
-        player.appeal += 4
-        messages.append("immediate(+4_appeal)")
 
     if number == 261:
         player.conservation += 1
@@ -14847,6 +15654,58 @@ def _resolve_conservation_reward_pending_action(
     _validate_card_zones(state)
 
 
+def _followup_detail_fragment_from_pending_action(
+    details: Dict[str, Any],
+    *,
+    pending_kind: str,
+) -> Dict[str, Any]:
+    fragment = copy.deepcopy(details or {})
+    for key in ("concrete", "pending_kind", "action_label"):
+        fragment.pop(key, None)
+    if pending_kind == "revealed_cards_keep":
+        for key in ("keep_card_instance_ids", "keep_card_numbers", "revealed_source"):
+            fragment.pop(key, None)
+    elif pending_kind == "revealed_final_scoring_keep":
+        for key in ("keep_final_scoring_refs", "keep_final_scoring_labels"):
+            fragment.pop(key, None)
+    return fragment
+
+
+def _merge_pending_followup_details_into_payload(
+    payload: Dict[str, Any],
+    *,
+    pending_kind: str,
+    action_details: Dict[str, Any],
+) -> Dict[str, Any]:
+    merged_payload = copy.deepcopy(payload or {})
+    followup_fragment = _followup_detail_fragment_from_pending_action(
+        action_details,
+        pending_kind=pending_kind,
+    )
+    if not followup_fragment:
+        return merged_payload
+
+    resume_kind = str(merged_payload.get("resume_kind") or "").strip()
+    if "resume_animals_details" in merged_payload or resume_kind in {"", "animals_followup"}:
+        merged_payload["resume_animals_details"] = _merge_detail_fragments(
+            dict(merged_payload.get("resume_animals_details") or {}),
+            followup_fragment,
+        )
+    if "resume_sponsor_details" in merged_payload or resume_kind == "sponsors_followup":
+        merged_payload["resume_sponsor_details"] = _merge_detail_fragments(
+            dict(merged_payload.get("resume_sponsor_details") or {}),
+            followup_fragment,
+        )
+    if "resume_sponsor_passive_details" in merged_payload or str(
+        merged_payload.get("resume_sponsor_passive_effect") or ""
+    ).strip():
+        merged_payload["resume_sponsor_passive_details"] = _merge_detail_fragments(
+            dict(merged_payload.get("resume_sponsor_passive_details") or {}),
+            followup_fragment,
+        )
+    return merged_payload
+
+
 def _resolve_revealed_cards_keep_pending_action(
     state: GameState,
     player: PlayerState,
@@ -14897,6 +15756,11 @@ def _resolve_revealed_cards_keep_pending_action(
 
     player.hand.extend(kept_cards)
     state.zoo_discard.extend(discarded_cards)
+    payload = _merge_pending_followup_details_into_payload(
+        payload,
+        pending_kind="revealed_cards_keep",
+        action_details=details,
+    )
     _finalize_revealed_cards_keep_resolution(
         state,
         player,

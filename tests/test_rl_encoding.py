@@ -90,14 +90,13 @@ def test_observation_encoder_public_part_is_viewer_invariant():
     assert np.array_equal(public_0, public_1)
 
 
-def test_observation_encoder_can_skip_global_encoding():
+def test_observation_encoder_returns_local_state_vector():
     encoder = ObservationEncoder()
     state = make_state(7022)
 
-    local_vec, global_vec = encoder.encode_from_state(state, 0, include_global=False)
+    local_vec = encoder.encode_from_state(state, 0)
 
     assert local_vec.size > 0
-    assert global_vec.shape == (0,)
 
 
 def test_observation_encoder_private_part_changes_with_own_hidden_faces():
@@ -426,7 +425,7 @@ def test_observation_encoder_private_part_changes_with_pouched_host_card_mapping
     assert not np.array_equal(private_a, private_b)
 
 
-def test_observation_encoder_local_part_marks_viewer_slot_but_global_part_stays_shared():
+def test_observation_encoder_local_state_marks_viewer_slot():
     encoder = ObservationEncoder()
     state = make_state(716)
     for player in state.players:
@@ -437,14 +436,13 @@ def test_observation_encoder_local_part_marks_viewer_slot_but_global_part_stays_
         player.pouched_cards = []
         player.pouched_cards_by_host = {}
 
-    local_0, global_0 = encoder.encode_from_state(state, viewer_player_id=0)
-    local_1, global_1 = encoder.encode_from_state(state, viewer_player_id=1)
+    local_0 = encoder.encode_from_state(state, viewer_player_id=0)
+    local_1 = encoder.encode_from_state(state, viewer_player_id=1)
 
     assert not np.array_equal(local_0, local_1)
-    assert np.array_equal(global_0, global_1)
 
 
-def test_observation_encoder_global_part_sees_opponent_hidden_faces_but_local_part_does_not():
+def test_observation_encoder_local_state_hides_opponent_hidden_faces():
     encoder = ObservationEncoder()
     state_a = make_state(717)
     state_b = copy.deepcopy(state_a)
@@ -452,8 +450,7 @@ def test_observation_encoder_global_part_sees_opponent_hidden_faces_but_local_pa
     state_a.players[1].hand = [AnimalCard("OPP_A", 2, 1, 0, 0, number=99261, instance_id="opp-a")]
     state_b.players[1].hand = [AnimalCard("OPP_B", 7, 4, 0, 0, number=99262, instance_id="opp-b")]
 
-    local_a, global_a = encoder.encode_from_state(state_a, viewer_player_id=0)
-    local_b, global_b = encoder.encode_from_state(state_b, viewer_player_id=0)
+    local_a = encoder.encode_from_state(state_a, viewer_player_id=0)
+    local_b = encoder.encode_from_state(state_b, viewer_player_id=0)
 
     assert np.array_equal(local_a, local_b)
-    assert not np.array_equal(global_a, global_b)

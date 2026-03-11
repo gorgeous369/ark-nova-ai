@@ -65,20 +65,14 @@ def build_model_and_encoders(
     if not legal:
         raise RuntimeError("Probe state has no legal actions; cannot infer model dims.")
 
-    state_vec, global_vec = obs_encoder.encode_from_state(
-        probe_state,
-        probe_actor_id,
-        include_global=bool(config.use_centralized_value),
-    )
+    state_vec = obs_encoder.encode_from_state(probe_state, probe_actor_id)
     action_features = action_encoder.encode_many(legal)
     model = MaskedActorCritic(
         state_dim=int(state_vec.shape[0]),
         action_dim=int(action_features.shape[1]),
-        global_state_dim=int(global_vec.shape[0]),
         hidden_size=int(config.hidden_size),
         lstm_size=int(config.lstm_size),
         action_hidden_size=int(config.action_hidden_size),
         use_lstm=bool(config.use_lstm),
-        use_centralized_value=bool(config.use_centralized_value),
     ).to(device)
     return model, obs_encoder, action_encoder

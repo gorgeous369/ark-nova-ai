@@ -2811,6 +2811,54 @@ def test_pilfering_noninteractive_defaults_to_first_target_when_multiple_players
     assert target_b.money == 3
 
 
+def test_pilfering_2_concrete_actions_expand_sequential_target_and_loss_choices():
+    state = setup_game(seed=19011, player_names=["P1", "P2"])
+    state.players.append(copy.deepcopy(state.players[1]))
+    state.players[2].name = "P3"
+    actor = state.players[0]
+    target_a = state.players[1]
+    target_b = state.players[2]
+    actor.hand = [
+        AnimalCard(
+            "Pilfer Beast",
+            0,
+            1,
+            0,
+            0,
+            ability_title="Pilfering 2",
+            number=990511,
+            instance_id="pilfer-target-2",
+        )
+    ]
+    actor.enclosures = [Enclosure(size=1, origin=(0, 0))]
+    actor.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    state.current_player = 0
+    target_a.appeal = 5
+    target_b.appeal = 5
+    target_a.conservation = 3
+    target_b.conservation = 3
+    target_a.money = 11
+    target_b.money = 10
+    target_a.hand = [AnimalCard("A", 1, 1, 0, 0, number=99151, instance_id="card-a")]
+    target_b.hand = [AnimalCard("B", 1, 1, 0, 0, number=99152, instance_id="card-b")]
+
+    abstract_actions = [
+        action
+        for action in legal_actions(actor)
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "animals"
+    ]
+    concrete_actions = [
+        action
+        for action in legal_actions(actor, state=state, player_id=0)
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "animals"
+    ]
+
+    assert len(abstract_actions) == 1
+    assert len(concrete_actions) == 14
+    assert any(len(list(action.details.get("pilfering_choices") or [])) == 4 for action in concrete_actions)
+    assert any(len(list(action.details.get("pilfering_choices") or [])) == 3 for action in concrete_actions)
+
+
 def test_pilfering_interactive_target_can_choose_card_loss_and_receive_random_card(monkeypatch):
     state = setup_game(seed=191, player_names=["P1", "P2"])
     actor = state.players[0]

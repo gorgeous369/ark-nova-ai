@@ -320,7 +320,6 @@ class ObservationEncoder:
         self.max_private_final_cards = int(max_private_final_cards)
         self.max_private_draft_cards = int(max_private_draft_cards)
         self.max_private_pouched_cards = int(max_private_pouched_cards)
-        self._empty_global_vec = np.zeros((0,), dtype=np.float32)
         self.map_coord_min = -20
         self.map_coord_max = 20
         self.map_building_types: Tuple[str, ...] = tuple(
@@ -1330,72 +1329,20 @@ class ObservationEncoder:
             axis=0,
         ).astype(np.float32)
 
-    def encode_global_state_from_state(
-        self,
-        state: main.GameState,
-        *,
-        public_vec: Optional[np.ndarray] = None,
-        private_obs_by_player: Optional[Sequence[Dict[str, Any]]] = None,
-    ) -> np.ndarray:
-        if public_vec is None:
-            viewer_id = 0 if state.players else 0
-            public_obs = main.build_public_observation(state, viewer_player_id=viewer_id)
-            public_vec = self.encode_public_observation(public_obs)
-
-        private_blocks: List[np.ndarray] = []
-        if self._empty_private_vec is None:
-            self._empty_private_vec = self.encode_private_observation({})
-        for player_id in range(self.max_players):
-            if player_id >= len(state.players):
-                private_blocks.append(np.zeros_like(self._empty_private_vec))
-                continue
-            if private_obs_by_player is not None and player_id < len(private_obs_by_player):
-                private_obs = private_obs_by_player[player_id]
-            else:
-                private_obs = main.build_private_observation(state, viewer_player_id=player_id)
-            private_blocks.append(self.encode_private_observation(private_obs))
-
-        return np.concatenate(
-            [public_vec.astype(np.float32)] + [block.astype(np.float32) for block in private_blocks],
-            axis=0,
-        ).astype(np.float32)
-
     def encode_local_state_from_state(
         self,
         state: main.GameState,
         viewer_player_id: int,
-    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    ) -> np.ndarray:
         public_obs = main.build_public_observation(state, viewer_player_id=viewer_player_id)
         private_obs = main.build_private_observation(state, viewer_player_id=viewer_player_id)
         public_vec = self.encode_public_observation(public_obs)
         private_vec = self.encode_private_observation(private_obs)
-        return (
-            np.concatenate([public_vec, private_vec], axis=0).astype(np.float32),
-            public_vec,
-            private_obs,
-        )
+        return np.concatenate([public_vec, private_vec], axis=0).astype(np.float32)
 
     def encode_from_state(
         self,
         state: main.GameState,
         viewer_player_id: int,
-        *,
-        include_global: bool = True,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        local_vec, public_vec, viewer_private_obs = self.encode_local_state_from_state(state, viewer_player_id)
-        if not include_global:
-            return local_vec, self._empty_global_vec
-        private_obs_by_player: List[Dict[str, Any]] = []
-        for player_id in range(len(state.players)):
-            if player_id == int(viewer_player_id):
-                private_obs_by_player.append(viewer_private_obs)
-                continue
-            private_obs_by_player.append(
-                main.build_private_observation(state, viewer_player_id=player_id)
-            )
-        global_vec = self.encode_global_state_from_state(
-            state,
-            public_vec=public_vec,
-            private_obs_by_player=private_obs_by_player,
-        )
-        return local_vec, global_vec
+    ) -> np.ndarray:
+        return self.encode_local_state_from_state(state, viewer_player_id)

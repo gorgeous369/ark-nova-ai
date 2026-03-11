@@ -1,16 +1,16 @@
-"""Self-play training loop for Masked PPO / Recurrent PPO / MAPPO."""
+"""Self-play training loop for Masked PPO / Recurrent PPO."""
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter
 from concurrent.futures import Executor, ProcessPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 import multiprocessing as mp
 from pathlib import Path
 import random
 import time
-from typing import Any, DefaultDict, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -35,19 +35,103 @@ from .runtime import (
 
 
 @dataclass
-class RolloutStep:
+class RolloutSequence:
     sequence_key: Tuple[int, int]
     actor_id: int
     state_vec: np.ndarray
-    global_state_vec: np.ndarray
     action_features: np.ndarray
     action_mask: np.ndarray
-    action_index: int
-    old_logprob: float
-    old_value: float
-    reward: float = 0.0
-    advantage: float = 0.0
-    return_: float = 0.0
+    action_count: np.ndarray
+    action_index: np.ndarray
+    old_logprob: np.ndarray
+    old_value: np.ndarray
+    reward: np.ndarray
+    advantage: np.ndarray = field(default_factory=lambda: np.zeros((0,), dtype=np.float32))
+    return_: np.ndarray = field(default_factory=lambda: np.zeros((0,), dtype=np.float32))
+
+    @property
+    def step_count(self) -> int:
+        return int(self.action_index.shape[0])
+
+
+@dataclass
+class _RolloutSequenceBuilder:
+    sequence_key: Tuple[int, int]
+    actor_id: int
+    state_vecs: List[np.ndarray] = field(default_factory=list)
+    action_feature_steps: List[np.ndarray] = field(default_factory=list)
+    action_mask_steps: List[np.ndarray] = field(default_factory=list)
+    action_indices: List[int] = field(default_factory=list)
+    old_logprobs: List[float] = field(default_factory=list)
+    old_values: List[float] = field(default_factory=list)
+    rewards: List[float] = field(default_factory=list)
+
+    @property
+    def step_count(self) -> int:
+        return len(self.action_indices)
+
+    def append(
+        self,
+        *,
+        state_vec: np.ndarray,
+        action_features: np.ndarray,
+        action_mask: np.ndarray,
+        action_index: int,
+        old_logprob: float,
+        old_value: float,
+        reward: float,
+    ) -> None:
+        self.state_vecs.append(np.asarray(state_vec, dtype=np.float32))
+        self.action_feature_steps.append(np.asarray(action_features, dtype=np.float32))
+        self.action_mask_steps.append(np.asarray(action_mask, dtype=np.bool_))
+        self.action_indices.append(int(action_index))
+        self.old_logprobs.append(float(old_logprob))
+        self.old_values.append(float(old_value))
+        self.rewards.append(float(reward))
+
+    def add_terminal_reward(self, reward_delta: float) -> None:
+        if not self.rewards:
+            return
+        self.rewards[-1] = float(self.rewards[-1] + float(reward_delta))
+
+    def finalize(self) -> RolloutSequence:
+        if not self.state_vecs:
+            raise ValueError("Cannot finalize an empty rollout sequence.")
+
+        step_count = len(self.state_vecs)
+        action_dim = int(self.action_feature_steps[0].shape[1]) if self.action_feature_steps else 0
+        action_count = np.asarray(
+            [int(step_features.shape[0]) for step_features in self.action_feature_steps],
+            dtype=np.int32,
+        )
+        max_action_count = int(np.max(action_count)) if action_count.size > 0 else 0
+
+        state_array = np.stack(self.state_vecs, axis=0).astype(np.float32, copy=False)
+        action_array = np.zeros((step_count, max_action_count, action_dim), dtype=np.float32)
+        mask_array = np.zeros((step_count, max_action_count), dtype=np.bool_)
+
+        for idx, (step_features, step_mask) in enumerate(zip(self.action_feature_steps, self.action_mask_steps)):
+            legal_count = int(action_count[idx])
+            if legal_count <= 0:
+                continue
+            action_array[idx, :legal_count] = step_features[:legal_count]
+            mask_array[idx, :legal_count] = step_mask[:legal_count]
+
+        scalar_shape = (step_count,)
+        return RolloutSequence(
+            sequence_key=self.sequence_key,
+            actor_id=int(self.actor_id),
+            state_vec=state_array,
+            action_features=action_array,
+            action_mask=mask_array,
+            action_count=action_count,
+            action_index=np.asarray(self.action_indices, dtype=np.int64),
+            old_logprob=np.asarray(self.old_logprobs, dtype=np.float32),
+            old_value=np.asarray(self.old_values, dtype=np.float32),
+            reward=np.asarray(self.rewards, dtype=np.float32),
+            advantage=np.zeros(scalar_shape, dtype=np.float32),
+            return_=np.zeros(scalar_shape, dtype=np.float32),
+        )
 
 
 @dataclass
@@ -71,11 +155,14 @@ class TrainUpdateMetrics:
 @dataclass
 class EpisodeRolloutResult:
     episode_index: int
-    rollout_steps: List[RolloutStep]
+    rollout_sequences: List[RolloutSequence]
     completed_rounds: int
     terminal_abs_diffs: List[float]
     terminal_reason: str
     elapsed_seconds: float
+
+
+_FEEDFORWARD_STEP_BATCH_SIZE = 256
 
 def _progress_score_diff(state: main.GameState, player_id: int) -> float:
     actor_score = float(main._progress_score(state.players[player_id]))
@@ -127,8 +214,13 @@ def _terminal_outcome(state: main.GameState, player_id: int) -> int:
     return 0
 
 
-def _to_tensor(array: np.ndarray, *, device: torch.device) -> torch.Tensor:
-    return torch.as_tensor(array, dtype=torch.float32, device=device)
+def _to_tensor(
+    array: np.ndarray,
+    *,
+    device: torch.device,
+    dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    return torch.as_tensor(array, dtype=dtype, device=device)
 
 
 def _collect_episode_rollout(
@@ -148,8 +240,7 @@ def _collect_episode_rollout(
         for player_id in range(len(state.players)):
             hidden_by_actor[player_id] = model.init_hidden(1, device=device)
 
-    rollout_steps: List[RolloutStep] = []
-    sequence_indices: DefaultDict[Tuple[int, int], List[int]] = defaultdict(list)
+    sequence_builders: Dict[Tuple[int, int], _RolloutSequenceBuilder] = {}
     terminal_abs_diffs: List[float] = []
 
     while str(state.pending_decision_kind or "").strip() or not state.game_over():
@@ -161,18 +252,13 @@ def _collect_episode_rollout(
                 f"No legal actions for actor={actor_id} pending={state.pending_decision_kind!r}."
             )
 
-        state_vec, global_vec = obs_encoder.encode_from_state(
-            state,
-            actor_id,
-            include_global=bool(model.use_centralized_value),
-        )
+        state_vec = obs_encoder.encode_from_state(state, actor_id)
         action_features = action_encoder.encode_many(legal)
-        action_mask = np.ones((len(legal),), dtype=np.float32)
+        action_mask = np.ones((len(legal),), dtype=np.bool_)
 
         state_t = _to_tensor(state_vec, device=device).unsqueeze(0)
-        global_t = _to_tensor(global_vec, device=device).unsqueeze(0)
         action_t = _to_tensor(action_features, device=device).unsqueeze(0)
-        mask_t = _to_tensor(action_mask, device=device).unsqueeze(0)
+        mask_t = _to_tensor(action_mask, device=device, dtype=torch.bool).unsqueeze(0)
 
         hidden = hidden_by_actor.get(actor_id) if model.use_lstm else None
         with torch.no_grad():
@@ -181,7 +267,6 @@ def _collect_episode_rollout(
                 action_features=action_t,
                 action_mask=mask_t,
                 hidden=hidden,
-                global_state_vec=global_t if model.use_centralized_value else None,
             )
             dist = Categorical(logits=logits[0])
             sampled_index = int(dist.sample().item())
@@ -207,11 +292,16 @@ def _collect_episode_rollout(
             reward += float(config.endgame_trigger_reward)
             reward += _endgame_speed_bonus(state=state, config=config)
 
-        step = RolloutStep(
-            sequence_key=(episode_index, actor_id),
-            actor_id=actor_id,
+        sequence_key = (episode_index, actor_id)
+        builder = sequence_builders.get(sequence_key)
+        if builder is None:
+            builder = _RolloutSequenceBuilder(
+                sequence_key=sequence_key,
+                actor_id=actor_id,
+            )
+            sequence_builders[sequence_key] = builder
+        builder.append(
             state_vec=state_vec,
-            global_state_vec=global_vec,
             action_features=action_features,
             action_mask=action_mask,
             action_index=sampled_index,
@@ -219,24 +309,21 @@ def _collect_episode_rollout(
             old_value=predicted_value,
             reward=float(reward),
         )
-        step_index = len(rollout_steps)
-        rollout_steps.append(step)
-        sequence_indices[step.sequence_key].append(step_index)
 
     for player_id in range(len(state.players)):
         seq_key = (episode_index, player_id)
-        if seq_key not in sequence_indices or not sequence_indices[seq_key]:
+        builder = sequence_builders.get(seq_key)
+        if builder is None or builder.step_count <= 0:
             continue
         terminal_diff = _terminal_score_diff(state, player_id)
         terminal_abs_diffs.append(abs(float(terminal_diff)))
-        last_step_idx = sequence_indices[seq_key][-1]
         terminal_reward = float(config.terminal_reward_scale) * float(terminal_diff)
         outcome = _terminal_outcome(state, player_id)
         if outcome > 0:
             terminal_reward += float(config.terminal_win_bonus)
         elif outcome < 0:
             terminal_reward -= float(config.terminal_loss_penalty)
-        rollout_steps[last_step_idx].reward += terminal_reward
+        builder.add_terminal_reward(terminal_reward)
 
     terminal_reason = str(state.forced_game_over_reason or "")
     if not terminal_reason and state.endgame_trigger_player is not None:
@@ -244,9 +331,15 @@ def _collect_episode_rollout(
     if not terminal_reason:
         terminal_reason = "unknown_terminal_reason"
 
+    rollout_sequences = [
+        sequence_builders[key].finalize()
+        for key in sorted(sequence_builders)
+        if sequence_builders[key].step_count > 0
+    ]
+
     return EpisodeRolloutResult(
         episode_index=int(episode_index),
-        rollout_steps=rollout_steps,
+        rollout_sequences=rollout_sequences,
         completed_rounds=int(main._completed_rounds(state)),
         terminal_abs_diffs=terminal_abs_diffs,
         terminal_reason=terminal_reason,
@@ -254,37 +347,35 @@ def _collect_episode_rollout(
     )
 
 
-def _build_sequence_indices(
-    rollout_steps: Sequence[RolloutStep],
-) -> DefaultDict[Tuple[int, int], List[int]]:
-    sequence_indices: DefaultDict[Tuple[int, int], List[int]] = defaultdict(list)
-    for step_index, step in enumerate(rollout_steps):
-        sequence_indices[step.sequence_key].append(step_index)
-    return sequence_indices
-
-
 def _finalize_rollout_advantages(
     *,
-    rollout_steps: Sequence[RolloutStep],
-    sequence_indices: Dict[Tuple[int, int], List[int]],
+    rollout_sequences: Sequence[RolloutSequence],
     config: PPOTrainConfig,
 ) -> None:
-    for indices in sequence_indices.values():
+    gamma = float(config.gamma)
+    gae_lambda = float(config.gae_lambda)
+    for rollout_sequence in rollout_sequences:
+        step_count = int(rollout_sequence.step_count)
+        if step_count <= 0:
+            continue
+        advantages = np.zeros((step_count,), dtype=np.float32)
         gae = 0.0
-        for local_pos in range(len(indices) - 1, -1, -1):
-            step_idx = indices[local_pos]
-            step = rollout_steps[step_idx]
-            if local_pos == len(indices) - 1:
+        for step_idx in range(step_count - 1, -1, -1):
+            if step_idx == step_count - 1:
                 next_value = 0.0
                 nonterminal = 0.0
             else:
-                next_step = rollout_steps[indices[local_pos + 1]]
-                next_value = float(next_step.old_value)
+                next_value = float(rollout_sequence.old_value[step_idx + 1])
                 nonterminal = 1.0
-            delta = float(step.reward) + float(config.gamma) * next_value * nonterminal - float(step.old_value)
-            gae = delta + float(config.gamma) * float(config.gae_lambda) * nonterminal * gae
-            step.advantage = float(gae)
-            step.return_ = float(step.old_value + step.advantage)
+            delta = (
+                float(rollout_sequence.reward[step_idx])
+                + gamma * next_value * nonterminal
+                - float(rollout_sequence.old_value[step_idx])
+            )
+            gae = delta + gamma * gae_lambda * nonterminal * gae
+            advantages[step_idx] = float(gae)
+        rollout_sequence.advantage = advantages
+        rollout_sequence.return_ = rollout_sequence.old_value.astype(np.float32, copy=False) + advantages
 
 
 def _state_dict_to_cpu(model_state_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -348,9 +439,9 @@ def _collect_rollout(
     device: torch.device,
     update_index: int,
     rollout_executor: Optional[Executor] = None,
-) -> Tuple[List[RolloutStep], Dict[str, Any]]:
+) -> Tuple[List[RolloutSequence], Dict[str, Any]]:
     del update_index
-    rollout_steps: List[RolloutStep] = []
+    rollout_sequences: List[RolloutSequence] = []
     episode_rounds: List[int] = []
     episode_elapsed_seconds: List[float] = []
     terminal_abs_diffs: List[float] = []
@@ -395,22 +486,21 @@ def _collect_rollout(
 
     episode_results.sort(key=lambda item: int(item.episode_index))
     for episode_result in episode_results:
-        rollout_steps.extend(episode_result.rollout_steps)
+        rollout_sequences.extend(episode_result.rollout_sequences)
         episode_rounds.append(int(episode_result.completed_rounds))
         episode_elapsed_seconds.append(float(episode_result.elapsed_seconds))
         terminal_abs_diffs.extend(float(value) for value in episode_result.terminal_abs_diffs)
         terminal_reason_counter[str(episode_result.terminal_reason)] += 1
 
-    sequence_indices = _build_sequence_indices(rollout_steps)
     _finalize_rollout_advantages(
-        rollout_steps=rollout_steps,
-        sequence_indices=sequence_indices,
+        rollout_sequences=rollout_sequences,
         config=config,
     )
+    step_count = sum(int(sequence.step_count) for sequence in rollout_sequences)
 
     rollout_stats = {
         "episode_count": len(episode_results),
-        "step_count": len(rollout_steps),
+        "step_count": step_count,
         "avg_completed_rounds": float(np.mean(episode_rounds)) if episode_rounds else 0.0,
         "avg_terminal_score_diff_abs": (
             float(np.mean(terminal_abs_diffs))
@@ -428,9 +518,8 @@ def _collect_rollout(
             float(np.max(episode_elapsed_seconds)) if episode_elapsed_seconds else 0.0
         ),
         "terminal_reason_counts": dict(terminal_reason_counter),
-        "sequence_indices": sequence_indices,
     }
-    return rollout_steps, rollout_stats
+    return rollout_sequences, rollout_stats
 
 
 def _zero_loss_metrics() -> Dict[str, float]:
@@ -442,179 +531,201 @@ def _zero_loss_metrics() -> Dict[str, float]:
     }
 
 
-def _build_feedforward_training_batch(
-    rollout_steps: Sequence[RolloutStep],
-    normalized_advantages: np.ndarray,
+def _iter_feedforward_step_refs(
+    rollout_sequences: Sequence[RolloutSequence],
+    *,
+    batch_size: int,
+) -> Iterator[List[Tuple[int, int]]]:
+    current_batch: List[Tuple[int, int]] = []
+    for sequence_idx, rollout_sequence in enumerate(rollout_sequences):
+        for step_idx in range(int(rollout_sequence.step_count)):
+            current_batch.append((sequence_idx, step_idx))
+            if len(current_batch) >= batch_size:
+                yield current_batch
+                current_batch = []
+    if current_batch:
+        yield current_batch
+
+
+def _build_feedforward_training_batch_from_refs(
+    rollout_sequences: Sequence[RolloutSequence],
+    normalized_advantages: Sequence[np.ndarray],
+    step_refs: Sequence[Tuple[int, int]],
     *,
     device: torch.device,
 ) -> Dict[str, torch.Tensor]:
-    step_count = len(rollout_steps)
-    max_action_count = max(int(step.action_features.shape[0]) for step in rollout_steps)
-    action_dim = int(rollout_steps[0].action_features.shape[1])
+    if not step_refs:
+        raise ValueError("step_refs must be non-empty.")
 
-    state_array = np.stack([step.state_vec for step in rollout_steps], axis=0).astype(np.float32)
-    global_array = np.stack([step.global_state_vec for step in rollout_steps], axis=0).astype(np.float32)
-    action_array = np.zeros((step_count, max_action_count, action_dim), dtype=np.float32)
-    mask_array = np.zeros((step_count, max_action_count), dtype=np.float32)
-    action_indices = np.zeros((step_count,), dtype=np.int64)
-    old_logprobs = np.zeros((step_count,), dtype=np.float32)
-    returns = np.zeros((step_count,), dtype=np.float32)
+    batch_size = len(step_refs)
+    first_sequence = rollout_sequences[step_refs[0][0]]
+    state_dim = int(first_sequence.state_vec.shape[1])
+    action_dim = int(first_sequence.action_features.shape[2])
+    max_action_count = max(
+        int(rollout_sequences[sequence_idx].action_count[step_idx])
+        for sequence_idx, step_idx in step_refs
+    )
 
-    for idx, step in enumerate(rollout_steps):
-        action_count = int(step.action_features.shape[0])
-        action_array[idx, :action_count] = step.action_features
-        mask_array[idx, :action_count] = step.action_mask
-        action_indices[idx] = int(step.action_index)
-        old_logprobs[idx] = float(step.old_logprob)
-        returns[idx] = float(step.return_)
+    state_array = np.zeros((batch_size, state_dim), dtype=np.float32)
+    action_array = np.zeros((batch_size, max_action_count, action_dim), dtype=np.float32)
+    mask_array = np.zeros((batch_size, max_action_count), dtype=np.bool_)
+    action_indices = np.zeros((batch_size,), dtype=np.int64)
+    old_logprobs = np.zeros((batch_size,), dtype=np.float32)
+    returns = np.zeros((batch_size,), dtype=np.float32)
+    advantages = np.zeros((batch_size,), dtype=np.float32)
+
+    for batch_idx, (sequence_idx, step_idx) in enumerate(step_refs):
+        rollout_sequence = rollout_sequences[sequence_idx]
+        action_count = int(rollout_sequence.action_count[step_idx])
+        state_array[batch_idx] = rollout_sequence.state_vec[step_idx]
+        action_array[batch_idx, :action_count] = rollout_sequence.action_features[step_idx, :action_count]
+        mask_array[batch_idx, :action_count] = rollout_sequence.action_mask[step_idx, :action_count]
+        action_indices[batch_idx] = int(rollout_sequence.action_index[step_idx])
+        old_logprobs[batch_idx] = float(rollout_sequence.old_logprob[step_idx])
+        returns[batch_idx] = float(rollout_sequence.return_[step_idx])
+        advantages[batch_idx] = float(normalized_advantages[sequence_idx][step_idx])
 
     return {
         "state_vec": _to_tensor(state_array, device=device),
-        "global_state_vec": _to_tensor(global_array, device=device),
         "action_features": _to_tensor(action_array, device=device),
-        "action_mask": _to_tensor(mask_array, device=device),
+        "action_mask": _to_tensor(mask_array, device=device, dtype=torch.bool),
         "action_index": torch.as_tensor(action_indices, dtype=torch.long, device=device),
         "old_logprob": _to_tensor(old_logprobs, device=device),
         "target_return": _to_tensor(returns, device=device),
-        "advantage": _to_tensor(normalized_advantages, device=device),
+        "advantage": _to_tensor(advantages, device=device),
     }
 
 
-def _build_recurrent_training_sequences(
-    rollout_steps: Sequence[RolloutStep],
-    ordered_sequences: Sequence[Tuple[Tuple[int, int], List[int]]],
-    normalized_advantages: np.ndarray,
+def _tensorize_rollout_sequence(
+    rollout_sequence: RolloutSequence,
+    normalized_advantage: np.ndarray,
     *,
     device: torch.device,
-) -> List[Dict[str, torch.Tensor]]:
-    sequence_batches: List[Dict[str, torch.Tensor]] = []
-    for _sequence_key, indices in ordered_sequences:
-        if not indices:
-            continue
-        max_action_count = max(int(rollout_steps[step_idx].action_features.shape[0]) for step_idx in indices)
-        action_dim = int(rollout_steps[indices[0]].action_features.shape[1])
-        step_count = len(indices)
-
-        state_array = np.stack([rollout_steps[step_idx].state_vec for step_idx in indices], axis=0).astype(np.float32)
-        global_array = np.stack(
-            [rollout_steps[step_idx].global_state_vec for step_idx in indices],
-            axis=0,
-        ).astype(np.float32)
-        action_array = np.zeros((step_count, max_action_count, action_dim), dtype=np.float32)
-        mask_array = np.zeros((step_count, max_action_count), dtype=np.float32)
-        action_indices = np.zeros((step_count,), dtype=np.int64)
-        old_logprobs = np.zeros((step_count,), dtype=np.float32)
-        returns = np.zeros((step_count,), dtype=np.float32)
-        advantages = np.zeros((step_count,), dtype=np.float32)
-
-        for seq_idx, step_idx in enumerate(indices):
-            step = rollout_steps[step_idx]
-            action_count = int(step.action_features.shape[0])
-            action_array[seq_idx, :action_count] = step.action_features
-            mask_array[seq_idx, :action_count] = step.action_mask
-            action_indices[seq_idx] = int(step.action_index)
-            old_logprobs[seq_idx] = float(step.old_logprob)
-            returns[seq_idx] = float(step.return_)
-            advantages[seq_idx] = float(normalized_advantages[step_idx])
-
-        sequence_batches.append(
-            {
-                "state_vec": _to_tensor(state_array, device=device),
-                "global_state_vec": _to_tensor(global_array, device=device),
-                "action_features": _to_tensor(action_array, device=device),
-                "action_mask": _to_tensor(mask_array, device=device),
-                "action_index": torch.as_tensor(action_indices, dtype=torch.long, device=device),
-                "old_logprob": _to_tensor(old_logprobs, device=device),
-                "target_return": _to_tensor(returns, device=device),
-                "advantage": _to_tensor(advantages, device=device),
-            }
-        )
-    return sequence_batches
+) -> Dict[str, torch.Tensor]:
+    return {
+        "state_vec": _to_tensor(rollout_sequence.state_vec, device=device),
+        "action_features": _to_tensor(rollout_sequence.action_features, device=device),
+        "action_mask": _to_tensor(rollout_sequence.action_mask, device=device, dtype=torch.bool),
+        "action_index": torch.as_tensor(rollout_sequence.action_index, dtype=torch.long, device=device),
+        "old_logprob": _to_tensor(rollout_sequence.old_logprob, device=device),
+        "target_return": _to_tensor(rollout_sequence.return_, device=device),
+        "advantage": _to_tensor(normalized_advantage, device=device),
+    }
 
 
 def _update_model(
     *,
     model: MaskedActorCritic,
     optimizer: torch.optim.Optimizer,
-    rollout_steps: Sequence[RolloutStep],
-    sequence_indices: Dict[Tuple[int, int], List[int]],
+    rollout_sequences: Sequence[RolloutSequence],
     config: PPOTrainConfig,
     device: torch.device,
 ) -> Dict[str, float]:
-    if not rollout_steps:
+    if not rollout_sequences:
         return _zero_loss_metrics()
 
-    advantages = np.asarray([float(step.advantage) for step in rollout_steps], dtype=np.float32)
+    advantages = np.concatenate(
+        [
+            np.asarray(sequence.advantage, dtype=np.float32)
+            for sequence in rollout_sequences
+            if int(sequence.step_count) > 0
+        ],
+        axis=0,
+    )
+    if advantages.size <= 0:
+        return _zero_loss_metrics()
     adv_mean = float(np.mean(advantages))
     adv_std = float(np.std(advantages))
     if adv_std < 1e-8:
         adv_std = 1.0
-    normalized_advantages = (advantages - adv_mean) / adv_std
+    normalized_advantages = [
+        (
+            np.asarray(sequence.advantage, dtype=np.float32) - adv_mean
+        ) / adv_std
+        for sequence in rollout_sequences
+    ]
+    total_step_count = sum(int(sequence.step_count) for sequence in rollout_sequences)
+    if total_step_count <= 0:
+        return _zero_loss_metrics()
 
     epoch_policy_losses: List[float] = []
     epoch_value_losses: List[float] = []
     epoch_entropies: List[float] = []
     epoch_total_losses: List[float] = []
 
-    ordered_sequences = sorted(sequence_indices.items(), key=lambda item: item[0])
-    feedforward_batch: Optional[Dict[str, torch.Tensor]] = None
-    recurrent_batches: Optional[List[Dict[str, torch.Tensor]]] = None
-    if not model.use_lstm:
-        feedforward_batch = _build_feedforward_training_batch(
-            rollout_steps,
-            normalized_advantages,
-            device=device,
-        )
-    else:
-        recurrent_batches = _build_recurrent_training_sequences(
-            rollout_steps,
-            ordered_sequences,
-            normalized_advantages,
-            device=device,
-        )
     for _ in range(config.update_epochs):
-        if feedforward_batch is not None:
-            logits, values, _ = model.forward_step(
-                state_vec=feedforward_batch["state_vec"],
-                action_features=feedforward_batch["action_features"],
-                action_mask=feedforward_batch["action_mask"],
-                hidden=None,
-                global_state_vec=(
-                    feedforward_batch["global_state_vec"]
-                    if model.use_centralized_value
-                    else None
-                ),
-            )
-            step_log_probs = torch.log_softmax(logits, dim=-1)
-            step_probs = torch.softmax(logits, dim=-1)
-            chosen_indices = feedforward_batch["action_index"].unsqueeze(1)
-            new_logprob = step_log_probs.gather(1, chosen_indices).squeeze(1)
-            entropy = -(step_probs * step_log_probs).sum(dim=-1)
-            old_logprob = feedforward_batch["old_logprob"]
-            target_return = feedforward_batch["target_return"]
-            advantage = feedforward_batch["advantage"]
-            ratio = torch.exp(new_logprob - old_logprob)
-            clipped_ratio = torch.clamp(
-                ratio,
-                1.0 - float(config.clip_epsilon),
-                1.0 + float(config.clip_epsilon),
-            )
-            surrogate_1 = ratio * advantage
-            surrogate_2 = clipped_ratio * advantage
-            policy_loss = -torch.min(surrogate_1, surrogate_2).mean()
-            value_loss = ((target_return - values) ** 2).mean()
-            entropy_mean = entropy.mean()
-        else:
-            policy_losses_t: List[torch.Tensor] = []
-            value_losses_t: List[torch.Tensor] = []
-            entropies_t: List[torch.Tensor] = []
+        optimizer.zero_grad(set_to_none=True)
+        epoch_policy_loss = 0.0
+        epoch_value_loss = 0.0
+        epoch_entropy = 0.0
+        epoch_total_loss = 0.0
+        processed_weight = 0.0
 
-            for sequence_batch in recurrent_batches or []:
+        if not model.use_lstm:
+            for step_refs in _iter_feedforward_step_refs(
+                rollout_sequences,
+                batch_size=_FEEDFORWARD_STEP_BATCH_SIZE,
+            ):
+                batch = _build_feedforward_training_batch_from_refs(
+                    rollout_sequences,
+                    normalized_advantages,
+                    step_refs,
+                    device=device,
+                )
+                logits, values, _ = model.forward_step(
+                    state_vec=batch["state_vec"],
+                    action_features=batch["action_features"],
+                    action_mask=batch["action_mask"],
+                    hidden=None,
+                )
+                step_log_probs = torch.log_softmax(logits, dim=-1)
+                step_probs = torch.softmax(logits, dim=-1)
+                chosen_indices = batch["action_index"].unsqueeze(1)
+                new_logprob = step_log_probs.gather(1, chosen_indices).squeeze(1)
+                entropy = -(step_probs * step_log_probs).sum(dim=-1)
+                old_logprob = batch["old_logprob"]
+                target_return = batch["target_return"]
+                advantage = batch["advantage"]
+                ratio = torch.exp(new_logprob - old_logprob)
+                clipped_ratio = torch.clamp(
+                    ratio,
+                    1.0 - float(config.clip_epsilon),
+                    1.0 + float(config.clip_epsilon),
+                )
+                surrogate_1 = ratio * advantage
+                surrogate_2 = clipped_ratio * advantage
+                policy_loss = -torch.min(surrogate_1, surrogate_2).mean()
+                value_loss = ((target_return - values) ** 2).mean()
+                entropy_mean = entropy.mean()
+                total_loss = (
+                    policy_loss
+                    + float(config.value_coef) * value_loss
+                    - float(config.entropy_coef) * entropy_mean
+                )
+                batch_weight = float(len(step_refs)) / float(total_step_count)
+                (total_loss * batch_weight).backward()
+                processed_weight += batch_weight
+                epoch_policy_loss += float(policy_loss.detach().cpu().item()) * batch_weight
+                epoch_value_loss += float(value_loss.detach().cpu().item()) * batch_weight
+                epoch_entropy += float(entropy_mean.detach().cpu().item()) * batch_weight
+                epoch_total_loss += float(total_loss.detach().cpu().item()) * batch_weight
+        else:
+            for sequence_idx, rollout_sequence in enumerate(rollout_sequences):
+                step_count = int(rollout_sequence.step_count)
+                if step_count <= 0:
+                    continue
+                sequence_batch = _tensorize_rollout_sequence(
+                    rollout_sequence,
+                    normalized_advantages[sequence_idx],
+                    device=device,
+                )
                 hidden = model.init_hidden(1, device=device)
-                step_count = int(sequence_batch["state_vec"].shape[0])
+                policy_losses_t: List[torch.Tensor] = []
+                value_losses_t: List[torch.Tensor] = []
+                entropies_t: List[torch.Tensor] = []
+
                 for step_idx in range(step_count):
                     state_t = sequence_batch["state_vec"][step_idx : step_idx + 1]
-                    global_t = sequence_batch["global_state_vec"][step_idx : step_idx + 1]
                     action_t = sequence_batch["action_features"][step_idx : step_idx + 1]
                     mask_t = sequence_batch["action_mask"][step_idx : step_idx + 1]
                     logits, values, hidden = model.forward_step(
@@ -622,7 +733,6 @@ def _update_model(
                         action_features=action_t,
                         action_mask=mask_t,
                         hidden=hidden,
-                        global_state_vec=global_t if model.use_centralized_value else None,
                     )
                     step_log_probs = torch.log_softmax(logits[0], dim=-1)
                     step_probs = torch.softmax(logits[0], dim=-1)
@@ -647,30 +757,36 @@ def _update_model(
                     value_losses_t.append((target_return - new_value) ** 2)
                     entropies_t.append(entropy)
 
-            if not policy_losses_t:
-                break
+                if not policy_losses_t:
+                    continue
 
-            policy_loss = torch.stack(policy_losses_t).mean()
-            value_loss = torch.stack(value_losses_t).mean()
-            entropy_mean = torch.stack(entropies_t).mean()
+                policy_loss = torch.stack(policy_losses_t).mean()
+                value_loss = torch.stack(value_losses_t).mean()
+                entropy_mean = torch.stack(entropies_t).mean()
+                total_loss = (
+                    policy_loss
+                    + float(config.value_coef) * value_loss
+                    - float(config.entropy_coef) * entropy_mean
+                )
+                sequence_weight = float(step_count) / float(total_step_count)
+                (total_loss * sequence_weight).backward()
+                processed_weight += sequence_weight
+                epoch_policy_loss += float(policy_loss.detach().cpu().item()) * sequence_weight
+                epoch_value_loss += float(value_loss.detach().cpu().item()) * sequence_weight
+                epoch_entropy += float(entropy_mean.detach().cpu().item()) * sequence_weight
+                epoch_total_loss += float(total_loss.detach().cpu().item()) * sequence_weight
 
-        if policy_loss.numel() == 0:
+        if processed_weight <= 0.0:
+            optimizer.zero_grad(set_to_none=True)
             break
-        total_loss = (
-            policy_loss
-            + float(config.value_coef) * value_loss
-            - float(config.entropy_coef) * entropy_mean
-        )
 
-        optimizer.zero_grad(set_to_none=True)
-        total_loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), float(config.max_grad_norm))
         optimizer.step()
 
-        epoch_policy_losses.append(float(policy_loss.detach().cpu().item()))
-        epoch_value_losses.append(float(value_loss.detach().cpu().item()))
-        epoch_entropies.append(float(entropy_mean.detach().cpu().item()))
-        epoch_total_losses.append(float(total_loss.detach().cpu().item()))
+        epoch_policy_losses.append(epoch_policy_loss)
+        epoch_value_losses.append(epoch_value_loss)
+        epoch_entropies.append(epoch_entropy)
+        epoch_total_losses.append(epoch_total_loss)
 
     if not epoch_policy_losses:
         return _zero_loss_metrics()
@@ -1037,7 +1153,7 @@ def train_self_play(
                 rollout_action_encoder = rollout_bundle.action_encoder
                 rollout_device = inference_device
             rollout_started_at = time.perf_counter()
-            rollout_steps, rollout_stats = _collect_rollout(
+            rollout_sequences, rollout_stats = _collect_rollout(
                 model=rollout_model,
                 obs_encoder=rollout_obs_encoder,
                 action_encoder=rollout_action_encoder,
@@ -1052,8 +1168,7 @@ def train_self_play(
             update_stats = _update_model(
                 model=model,
                 optimizer=optimizer,
-                rollout_steps=rollout_steps,
-                sequence_indices=rollout_stats["sequence_indices"],
+                rollout_sequences=rollout_sequences,
                 config=config,
                 device=device,
             )

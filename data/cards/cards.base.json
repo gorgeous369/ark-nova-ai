@@ -3178,6 +3178,10 @@
       ],
       "effects": [
         {
+          "kind": "immediate",
+          "text": "Gain {Money-2} / {Money-5} / {Money-10} if you have 1 / 2 / 3 universities."
+        },
+        {
           "kind": "passive",
           "text": "Supporting a conservation project requires only {Slot-4} ."
         }
@@ -3199,6 +3203,10 @@
         "Science"
       ],
       "effects": [
+        {
+          "kind": "immediate",
+          "text": "Gain {Money-2} for each research icon in your zoo."
+        },
         {
           "kind": "passive",
           "text": "Each time you play a research icon into your zoo, gain {ConservationPoint-1} ."
@@ -3240,6 +3248,10 @@
       ],
       "effects": [
         {
+          "kind": "immediate",
+          "text": "Gain {Appeal-2} for each conservation project you have supported so far."
+        },
+        {
           "kind": "income",
           "text": "Income: Gain {ConservationPoint-1} ."
         }
@@ -3255,9 +3267,9 @@
       "title": "BASIC RESEARCH",
       "level": 4,
       "required_icons": {
-        "appeal": 1,
         "sponsorsii": 1
       },
+      "max_appeal": 25,
       "badges": [
         "Science"
       ],
@@ -3283,11 +3295,11 @@
       "effects": [
         {
           "kind": "passive",
-          "text": "Each time a research icon is played into any zoo, gain {Money-2} ."
+          "text": "Each time research icons are played into any zoo, gain {Money-2} for each such icon."
         },
         {
           "kind": "immediate",
-          "text": "sponsors.s208_desc2"
+          "text": "Gain {Appeal-1} for each research icon in your zoo."
         },
         {
           "kind": "endgame",
@@ -3309,8 +3321,16 @@
       ],
       "effects": [
         {
+          "kind": "immediate",
+          "text": "Gain 1 {XToken} -token."
+        },
+        {
           "kind": "income",
           "text": "Income: Gain 1 {XToken} -token."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {ConservationPoint-1} if you have at least 3 universities."
         }
       ],
       "data_id": "S209_TechnologyInstitute",
@@ -3325,8 +3345,16 @@
       "level": 4,
       "effects": [
         {
+          "kind": "immediate",
+          "text": "Gain {Appeal-1} for each America icon in your zoo."
+        },
+        {
           "kind": "passive",
           "text": "Each time you play an Americas icon into your zoo, you may build 1 kiosk for free."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {ConservationPoint-1} if you have at least 5 kiosks."
         }
       ],
       "data_id": "S210_ExpertOnTheAmericas",
@@ -3341,8 +3369,16 @@
       "level": 5,
       "effects": [
         {
+          "kind": "immediate",
+          "text": "Gain {Appeal-1} for each Europe icon in your zoo."
+        },
+        {
           "kind": "passive",
           "text": "Each time you play a Europe icon into your zoo, you may build a 1-space enclosure for free."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {ConservationPoint-1} if you have at least 5 occupied standard 1-space enclosures."
         }
       ],
       "data_id": "S211_ExpertOnEurope",
@@ -3356,6 +3392,10 @@
       "title": "EXPERT ON AUSTRALIA",
       "level": 5,
       "effects": [
+        {
+          "kind": "immediate",
+          "text": "Gain {Appeal-1} for each Australia icon in your zoo."
+        },
         {
           "kind": "passive",
           "text": "Each time you play an Australia icon into your zoo, you may place 1 card from your hand under this card to gain {Appeal-2} (pouch 1)."
@@ -3371,7 +3411,14 @@
       "number": 213,
       "title": "EXPERT ON ASIA",
       "level": 5,
+      "badges": [
+        "Asia"
+      ],
       "effects": [
+        {
+          "kind": "immediate",
+          "text": "Gain {Appeal-1} for each Asia icon in your zoo."
+        },
         {
           "kind": "passive",
           "text": "Each time you play an Asia icon into your zoo, you may build 1 pavilion for free."
@@ -3389,8 +3436,16 @@
       "level": 4,
       "effects": [
         {
+          "kind": "immediate",
+          "text": "Gain {Appeal-1} for each Africa icon in your zoo."
+        },
+        {
           "kind": "passive",
           "text": "Each time you play an Africa icon into your zoo, you may place any action card on {Slot-1} ."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {Appeal-1} for each X-token you have."
         }
       ],
       "data_id": "S214_ExpertOnAfrica",
@@ -3433,6 +3488,10 @@
         {
           "kind": "immediate",
           "text": "Hire 1 association worker. (Full-throated)."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {ConservationPoint-1} if you have at least 9 reputation."
         }
       ],
       "data_id": "S216_TalentedCommunicator",
@@ -3449,6 +3508,10 @@
         {
           "kind": "passive",
           "text": "Each time you build at least 1 building with a Build action {BuildActionCard} . you may build exactly 1 more of the same kind (except for special enclosures) at the normal cost."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {Appeal-5} if your zoo map is completely covered."
         }
       ],
       "data_id": "S217_Engineer",
@@ -3498,6 +3561,10 @@
         {
           "kind": "immediate",
           "text": "Gain {Money-2} for each water and rock requirement."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {Appeal-2} for each pair of water and rock requirements, max. {Appeal-6}."
         }
       ],
       "data_id": "S219_DiversityResearcher",
@@ -3515,8 +3582,16 @@
       ],
       "effects": [
         {
+          "kind": "immediate",
+          "text": "Gain {Money-3} ."
+        },
+        {
           "kind": "income",
-          "text": "**Income:** Gain {Money-3} ."
+          "text": "Income: Gain {Money-3} ."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {ConservationPoint-1} if you have at least 9 reputation."
         }
       ],
       "data_id": "S220_FederalGrants",
@@ -3539,6 +3614,10 @@
         {
           "kind": "passive",
           "text": "Each time you gain the placement bonus of a border space in your zoo, you additionally gain another free placement bonus."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {ConservationPoint-1} if all border spaces in your zoo are covered."
         }
       ],
       "data_id": "S221_Archeologist",
@@ -3554,10 +3633,11 @@
       "required_icons": {
         "appeal": 1
       },
+      "max_appeal": 25,
       "effects": [
         {
           "kind": "immediate",
-          "text": "Gain {ConservationPoint-1} each for each research icon. For each {ConservationPoint-1} that you gain this way, all other players gain {Money-2} ."
+          "text": "Gain up to {ConservationPoint-3} total, {ConservationPoint-1} for each research icon. For each {ConservationPoint-1} that you gain this way, all other players gain {Money-2} ."
         }
       ],
       "data_id": "S222_ReleaseOfPatents",
@@ -3571,6 +3651,7 @@
       "title": "SCIENCE INSTITUTE",
       "level": 3,
       "badges": [
+        "Science",
         "Science"
       ],
       "data_id": "S223_ScienceInstitute",
@@ -3591,6 +3672,10 @@
       ],
       "effects": [
         {
+          "kind": "immediate",
+          "text": "Gain 1 {XToken} -token."
+        },
+        {
           "kind": "passive",
           "text": "Each time you support a Release into the Wild conservation project, additionally gain {ConservationPoint-1} . You may support every Release into the Wild conservation project more than once."
         }
@@ -3609,6 +3694,10 @@
         "Science"
       ],
       "effects": [
+        {
+          "kind": "immediate",
+          "text": "Gain 1 {XToken} -token."
+        },
         {
           "kind": "passive",
           "text": "The effects of Venom, Constriction, Hypnosis, and Pilfering do not affect you."
@@ -3649,7 +3738,7 @@
       "title": "WAZA SPECIAL ASSIGNMENT",
       "level": 6,
       "required_icons": {
-        "reputation": 1
+        "reputation": 6
       },
       "effects": [
         {
@@ -3672,9 +3761,13 @@
       "title": "WAZA SMALL ANIMAL PROGRAM",
       "level": 5,
       "required_icons": {
-        "reputation": 1
+        "reputation": 3
       },
       "effects": [
+        {
+          "kind": "immediate",
+          "text": "Gain {Money-2} for each small animal in your zoo."
+        },
         {
           "kind": "passive",
           "text": "Each time you play only small animals in the Animals action {AnimalActionCard} , you may play 1 further small animal at the normal cost. After that, take 1 small animal from the display (if available)."
@@ -3692,6 +3785,10 @@
       "level": 5,
       "effects": [
         {
+          "kind": "immediate",
+          "text": "Gain {Appeal-1} for each small animal in your zoo."
+        },
+        {
           "kind": "passive",
           "text": "Your cost to play a small animal is reduced by {Money-3} ."
         }
@@ -3708,6 +3805,10 @@
       "level": 4,
       "effects": [
         {
+          "kind": "immediate",
+          "text": "Gain {Appeal-2} for each large animal in your zoo."
+        },
+        {
           "kind": "passive",
           "text": "Your cost to play a large animal is reduced by {Money-4} ."
         }
@@ -3722,50 +3823,17 @@
       "number": 231,
       "title": "SPONSORSHIP: PRIMATES",
       "level": 3,
+      "required_icons": {
+        "primate": 1
+      },
       "effects": [
         {
           "kind": "income",
-          "text": "**Income:** Gain {Money-3} / {Money-6} / {Money-9} for 1/3/5 primate icons in your zoo."
+          "text": "Income: Gain {Money-3} / {Money-6} / {Money-9} for 1/3/5 primate icons in your zoo."
         },
         {
           "kind": "immediate",
-          "text": "sponsors.s231_desc2"
-        },
-        {
-          "kind": "income",
-          "text": "**Income:** Gain {Money-3} / {Money-6} / {Money-9} for 1/3/5 reptile icons in your zoo."
-        },
-        {
-          "kind": "immediate",
-          "text": "sponsors.s232_desc2"
-        },
-        {
-          "kind": "income",
-          "text": "**Income:** Gain {Money-3} / {Money-6} / {Money-9} for 1/3/5 bird icons in your zoo."
-        },
-        {
-          "kind": "immediate",
-          "text": "sponsors.s233_desc2"
-        },
-        {
-          "kind": "income",
-          "text": "**Income:** Gain {Money-3} / {Money-6} / {Money-9} for 1/3/5 predator icons in your zoo."
-        },
-        {
-          "kind": "immediate",
-          "text": "sponsors.s234_desc2"
-        },
-        {
-          "kind": "income",
-          "text": "**Income:** Gain {Money-3} / {Money-6} / {Money-9} for 1/3/5 herbivore icons in your zoo."
-        },
-        {
-          "kind": "immediate",
-          "text": "sponsors.s235_desc2"
-        },
-        {
-          "kind": "passive",
-          "text": "Each time a primate icon is played into **any** zoo, gain {Money-3} ."
+          "text": "Gain {Appeal-1} for each primate icon in your zoo."
         }
       ],
       "data_id": "S231_SponsorshipPrimates",
@@ -3781,10 +3849,18 @@
       "source_url": "https://ark-nova.ender-wiggin.com/card/232",
       "number": 232,
       "title": "SPONSORSHIP: REPTILES",
+      "level": 3,
+      "required_icons": {
+        "reptile": 1
+      },
       "effects": [
         {
           "kind": "income",
-          "text": "Income:"
+          "text": "Income: Gain {Money-3} / {Money-6} / {Money-9} for 1/3/5 reptile icons in your zoo."
+        },
+        {
+          "kind": "immediate",
+          "text": "Gain {Appeal-1} for each reptile icon in your zoo."
         }
       ],
       "site_card_id": 232
@@ -3796,10 +3872,18 @@
       "source_url": "https://ark-nova.ender-wiggin.com/card/233",
       "number": 233,
       "title": "SPONSORSHIP: VULTURES",
+      "level": 3,
+      "required_icons": {
+        "bird": 1
+      },
       "effects": [
         {
           "kind": "income",
-          "text": "Income:"
+          "text": "Income: Gain {Money-3} / {Money-6} / {Money-9} for 1/3/5 bird icons in your zoo."
+        },
+        {
+          "kind": "immediate",
+          "text": "Gain {Appeal-1} for each bird icon in your zoo."
         }
       ],
       "site_card_id": 233
@@ -3811,10 +3895,18 @@
       "source_url": "https://ark-nova.ender-wiggin.com/card/234",
       "number": 234,
       "title": "SPONSORSHIP: LIONS",
+      "level": 3,
+      "required_icons": {
+        "predator": 1
+      },
       "effects": [
         {
           "kind": "income",
-          "text": "Income:"
+          "text": "Income: Gain {Money-3} / {Money-6} / {Money-9} for 1/3/5 predator icons in your zoo."
+        },
+        {
+          "kind": "immediate",
+          "text": "Gain {Appeal-1} for each predator icon in your zoo."
         }
       ],
       "site_card_id": 234
@@ -3826,10 +3918,18 @@
       "source_url": "https://ark-nova.ender-wiggin.com/card/235",
       "number": 235,
       "title": "SPONSORSHIP: ELEPHANTS",
+      "level": 3,
+      "required_icons": {
+        "herbivore": 1
+      },
       "effects": [
         {
           "kind": "income",
-          "text": "Income:"
+          "text": "Income: Gain {Money-3} / {Money-6} / {Money-9} for 1/3/5 herbivore icons in your zoo."
+        },
+        {
+          "kind": "immediate",
+          "text": "Gain {Appeal-1} for each herbivore icon in your zoo."
         }
       ],
       "site_card_id": 235
@@ -3841,10 +3941,11 @@
       "source_url": "https://ark-nova.ender-wiggin.com/card/236",
       "number": 236,
       "title": "PRIMATOLOGIST",
+      "level": 4,
       "effects": [
         {
           "kind": "passive",
-          "text": "Each time a primate icon is played into any"
+          "text": "Each time a primate icon is played into **any** zoo, gain {Money-3} ."
         }
       ],
       "site_card_id": 236
@@ -3927,11 +4028,11 @@
         },
         {
           "kind": "immediate",
-          "text": "sponsors.s241_desc2"
+          "text": "Gain {Appeal-1} for each water icon in your zoo."
         },
         {
           "kind": "endgame",
-          "text": "Gain {ConservationPoint-1} , if all water spaces are connected."
+          "text": "Gain {ConservationPoint-1} if all water spaces are connected."
         }
       ],
       "data_id": "S241_Hydrologist",
@@ -3954,11 +4055,11 @@
         },
         {
           "kind": "immediate",
-          "text": "sponsors.s242_desc2"
+          "text": "Gain {Appeal-3} for each pair of rock icons in your zoo."
         },
         {
           "kind": "endgame",
-          "text": "Gain {ConservationPoint-1} , if all rock spaces are connected."
+          "text": "Gain {ConservationPoint-1} if all rock spaces are connected."
         }
       ],
       "data_id": "S242_Geologist",
@@ -3974,6 +4075,9 @@
       "required_icons": {
         "reputation": 1
       },
+      "badges": [
+        "Herbivore"
+      ],
       "effects": [
         {
           "kind": "passive",
@@ -3981,7 +4085,7 @@
         },
         {
           "kind": "endgame",
-          "text": "sponsors.s243_desc2"
+          "text": "Gain {ConservationPoint-1} if you have at least 6 herbivore icons."
         },
         {
           "kind": "immediate",
@@ -4001,6 +4105,9 @@
       "required_icons": {
         "reputation": 1
       },
+      "badges": [
+        "Bird"
+      ],
       "effects": [
         {
           "kind": "passive",
@@ -4008,7 +4115,7 @@
         },
         {
           "kind": "endgame",
-          "text": "sponsors.s243_desc2"
+          "text": "Gain {ConservationPoint-1} if you have at least 6 bird icons."
         },
         {
           "kind": "immediate",
@@ -4026,7 +4133,7 @@
       "title": "AQUARIUM",
       "level": 5,
       "required_icons": {
-        "reputation": 1
+        "reputation": 3
       },
       "effects": [
         {
@@ -4035,7 +4142,7 @@
         },
         {
           "kind": "endgame",
-          "text": "sponsors.s245_desc2"
+          "text": "Gain {ConservationPoint-1} if you have at least 6 water icons."
         },
         {
           "kind": "immediate",
@@ -4059,7 +4166,7 @@
         },
         {
           "kind": "endgame",
-          "text": "sponsors.s246_desc2"
+          "text": "Gain {ConservationPoint-1} if you have at least 6 rock icons."
         },
         {
           "kind": "immediate",
@@ -4076,6 +4183,9 @@
       "number": 247,
       "title": "BABOON ROCK",
       "level": 6,
+      "badges": [
+        "Primate"
+      ],
       "effects": [
         {
           "kind": "passive",
@@ -4083,7 +4193,7 @@
         },
         {
           "kind": "endgame",
-          "text": "sponsors.s247_desc2"
+          "text": "Gain {ConservationPoint-1} if you have at least 6 primate icons."
         },
         {
           "kind": "immediate",
@@ -4100,6 +4210,9 @@
       "number": 248,
       "title": "RHESUS MONKEY PARK",
       "level": 5,
+      "badges": [
+        "Primate"
+      ],
       "effects": [
         {
           "kind": "passive",
@@ -4107,7 +4220,7 @@
         },
         {
           "kind": "immediate",
-          "text": "sponsors.s248_desc2"
+          "text": "Place this unique building in your zoo."
         }
       ],
       "data_id": "S248_RhesusMonkeyPark",
@@ -4127,7 +4240,7 @@
         },
         {
           "kind": "immediate",
-          "text": "sponsors.s249_desc2"
+          "text": "Place this 3-space building in a straight line."
         }
       ],
       "data_id": "S249_BarredOwlHut",
@@ -4140,14 +4253,17 @@
       "number": 250,
       "title": "SEA TURTLE TANK",
       "level": 5,
+      "badges": [
+        "Reptile"
+      ],
       "effects": [
         {
           "kind": "passive",
-          "text": "Each time you play a reptile icon into your zoo, you may sell up to 2 cards from your hand for each (Sunbathing 2)."
+          "text": "Each time you play a reptile icon into your zoo, you may sell up to 2 cards from your hand for {Money-4} each (Sunbathing 2)."
         },
         {
           "kind": "immediate",
-          "text": "sponsors.s250_desc2"
+          "text": "Place next to at least 1 water space."
         }
       ],
       "data_id": "S250_SeaTurtleTank",
@@ -4160,6 +4276,10 @@
       "number": 251,
       "title": "POLAR BEAR EXHIBIT",
       "level": 5,
+      "badges": [
+        "Predator",
+        "Bear"
+      ],
       "effects": [
         {
           "kind": "passive",
@@ -4167,7 +4287,11 @@
         },
         {
           "kind": "immediate",
-          "text": "sponsors.s251_desc2"
+          "text": "Place next to at least 1 water space."
+        },
+        {
+          "kind": "endgame",
+          "text": "Gain {ConservationPoint-1} / {ConservationPoint-2} for 3 / 6 bear icons."
         }
       ],
       "data_id": "S251_PolarBearExhibit",
@@ -4180,6 +4304,9 @@
       "number": 252,
       "title": "SPOTTED HYENA COMPOUND",
       "level": 5,
+      "badges": [
+        "Predator"
+      ],
       "effects": [
         {
           "kind": "passive",
@@ -4187,7 +4314,7 @@
         },
         {
           "kind": "immediate",
-          "text": "sponsors.s252_desc2"
+          "text": "Place next to at least 1 rock space."
         }
       ],
       "data_id": "S252_SpottedHyenaCompound",
@@ -4200,14 +4327,17 @@
       "number": 253,
       "title": "OKAPI STABLE",
       "level": 6,
+      "badges": [
+        "Herbivore"
+      ],
       "effects": [
         {
           "kind": "passive",
-          "text": "Place 3 player tokens on this card. Each time you play a Herbivore icon into your zoo, you may remove 1 token and play a sponsors card for {Money-X} ( {Money-X} = {Slot-X} )."
+          "text": "Place 3 player tokens on this card. Each time you play a herbivore icon into your zoo, you may remove exactly 1 token and play 1 sponsors card from your hand by paying its level."
         },
         {
           "kind": "immediate",
-          "text": "sponsors.s253_desc2"
+          "text": "Place this 4-space building."
         }
       ],
       "data_id": "S253_OkapiStable",
@@ -4261,6 +4391,7 @@
           "text": "Place next to at least 1 water space."
         }
       ],
+      "appeal": 4,
       "data_id": "S256_WaterPlayground",
       "type": "sponsor",
       "class_name": "ark-card zoo-card sponsor-card tooltipable",

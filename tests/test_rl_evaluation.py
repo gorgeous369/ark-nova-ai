@@ -15,12 +15,10 @@ from arknova_rl.evaluator import (
 
 
 class _FakeModel:
-    def __init__(self, *, state_dim: int = 4, action_dim: int = 3, global_state_dim: int = 0) -> None:
+    def __init__(self, *, state_dim: int = 4, action_dim: int = 3) -> None:
         self.state_dim = int(state_dim)
         self.action_dim = int(action_dim)
-        self.global_state_dim = int(global_state_dim)
         self.use_lstm = False
-        self.use_centralized_value = False
         self.training = False
         self.loaded_state_dict = None
 
@@ -35,8 +33,8 @@ class _FakeModel:
         self.training = bool(mode)
         return self
 
-    def forward_step(self, *, state_vec, action_features, action_mask, hidden=None, global_state_vec=None):
-        del action_mask, hidden, global_state_vec
+    def forward_step(self, *, state_vec, action_features, action_mask, hidden=None):
+        del action_mask, hidden
         batch_size = int(state_vec.shape[0])
         action_count = int(action_features.shape[1])
         logits = torch.zeros((batch_size, action_count), dtype=torch.float32, device=state_vec.device)
@@ -114,17 +112,12 @@ def test_evaluate_policy_matchup_from_checkpoint_is_well_formed(tmp_path, monkey
     monkeypatch.setattr(main, "_completed_rounds", lambda state: 1)
 
     state_dim = int(bundle_a.model.state_dim)
-    global_dim = int(bundle_a.model.global_state_dim)
     action_dim = int(bundle_a.model.action_dim)
     zero_local = np.zeros((state_dim,), dtype=np.float32)
-    zero_global = np.zeros((global_dim,), dtype=np.float32)
 
     for bundle in (bundle_a, bundle_b):
         bundle.obs_encoder.encode_from_state = (
-            lambda state, actor_id, include_global=True, _local=zero_local, _global=zero_global: (
-                _local,
-                _global if include_global else np.zeros((0,), dtype=np.float32),
-            )
+            lambda state, actor_id, _local=zero_local: _local
         )
         bundle.action_encoder.encode_many = (
             lambda legal, _action_dim=action_dim: np.zeros((len(legal), _action_dim), dtype=np.float32)
