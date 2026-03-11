@@ -808,6 +808,11 @@ _PENDING_PAYLOAD_PUBLIC_KEYS_BY_KIND: Dict[str, Tuple[str, ...]] = {
         "resume_turn_player_id",
         "resume_turn_consumed_venom",
     ),
+    "break_card_draw_choice": (
+        "break_income_index",
+        "resume_turn_player_id",
+        "resume_turn_consumed_venom",
+    ),
     "opening_draft_keep": (
         "keep_target",
     ),
@@ -819,6 +824,27 @@ _PENDING_PAYLOAD_PUBLIC_KEYS_BY_KIND: Dict[str, Tuple[str, ...]] = {
         "break_income_index",
         "resume_turn_player_id",
         "resume_turn_consumed_venom",
+    ),
+    "revealed_cards_keep": (
+        "keep_target",
+        "revealed_source",
+        "break_triggered",
+        "consumed_venom",
+    ),
+    "revealed_final_scoring_keep": (
+        "keep_target",
+        "break_triggered",
+        "consumed_venom",
+    ),
+    "final_scoring_discard": (
+        "discard_target",
+        "break_triggered",
+        "consumed_venom",
+    ),
+    "digging_choice": (
+        "remaining_loops",
+        "break_triggered",
+        "consumed_venom",
     ),
 }
 
@@ -2072,7 +2098,16 @@ def _resolve_pilfering_choice_from_details(
         raise ValueError("Pilfering choice must be 'money' or 'card'.")
     if not can_take_card:
         raise ValueError("Pilfering choice 'card' is not legal for this target player.")
-    return "card", None
+    chosen_card_instance_id = str(choice_payload.get("card_instance_id") or "").strip()
+    if not chosen_card_instance_id:
+        return "card", None
+    chosen_card_index = next(
+        (idx for idx, card in enumerate(target_player.hand) if card.instance_id == chosen_card_instance_id),
+        None,
+    )
+    if chosen_card_index is None:
+        raise ValueError("Pilfering selected card is not in the target player's hand.")
+    return "card", chosen_card_index
 
 
 def _make_concrete_action(
@@ -2282,6 +2317,28 @@ def _merge_detail_fragments(*fragments: Dict[str, Any]) -> Dict[str, Any]:
                 "sponsor_unique_building_selections",
                 "sponsor_263_build_details",
                 "sponsor_253_plays",
+                "final_scoring_keep_choices",
+                "deck_keep_card_choices",
+                "display_take_choices",
+                "digging_choices",
+                "free_building_placement_choices",
+                "mark_display_animal_choices",
+                "trade_choices",
+                "shark_attack_choices",
+                "remove_empty_enclosure_choices",
+                "return_association_worker_choices",
+                "symbiosis_choices",
+                "adapt_final_scoring_choices",
+                "hypnosis_action_details_queue",
+                "sponsor_draw_card_choices",
+                "sponsor_action_to_slot_1_choices",
+                "sponsor_display_take_choices",
+                "sponsor_pouch_hand_card_choices",
+                "sponsor_sell_hand_card_choices",
+                "sponsor_free_building_placement_choices",
+                "hypnosis_target_players",
+                "hypnosis_targets",
+                "clever_targets",
             }:
                 merged.setdefault(key, [])
                 merged[key].extend(copy.deepcopy(list(value)))
@@ -2455,9 +2512,11 @@ def _resolve_action_detail_variants_by_simulation(
         sim_details["_allow_interactive"] = False
         sim_details["_expand_implicit_choices"] = True
         effect_log_len_before = len(sim_state.effect_log)
+        rng_state = random.getstate()
         try:
             executor(sim_state, sim_player, sim_details)
         except _ActionDetailExpansionRequired as pending:
+            random.setstate(rng_state)
             for extra_details, extra_label in pending.variants:
                 next_details = _merge_detail_fragments(details_payload, extra_details)
                 next_labels = list(label_parts)
@@ -2466,7 +2525,10 @@ def _resolve_action_detail_variants_by_simulation(
                 _recurse(next_details, next_labels)
             return
         except ValueError:
+            random.setstate(rng_state)
             return
+        finally:
+            random.setstate(rng_state)
 
         if invalid_effect_log_prefixes:
             recent_effects = sim_state.effect_log[effect_log_len_before:]
@@ -2641,35 +2703,17 @@ def _enumerate_animals_effect_choice_variants(
             hand_after_play = list(current_hand)
             played_card = hand_after_play.pop(played_index)
             effect = resolve_card_effect(played_card)
-            if effect.code == "trade_hand_with_display":
-                next_hand = list(hand_after_play)
-                can_trade = (
-                    state is not None
-                    and bool(state.zoo_display)
-                    and int(_reputation_display_limit(player.reputation)) > 0
-                )
-                trade_valid = True
-                if can_trade:
-                    for _ in range(max(0, int(effect.value))):
-                        if not next_hand:
-                            break
-                        if str(next_hand[0].instance_id or "").strip() in reserved_future_ids:
-                            trade_valid = False
-                            break
-                        # Non-interactive trade deterministically exchanges hand slot 0.
-                        next_hand.pop(0)
-                if not trade_valid:
-                    continue
+            if effect.code == "trade":
                 next_variants.append(
                     (
                         copy.deepcopy(queued_choices),
                         list(labels),
-                        next_hand,
+                        hand_after_play,
                         list(current_action_order),
                     )
                 )
                 continue
-            if effect.code not in {"sell_hand_cards", "pouch_hand_for_appeal", "boost_action_card"}:
+            if effect.code not in {"sun_bathing", "pouch", "boost"}:
                 next_variants.append(
                     (
                         copy.deepcopy(queued_choices),
@@ -2681,7 +2725,7 @@ def _enumerate_animals_effect_choice_variants(
                 continue
 
             has_choice = True
-            if effect.code == "boost_action_card":
+            if effect.code == "boost":
                 target_action = str(effect.target or "").strip()
                 if target_action not in current_action_order:
                     next_variants.append(
@@ -2722,10 +2766,10 @@ def _enumerate_animals_effect_choice_variants(
                 for hand_card in hand_after_play
                 if hand_card.instance_id not in reserved_future_ids
             ]
-            detail_key = "sell_hand_card_choices" if effect.code == "sell_hand_cards" else "pouch_hand_card_choices"
+            detail_key = "sell_hand_card_choices" if effect.code == "sun_bathing" else "pouch_hand_card_choices"
             choice_label_fn = (
                 _animal_effect_sell_choice_action_label
-                if effect.code == "sell_hand_cards"
+                if effect.code == "sun_bathing"
                 else _animal_effect_pouch_choice_action_label
             )
             capped_limit = min(choice_limit, len(selectable_cards))
@@ -2801,6 +2845,232 @@ def _enumerate_pending_cards_discard_actions(player: PlayerState, discard_target
 
 def _opening_draft_keep_action_label(choice_indices: Sequence[int]) -> str:
     return _card_choice_index_action_label("keep", choice_indices)
+
+
+def _final_scoring_card_label(card_ref: SetupCardRef) -> str:
+    title = str(getattr(card_ref, "title", "") or "").strip()
+    data_id = str(getattr(card_ref, "data_id", "") or "").strip()
+    if title and data_id:
+        return f"{data_id} {title}"
+    return title or data_id or "UNKNOWN_FINAL_SCORING"
+
+
+def _enumerate_final_scoring_keep_choice_variants(
+    drawn_cards: Sequence[SetupCardRef],
+    keep_count: int,
+) -> List[Tuple[Dict[str, Any], str]]:
+    kept_target = min(max(0, int(keep_count)), len(drawn_cards))
+    if kept_target <= 0 or kept_target >= len(drawn_cards):
+        return [({}, "")]
+
+    variants: List[Tuple[Dict[str, Any], str]] = []
+    for picked_indices in _enumerate_index_combinations(
+        total_items=len(drawn_cards),
+        min_choose=kept_target,
+        max_choose=kept_target,
+    ):
+        kept_cards = [drawn_cards[idx] for idx in picked_indices]
+        variants.append(
+            (
+                {
+                    "final_scoring_keep_choices": [
+                        {
+                            "keep_final_scoring_refs": [
+                                str(card.data_id or "").strip()
+                                for card in kept_cards
+                                if str(card.data_id or "").strip()
+                            ]
+                        }
+                    ]
+                },
+                "resistance keep [" + ", ".join(_final_scoring_card_label(card) for card in kept_cards) + "]",
+            )
+        )
+    return variants or [({}, "")]
+
+
+def _card_effect_card_label(card: AnimalCard) -> str:
+    number = int(getattr(card, "number", -1) or -1)
+    name = str(getattr(card, "name", "") or "").strip()
+    if number >= 0 and name:
+        return f"#{number} {name}"
+    instance_id = str(getattr(card, "instance_id", "") or "").strip()
+    return name or instance_id or "UNKNOWN_CARD"
+
+
+def _display_card_choice_label(state: GameState, display_index: int) -> str:
+    idx = int(display_index)
+    if 0 <= idx < len(state.zoo_display):
+        return f"display[{idx + 1}] {_card_effect_card_label(state.zoo_display[idx])}"
+    return f"display[{idx + 1}]"
+
+
+def _building_selection_payload_from_building(building: Building) -> Dict[str, Any]:
+    return {
+        "building_type": building.type.name,
+        "cells": [list(cell) for cell in _building_layout_key(building)],
+    }
+
+
+def _enumerate_card_instance_choice_variants(
+    cards: Sequence[AnimalCard],
+    *,
+    detail_key: str,
+    label_prefix: str,
+    choose_count: int,
+    min_choose: Optional[int] = None,
+    action_key: str = "card_instance_ids",
+) -> List[Tuple[Dict[str, Any], str]]:
+    picked_min = choose_count if min_choose is None else int(min_choose)
+    picked_max = int(choose_count)
+    if picked_max <= 0:
+        return [({}, "")]
+    variants: List[Tuple[Dict[str, Any], str]] = []
+    for picked_indices in _enumerate_index_combinations(
+        total_items=len(cards),
+        min_choose=max(0, picked_min),
+        max_choose=max(0, picked_max),
+    ):
+        picked_cards = [cards[idx] for idx in picked_indices]
+        variants.append(
+            (
+                {
+                    detail_key: [
+                        {
+                            action_key: [str(card.instance_id or "").strip() for card in picked_cards if str(card.instance_id or "").strip()],
+                        }
+                    ]
+                },
+                f"{label_prefix}[{', '.join(_card_effect_card_label(card) for card in picked_cards)}]",
+            )
+        )
+    return variants or [({}, "")]
+
+
+def _enumerate_display_index_choice_variants(
+    state: GameState,
+    candidate_indices: Sequence[int],
+    *,
+    detail_key: str,
+    label_prefix: str,
+    field_name: str = "display_index",
+) -> List[Tuple[Dict[str, Any], str]]:
+    variants: List[Tuple[Dict[str, Any], str]] = []
+    for idx in candidate_indices:
+        variants.append(
+            (
+                {detail_key: [{field_name: int(idx)}]},
+                f"{label_prefix}({_display_card_choice_label(state, idx)})",
+            )
+        )
+    return variants or [({}, "")]
+
+
+def _enumerate_building_choice_variants(
+    legal_buildings: Sequence[Building],
+    *,
+    detail_key: str,
+    label_prefix: str,
+    field_name: str = "selection",
+) -> List[Tuple[Dict[str, Any], str]]:
+    variants: List[Tuple[Dict[str, Any], str]] = []
+    for building in legal_buildings:
+        variants.append(
+            (
+                {detail_key: [{field_name: _building_selection_payload_from_building(building)}]},
+                f"{label_prefix}({_building_cells_text(building)})",
+            )
+        )
+    return variants or [({}, "")]
+
+
+def _enumerate_target_player_choice_variants(
+    state: GameState,
+    target_ids: Sequence[int],
+    *,
+    detail_key: str,
+    label_prefix: str,
+) -> List[Tuple[Dict[str, Any], str]]:
+    variants: List[Tuple[Dict[str, Any], str]] = []
+    for target_id in target_ids:
+        target_player = state.players[int(target_id)]
+        variants.append(
+            (
+                {detail_key: [{"target_player_id": int(target_id)}]},
+                f"{label_prefix}({target_player.name})",
+            )
+        )
+    return variants or [({}, "")]
+
+
+def _enumerate_string_choice_variants(
+    values: Sequence[str],
+    *,
+    detail_key: str,
+    label_prefix: str,
+) -> List[Tuple[Dict[str, Any], str]]:
+    variants: List[Tuple[Dict[str, Any], str]] = []
+    for value in values:
+        text = str(value).strip()
+        if not text:
+            continue
+        variants.append(({detail_key: [text]}, f"{label_prefix}({text})"))
+    return variants or [({}, "")]
+
+
+def _enumerate_int_choice_variants(
+    values: Sequence[int],
+    *,
+    detail_key: str,
+    label_prefix: str,
+) -> List[Tuple[Dict[str, Any], str]]:
+    variants: List[Tuple[Dict[str, Any], str]] = []
+    for value in values:
+        variants.append(({detail_key: [int(value)]}, f"{label_prefix}({int(value)})"))
+    return variants or [({}, "")]
+
+
+def _enumerate_final_scoring_discard_choice_variants(
+    cards: Sequence[SetupCardRef],
+    discard_count: int,
+) -> List[Tuple[Dict[str, Any], str]]:
+    target = min(max(0, int(discard_count)), len(cards))
+    if target <= 0:
+        return [({}, "")]
+    variants: List[Tuple[Dict[str, Any], str]] = []
+    for picked_indices in _enumerate_index_combinations(
+        total_items=len(cards),
+        min_choose=target,
+        max_choose=target,
+    ):
+        picked_cards = [cards[idx] for idx in picked_indices]
+        variants.append(
+            (
+                {
+                    "adapt_final_scoring_choices": [
+                        {
+                            "discard_final_scoring_refs": [
+                                str(card.data_id or "").strip()
+                                for card in picked_cards
+                                if str(card.data_id or "").strip()
+                            ]
+                        }
+                    ]
+                },
+                "adapt discard [" + ", ".join(_final_scoring_card_label(card) for card in picked_cards) + "]",
+            )
+        )
+    return variants or [({}, "")]
+
+
+def _preview_shuffled_cards(cards: Sequence[AnimalCard], draw_count: int) -> List[AnimalCard]:
+    snapshot = random.getstate()
+    preview = list(cards)
+    try:
+        random.shuffle(preview)
+    finally:
+        random.setstate(snapshot)
+    return preview[: max(0, int(draw_count))]
 
 
 def _conservation_bonus_tile_label(tile: str) -> str:
@@ -3627,6 +3897,40 @@ def _enumerate_pending_break_discard_actions(player: PlayerState, discard_target
     ]
 
 
+def _enumerate_pending_break_card_draw_choice_actions(
+    state: GameState,
+    player: PlayerState,
+) -> List[Action]:
+    accessible = min(_reputation_display_limit(int(player.reputation)), len(state.zoo_display))
+    actions: List[Action] = []
+    for idx in range(accessible):
+        actions.append(
+            Action(
+                ActionType.PENDING_DECISION,
+                details={
+                    "concrete": True,
+                    "pending_kind": "break_card_draw_choice",
+                    "draw_source": "display",
+                    "display_index": int(idx),
+                    "action_label": f"break-draw({_display_card_choice_label(state, idx)})",
+                },
+            )
+        )
+    if state.zoo_deck:
+        actions.append(
+            Action(
+                ActionType.PENDING_DECISION,
+                details={
+                    "concrete": True,
+                    "pending_kind": "break_card_draw_choice",
+                    "draw_source": "deck",
+                    "action_label": "break-draw(deck)",
+                },
+            )
+        )
+    return actions
+
+
 def _enumerate_pending_opening_draft_actions(player: PlayerState, keep_target: int) -> List[Action]:
     if keep_target <= 0:
         return []
@@ -3649,6 +3953,580 @@ def _enumerate_pending_opening_draft_actions(player: PlayerState, keep_target: i
             max_choose=keep_target,
         )
     ]
+
+
+def _enumerate_pending_revealed_cards_keep_actions(
+    state: GameState,
+    player: PlayerState,
+    player_id: int,
+) -> List[Action]:
+    payload = dict(state.pending_decision_payload or {})
+    keep_target = int(payload.get("keep_target", 0))
+    if keep_target <= 0:
+        return []
+    revealed_cards = [
+        card
+        for card in list(payload.get("revealed_cards") or [])
+        if isinstance(card, AnimalCard)
+    ]
+    card_type_filter = str(payload.get("card_type_filter") or "").strip().lower()
+    candidates = [
+        card
+        for card in revealed_cards
+        if not card_type_filter or str(card.card_type).strip().lower() == card_type_filter
+    ]
+    if len(candidates) < keep_target:
+        return []
+
+    actions: List[Action] = []
+    for picked_indices in _enumerate_index_combinations(
+        total_items=len(candidates),
+        min_choose=keep_target,
+        max_choose=keep_target,
+    ):
+        chosen_cards = [candidates[idx] for idx in picked_indices]
+        chosen_ids = [str(card.instance_id or "").strip() for card in chosen_cards if str(card.instance_id or "").strip()]
+        if len(chosen_ids) != keep_target:
+            continue
+        action_label = "keep [" + ", ".join(_card_effect_card_label(card) for card in chosen_cards) + "]"
+        action_details: Dict[str, Any] = {
+            "concrete": True,
+            "pending_kind": "revealed_cards_keep",
+            "keep_card_instance_ids": chosen_ids,
+            "keep_card_numbers": [int(getattr(card, "number", 0) or 0) for card in chosen_cards],
+            "action_label": action_label,
+        }
+        revealed_source = str(payload.get("revealed_source") or "").strip().lower()
+        if revealed_source:
+            action_details["revealed_source"] = revealed_source
+        actions.append(Action(ActionType.PENDING_DECISION, details=action_details))
+    return actions
+
+
+def _enumerate_pending_revealed_final_scoring_actions(
+    state: GameState,
+    player: PlayerState,
+    player_id: int,
+) -> List[Action]:
+    payload = dict(state.pending_decision_payload or {})
+    keep_target = int(payload.get("keep_target", 0))
+    if keep_target <= 0:
+        return []
+    revealed_cards = [
+        card
+        for card in list(payload.get("revealed_cards") or [])
+        if isinstance(card, SetupCardRef)
+    ]
+    if len(revealed_cards) < keep_target:
+        return []
+
+    actions: List[Action] = []
+    for picked_indices in _enumerate_index_combinations(
+        total_items=len(revealed_cards),
+        min_choose=keep_target,
+        max_choose=keep_target,
+    ):
+        chosen_cards = [revealed_cards[idx] for idx in picked_indices]
+        chosen_refs = [str(card.data_id or "").strip() for card in chosen_cards if str(card.data_id or "").strip()]
+        if len(chosen_refs) != keep_target:
+            continue
+        action_label = "keep [" + ", ".join(_final_scoring_card_label(card) for card in chosen_cards) + "]"
+        actions.append(
+            Action(
+                ActionType.PENDING_DECISION,
+                details={
+                    "concrete": True,
+                    "pending_kind": "revealed_final_scoring_keep",
+                    "keep_final_scoring_refs": chosen_refs,
+                    "keep_final_scoring_labels": [_final_scoring_card_label(card) for card in chosen_cards],
+                    "action_label": action_label,
+                },
+            )
+        )
+    return actions
+
+
+def _enumerate_pending_final_scoring_discard_actions(
+    state: GameState,
+    player: PlayerState,
+    player_id: int,
+) -> List[Action]:
+    payload = dict(state.pending_decision_payload or {})
+    discard_target = int(payload.get("discard_target", 0))
+    if discard_target <= 0:
+        return []
+    final_cards = list(player.final_scoring_cards)
+    if len(final_cards) < discard_target:
+        return []
+    actions: List[Action] = []
+    for picked_indices in _enumerate_index_combinations(
+        total_items=len(final_cards),
+        min_choose=discard_target,
+        max_choose=discard_target,
+    ):
+        chosen_cards = [final_cards[idx] for idx in picked_indices]
+        chosen_refs = [str(card.data_id or "").strip() for card in chosen_cards if str(card.data_id or "").strip()]
+        if len(chosen_refs) != discard_target:
+            continue
+        actions.append(
+            Action(
+                ActionType.PENDING_DECISION,
+                details={
+                    "concrete": True,
+                    "pending_kind": "final_scoring_discard",
+                    "discard_final_scoring_refs": chosen_refs,
+                    "action_label": "discard [" + ", ".join(_final_scoring_card_label(card) for card in chosen_cards) + "]",
+                },
+            )
+        )
+    return actions
+
+
+def _enumerate_pending_digging_actions(
+    state: GameState,
+    player: PlayerState,
+    player_id: int,
+) -> List[Action]:
+    payload = dict(state.pending_decision_payload or {})
+    remaining_loops = int(payload.get("remaining_loops", 0))
+    if remaining_loops <= 0:
+        return []
+
+    actions: List[Action] = [
+        Action(
+            ActionType.PENDING_DECISION,
+            details={
+                "concrete": True,
+                "pending_kind": "digging_choice",
+                "digging_choice_mode": "skip",
+                "action_label": "digging(stop)",
+            },
+        )
+    ]
+    for display_idx, display_card in enumerate(list(state.zoo_display)):
+        actions.append(
+            Action(
+                ActionType.PENDING_DECISION,
+                details={
+                    "concrete": True,
+                    "pending_kind": "digging_choice",
+                    "digging_choice_mode": "display",
+                    "display_index": int(display_idx),
+                    "display_card_number": int(getattr(display_card, "number", 0) or 0),
+                    "action_label": f"digging(discard {_display_card_choice_label(state, display_idx)})",
+                },
+            )
+        )
+    for hand_card in list(player.hand):
+        card_instance_id = str(hand_card.instance_id or "").strip()
+        if not card_instance_id:
+            continue
+        actions.append(
+            Action(
+                ActionType.PENDING_DECISION,
+                details={
+                    "concrete": True,
+                    "pending_kind": "digging_choice",
+                    "digging_choice_mode": "hand",
+                    "hand_card_instance_id": card_instance_id,
+                    "hand_card_number": int(getattr(hand_card, "number", 0) or 0),
+                    "action_label": f"digging(discard hand {_card_effect_card_label(hand_card)})",
+                },
+            )
+        )
+    return actions
+
+
+def _begin_animals_followup_pending(
+    state: GameState,
+    *,
+    player_id: int,
+    kind: str,
+    payload: Dict[str, Any],
+    remaining_animals_plays: Optional[Sequence[Dict[str, Any]]] = None,
+    remaining_animals_details: Optional[Dict[str, Any]] = None,
+    sponsor_228_postplay: bool = False,
+    break_triggered: Optional[bool] = None,
+    consumed_venom: Optional[bool] = None,
+) -> None:
+    pending_payload = copy.deepcopy(dict(payload or {}))
+    pending_payload["resume_animals_player_id"] = int(player_id)
+    if remaining_animals_plays is not None:
+        pending_payload["resume_animals_plays"] = copy.deepcopy(list(remaining_animals_plays))
+    if remaining_animals_details:
+        pending_payload["resume_animals_details"] = copy.deepcopy(dict(remaining_animals_details))
+    if sponsor_228_postplay:
+        pending_payload["resume_animals_sponsor_228_postplay"] = True
+    if break_triggered is not None:
+        pending_payload["break_triggered"] = bool(break_triggered)
+    if consumed_venom is not None:
+        pending_payload["consumed_venom"] = bool(consumed_venom)
+    _set_pending_decision(
+        state,
+        kind=str(kind or "").strip(),
+        player_id=player_id,
+        payload=pending_payload,
+    )
+
+
+def _rebind_animals_followup_plays(
+    state: GameState,
+    *,
+    player_id: int,
+    plays: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    requested_plays = [copy.deepcopy(item) for item in plays if isinstance(item, dict)]
+    if not requested_plays:
+        return []
+
+    requested_ids = [str(item.get("card_instance_id") or "").strip() for item in requested_plays]
+    if not all(requested_ids):
+        return requested_plays
+
+    requested_enclosures = [int(item.get("enclosure_index", -1)) for item in requested_plays]
+    lookup_strength = 5 if len(requested_plays) > 1 else 2
+    options = list_legal_animals_options(state=state, player_id=player_id, strength=lookup_strength)
+
+    def _score_option(option_plays: Sequence[Dict[str, Any]]) -> Tuple[int, Tuple[int, ...], Tuple[int, ...]]:
+        option_enclosures = [int(item.get("enclosure_index", -1)) for item in option_plays]
+        exact_matches = sum(
+            1
+            for expected, actual in zip(requested_enclosures, option_enclosures)
+            if expected == actual
+        )
+        return (
+            exact_matches,
+            tuple(-idx for idx in option_enclosures),
+            tuple(int(item.get("card_hand_index", -1)) for item in option_plays),
+        )
+
+    exact_matches: List[List[Dict[str, Any]]] = []
+    for option in options:
+        option_plays = [copy.deepcopy(item) for item in list(option.get("plays") or []) if isinstance(item, dict)]
+        option_ids = [str(item.get("card_instance_id") or "").strip() for item in option_plays]
+        if option_ids == requested_ids:
+            exact_matches.append(option_plays)
+    if exact_matches:
+        return max(exact_matches, key=_score_option)
+
+    single_options_by_id: Dict[str, List[Dict[str, Any]]] = {}
+    for option in options:
+        option_plays = [copy.deepcopy(item) for item in list(option.get("plays") or []) if isinstance(item, dict)]
+        if len(option_plays) != 1:
+            continue
+        card_id = str(option_plays[0].get("card_instance_id") or "").strip()
+        if card_id:
+            single_options_by_id.setdefault(card_id, []).append(option_plays[0])
+
+    rebound: List[Dict[str, Any]] = []
+    for requested_play in requested_plays:
+        card_id = str(requested_play.get("card_instance_id") or "").strip()
+        if not card_id:
+            continue
+        candidates = single_options_by_id.get(card_id) or []
+        if not candidates:
+            continue
+        requested_enclosure = int(requested_play.get("enclosure_index", -1))
+        best = max(
+            candidates,
+            key=lambda item: (
+                1 if int(item.get("enclosure_index", -1)) == requested_enclosure else 0,
+                -int(item.get("enclosure_index", -1)),
+                int(item.get("card_hand_index", -1)),
+            ),
+        )
+        rebound.append(copy.deepcopy(best))
+    return rebound
+
+
+def _resume_animals_followup_from_pending_payload(
+    state: GameState,
+    *,
+    player_id: int,
+    payload: Dict[str, Any],
+) -> None:
+    remaining_plays = copy.deepcopy(list(payload.get("resume_animals_plays") or []))
+    sponsor_228_postplay = bool(payload.get("resume_animals_sponsor_228_postplay"))
+    if not remaining_plays and not sponsor_228_postplay:
+        return
+    rebound_plays = _rebind_animals_followup_plays(
+        state,
+        player_id=player_id,
+        plays=remaining_plays,
+    )
+    if rebound_plays != remaining_plays:
+        state.effect_log.append(
+            "animals_followup_rebound "
+            f"requested={len(remaining_plays)} rebound={len(rebound_plays)}"
+        )
+        remaining_plays = rebound_plays
+    details = copy.deepcopy(payload.get("resume_animals_details") or {})
+    if not isinstance(details, dict):
+        details = {}
+    details["_resume_animals_followup"] = True
+    details["_selected_plays_override"] = remaining_plays
+    if sponsor_228_postplay:
+        details["_resume_animals_sponsor_228_postplay"] = True
+    player = state.players[player_id]
+    _perform_animals_action_effect(
+        state=state,
+        player=player,
+        strength=0,
+        details=details,
+        player_id=player_id,
+    )
+
+
+def _resume_sponsors_followup_from_pending_payload(
+    state: GameState,
+    *,
+    player_id: int,
+    payload: Dict[str, Any],
+) -> None:
+    remaining_selections = copy.deepcopy(list(payload.get("resume_sponsor_selections") or []))
+    details = copy.deepcopy(payload.get("resume_sponsor_details") or {})
+    if not isinstance(details, dict):
+        details = {}
+    took_from_display = bool(payload.get("resume_sponsor_took_from_display"))
+    if remaining_selections:
+        details["use_break_ability"] = False
+        details["sponsor_selections"] = remaining_selections
+        player = state.players[player_id]
+        _perform_sponsors_action_effect(
+            state=state,
+            player=player,
+            strength=0,
+            details=details,
+            player_id=player_id,
+        )
+        if str(state.pending_decision_kind or "").strip():
+            return
+    if took_from_display:
+        _replenish_zoo_display(state)
+
+
+def _begin_sponsors_followup_pending(
+    state: GameState,
+    *,
+    player_id: int,
+    kind: str,
+    payload: Dict[str, Any],
+    remaining_sponsor_selections: Optional[Sequence[Dict[str, Any]]] = None,
+    remaining_sponsor_details: Optional[Dict[str, Any]] = None,
+    took_from_display: bool = False,
+) -> None:
+    pending_payload = copy.deepcopy(dict(payload or {}))
+    pending_payload["resume_kind"] = "sponsors_followup"
+    pending_payload["resume_sponsors_player_id"] = int(player_id)
+    if remaining_sponsor_selections is not None:
+        pending_payload["resume_sponsor_selections"] = copy.deepcopy(list(remaining_sponsor_selections))
+    if remaining_sponsor_details:
+        pending_payload["resume_sponsor_details"] = copy.deepcopy(dict(remaining_sponsor_details))
+    if took_from_display:
+        pending_payload["resume_sponsor_took_from_display"] = True
+    _set_pending_decision(
+        state,
+        kind=str(kind or "").strip(),
+        player_id=player_id,
+        payload=pending_payload,
+    )
+
+
+def _resume_break_remaining_from_pending_payload(
+    state: GameState,
+    *,
+    payload: Dict[str, Any],
+) -> None:
+    break_income_index = int(payload.get("break_income_index", 0))
+    resume_turn_player_id_raw = payload.get("resume_turn_player_id")
+    resume_turn_player_id = int(resume_turn_player_id_raw) if resume_turn_player_id_raw is not None else None
+    resume_turn_consumed_venom = bool(payload.get("resume_turn_consumed_venom"))
+    _resolve_break_remaining_stages(
+        state,
+        start_income_index=break_income_index,
+        preprocessed=True,
+        resume_turn_player_id=resume_turn_player_id,
+        resume_turn_consumed_venom=resume_turn_consumed_venom,
+    )
+
+
+def _resume_hidden_sponsor_passive_from_payload(state: GameState, payload: Dict[str, Any]) -> bool:
+    effect_code = str(payload.get("resume_sponsor_passive_effect") or "").strip().lower()
+    if effect_code not in {"sponsor_249", "sponsor_252"}:
+        return False
+
+    owner_id = int(payload.get("resume_sponsor_passive_owner_id", state.current_player))
+    played_by_player_id = int(payload.get("resume_sponsor_passive_played_by_player_id", owner_id))
+    played_card = payload.get("resume_sponsor_passive_played_card")
+    if not isinstance(played_card, AnimalCard):
+        raise ValueError("Missing played card for sponsor passive resumption.")
+    details = copy.deepcopy(payload.get("resume_sponsor_passive_details") or {})
+    if not isinstance(details, dict):
+        details = {}
+    details["_resume_sponsor_passive_owner_id"] = int(owner_id)
+    details["_resume_sponsor_passive_stage"] = "249" if effect_code == "sponsor_249" else "252"
+    details["_resume_sponsor_249_remaining_triggers"] = int(payload.get("resume_sponsor_249_remaining_triggers", 0))
+    details["_resume_sponsor_252_remaining_triggers"] = int(payload.get("resume_sponsor_252_remaining_triggers", 0))
+    _apply_sponsor_passive_triggers_on_card_play(
+        state=state,
+        played_by_player_id=played_by_player_id,
+        played_card=played_card,
+        details=details,
+        allow_interactive=False,
+    )
+    if not str(state.pending_decision_kind or "").strip():
+        return False
+    state.pending_decision_payload.setdefault("resume_kind", str(payload.get("resume_kind") or ""))
+    state.pending_decision_payload.setdefault("resume_sponsors_player_id", payload.get("resume_sponsors_player_id"))
+    state.pending_decision_payload.setdefault(
+        "resume_sponsor_selections",
+        copy.deepcopy(payload.get("resume_sponsor_selections") or []),
+    )
+    state.pending_decision_payload.setdefault(
+        "resume_sponsor_details",
+        copy.deepcopy(payload.get("resume_sponsor_details") or {}),
+    )
+    state.pending_decision_payload.setdefault(
+        "resume_sponsor_took_from_display",
+        bool(payload.get("resume_sponsor_took_from_display")),
+    )
+    state.pending_decision_payload.setdefault("resume_animals_player_id", payload.get("resume_animals_player_id"))
+    state.pending_decision_payload.setdefault(
+        "resume_animals_plays",
+        copy.deepcopy(payload.get("resume_animals_plays") or []),
+    )
+    state.pending_decision_payload.setdefault(
+        "resume_animals_details",
+        copy.deepcopy(payload.get("resume_animals_details") or {}),
+    )
+    state.pending_decision_payload.setdefault(
+        "resume_animals_sponsor_228_postplay",
+        bool(payload.get("resume_animals_sponsor_228_postplay")),
+    )
+    return True
+
+
+def _finalize_revealed_cards_keep_resolution(
+    state: GameState,
+    player: PlayerState,
+    *,
+    payload: Dict[str, Any],
+) -> None:
+    resume_kind = str(payload.get("resume_kind") or "").strip()
+    break_triggered = bool(payload.get("break_triggered"))
+    consumed_venom = bool(payload.get("consumed_venom"))
+
+    _clear_pending_decision(state)
+
+    if _resume_hidden_sponsor_passive_from_payload(state, payload):
+        state.pending_decision_payload["break_triggered"] = break_triggered
+        state.pending_decision_payload["consumed_venom"] = consumed_venom
+        _validate_card_zones(state)
+        return
+
+    if resume_kind in {"", "animals_followup"}:
+        _resume_animals_followup_from_pending_payload(
+            state,
+            player_id=int(payload.get("resume_animals_player_id", state.current_player)),
+            payload=payload,
+        )
+        if str(state.pending_decision_kind or "").strip():
+            state.pending_decision_payload["break_triggered"] = break_triggered
+            state.pending_decision_payload["consumed_venom"] = consumed_venom
+            _validate_card_zones(state)
+            return
+        _finalize_turn(
+            state,
+            player,
+            player_id=int(payload.get("resume_animals_player_id", state.current_player)),
+            break_triggered=break_triggered,
+            consumed_venom=consumed_venom,
+        )
+        return
+
+    if resume_kind == "sponsors_followup":
+        sponsor_player_id = int(payload.get("resume_sponsors_player_id", state.current_player))
+        sponsor_player = state.players[sponsor_player_id]
+        _resume_sponsors_followup_from_pending_payload(
+            state,
+            player_id=sponsor_player_id,
+            payload=payload,
+        )
+        if str(state.pending_decision_kind or "").strip():
+            state.pending_decision_payload["break_triggered"] = break_triggered
+            state.pending_decision_payload["consumed_venom"] = consumed_venom
+            _validate_card_zones(state)
+            return
+        _finalize_turn(
+            state,
+            sponsor_player,
+            player_id=sponsor_player_id,
+            break_triggered=break_triggered,
+            consumed_venom=consumed_venom,
+        )
+        return
+
+    if resume_kind == "break_remaining":
+        _resume_break_remaining_from_pending_payload(state, payload=payload)
+        _validate_card_zones(state)
+        return
+
+    raise ValueError(f"Unsupported revealed-cards pending resume_kind: {resume_kind}")
+
+
+def _finalize_animals_pending_resolution(
+    state: GameState,
+    player: PlayerState,
+    *,
+    player_id: int,
+    payload: Dict[str, Any],
+) -> None:
+    break_triggered = bool(payload.get("break_triggered"))
+    consumed_venom = bool(payload.get("consumed_venom"))
+    _clear_pending_decision(state)
+    _resume_animals_followup_from_pending_payload(
+        state,
+        player_id=player_id,
+        payload=payload,
+    )
+    if str(state.pending_decision_kind or "").strip():
+        state.pending_decision_payload["break_triggered"] = break_triggered
+        state.pending_decision_payload["consumed_venom"] = consumed_venom
+        _validate_card_zones(state)
+        return
+    _finalize_turn(
+        state,
+        player,
+        player_id=player_id,
+        break_triggered=break_triggered,
+        consumed_venom=consumed_venom,
+    )
+
+
+def _maybe_begin_digging_pending(
+    state: GameState,
+    player: PlayerState,
+    *,
+    player_id: int,
+    remaining_loops: int,
+    resume_payload: Dict[str, Any],
+) -> bool:
+    if remaining_loops <= 0:
+        return False
+    if not state.zoo_display and not player.hand:
+        return False
+    _begin_animals_followup_pending(
+        state,
+        player_id=player_id,
+        kind="digging_choice",
+        payload={"remaining_loops": int(remaining_loops)},
+        remaining_animals_plays=resume_payload.get("resume_animals_plays"),
+        remaining_animals_details=resume_payload.get("resume_animals_details"),
+        sponsor_228_postplay=bool(resume_payload.get("resume_animals_sponsor_228_postplay")),
+        break_triggered=bool(resume_payload.get("break_triggered")),
+        consumed_venom=bool(resume_payload.get("consumed_venom")),
+    )
+    return True
 
 
 def _enumerate_followup_conservation_reward_variants(
@@ -3781,6 +4659,17 @@ def _append_card_instance_choice_queue(raw_value: Any, queue: List[List[str]]) -
             queue.append(ids)
         elif isinstance(item, (list, tuple)):
             queue.append([str(raw).strip() for raw in item if str(raw).strip()])
+
+
+def _append_dict_choice_queue(raw_value: Any, queue: List[Dict[str, Any]]) -> None:
+    if isinstance(raw_value, dict):
+        queue.append(copy.deepcopy(raw_value))
+        return
+    if not isinstance(raw_value, (list, tuple)):
+        return
+    for item in raw_value:
+        if isinstance(item, dict):
+            queue.append(copy.deepcopy(item))
 
 
 def _normalize_boost_action_mode(raw_value: Any) -> str:
@@ -3929,11 +4818,21 @@ def _enumerate_pending_decision_actions(
     if state.pending_decision_kind == "break_discard":
         discard_target = int(state.pending_decision_payload.get("discard_target", 0))
         return _enumerate_pending_break_discard_actions(player, discard_target)
+    if state.pending_decision_kind == "break_card_draw_choice":
+        return _enumerate_pending_break_card_draw_choice_actions(state, player)
     if state.pending_decision_kind == "opening_draft_keep":
         keep_target = int(state.pending_decision_payload.get("keep_target", 0))
         return _enumerate_pending_opening_draft_actions(player, keep_target)
     if state.pending_decision_kind == "conservation_reward":
         return _enumerate_pending_conservation_reward_actions(state, player, player_id)
+    if state.pending_decision_kind == "revealed_cards_keep":
+        return _enumerate_pending_revealed_cards_keep_actions(state, player, player_id)
+    if state.pending_decision_kind == "revealed_final_scoring_keep":
+        return _enumerate_pending_revealed_final_scoring_actions(state, player, player_id)
+    if state.pending_decision_kind == "final_scoring_discard":
+        return _enumerate_pending_final_scoring_discard_actions(state, player, player_id)
+    if state.pending_decision_kind == "digging_choice":
+        return _enumerate_pending_digging_actions(state, player, player_id)
     raise ValueError(f"Unsupported pending decision kind: {state.pending_decision_kind}")
 
 
@@ -3946,6 +4845,31 @@ def _enumerate_concrete_animals_actions(
     strength = int((template_action.details or {}).get("effective_strength", 0))
     options = list_legal_animals_options(state=state, player_id=player_id, strength=strength)
     actions: List[Action] = []
+    choice_effect_codes = {
+        "clever",
+        "snapping",
+        "perception",
+        "scavenging",
+        "resistance",
+        "assertion",
+        "pilfering",
+        "posturing",
+        "hypnosis",
+        "digging",
+        "adapt",
+        "extra_shift",
+        "mark",
+        "peacocking",
+        "trade",
+        "shark_attack",
+        "cut_down",
+        "symbiosis",
+        "sea_animal_magnet",
+        "boost",
+        "sun_bathing",
+        "pouch",
+    }
+    choice_sensitive_sponsors = {210, 211, 212, 213, 214, 228, 249, 250, 252, 253}
 
     def _resolve_animals_details(details_payload: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str]]:
         return _resolve_action_detail_variants_by_simulation(
@@ -3969,9 +4893,25 @@ def _enumerate_concrete_animals_actions(
             label = base_label if not effect_label else f"{base_label} ; {effect_label}"
             details = {"animals_sequence_index": int(option["index"]) - 1}
             details.update(copy.deepcopy(extra_effect_details))
+            played_cards = [
+                next(
+                    (
+                        hand_card
+                        for hand_card in player.hand
+                        if hand_card.instance_id == str(play.get("card_instance_id") or "").strip()
+                    ),
+                    None,
+                )
+                for play in list(option.get("plays") or [])
+            ]
+            has_implicit_effect_choice = any(
+                card is not None and resolve_card_effect(card).code in choice_effect_codes
+                for card in played_cards
+            )
             requires_resolution = (
                 len(option["plays"]) >= 2
-                or _player_has_sponsor(player, 228)
+                or has_implicit_effect_choice
+                or any(_player_has_sponsor(player, sponsor_no) for sponsor_no in choice_sensitive_sponsors)
                 or int(player.sponsor_tokens_by_number.get(253, 0)) > 0
             )
             resolved_variants = [(copy.deepcopy(details), "")] if not requires_resolution else _resolve_animals_details(details)
@@ -6931,14 +7871,15 @@ def _kiosk_income_for_player(player: PlayerState) -> int:
     return income
 
 
-def _apply_sponsor_break_income_effects_for_player(state: GameState, player: PlayerState) -> None:
+def _apply_sponsor_break_income_effects_for_player_after_card_draw(
+    state: GameState,
+    player: PlayerState,
+) -> None:
     inventory = _player_icon_inventory(player)
     sponsor_numbers = {card.number for card in _player_played_sponsor_cards(player)}
     if not sponsor_numbers:
         return
 
-    if 201 in sponsor_numbers:
-        _take_one_card_from_deck_or_reputation_range(state, player)
     if 206 in sponsor_numbers:
         player.conservation += 1
     if 209 in sponsor_numbers:
@@ -6952,14 +7893,60 @@ def _apply_sponsor_break_income_effects_for_player(state: GameState, player: Pla
         player.money += _count_side_entrance_adjacent_buildings(player) * 2
 
 
+def _apply_sponsor_break_income_effects_for_player(
+    state: GameState,
+    player: PlayerState,
+    *,
+    player_id: int,
+    break_income_index: int,
+    resume_turn_player_id: Optional[int] = None,
+    resume_turn_consumed_venom: bool = False,
+) -> bool:
+    sponsor_numbers = {card.number for card in _player_played_sponsor_cards(player)}
+    if not sponsor_numbers:
+        return False
+
+    if 201 in sponsor_numbers:
+        accessible = min(_reputation_display_limit(int(player.reputation)), len(state.zoo_display))
+        has_display = accessible > 0
+        has_deck = bool(state.zoo_deck)
+        if has_display and has_deck:
+            _set_pending_decision(
+                state,
+                kind="break_card_draw_choice",
+                player_id=player_id,
+                payload={
+                    "break_income_index": int(break_income_index),
+                    "resume_turn_player_id": resume_turn_player_id,
+                    "resume_turn_consumed_venom": bool(resume_turn_consumed_venom),
+                },
+            )
+            return True
+        if has_display or has_deck:
+            _take_one_card_from_deck_or_reputation_range_with_choice(
+                state,
+                player,
+                draw_source="display" if has_display and not has_deck else "deck",
+                display_index=0 if has_display and not has_deck else None,
+            )
+
+    _apply_sponsor_break_income_effects_for_player_after_card_draw(state, player)
+    return False
+
+
 def _apply_sponsor_break_income_effects(
     state: GameState,
     *,
     player_order: Optional[Sequence[int]] = None,
 ) -> None:
     order = list(player_order) if player_order is not None else _break_income_order(state)
-    for player_id in order:
-        _apply_sponsor_break_income_effects_for_player(state, state.players[player_id])
+    for order_index, player_id in enumerate(order):
+        _apply_sponsor_break_income_effects_for_player(
+            state,
+            state.players[player_id],
+            player_id=player_id,
+            break_income_index=order_index + 1,
+        )
 
 
 def _apply_break_pre_income_stages(state: GameState) -> None:
@@ -7005,10 +7992,15 @@ def _resolve_break_remaining_stages(
             player=player,
             player_id=player_id,
         )
-        _apply_sponsor_break_income_effects_for_player(
+        if _apply_sponsor_break_income_effects_for_player(
             state=state,
             player=player,
-        )
+            player_id=player_id,
+            break_income_index=order_index + 1,
+            resume_turn_player_id=resume_turn_player_id,
+            resume_turn_consumed_venom=resume_turn_consumed_venom,
+        ):
+            return False
         if _maybe_begin_conservation_reward_pending(
             state,
             player_id=player_id,
@@ -7998,8 +8990,9 @@ def _perform_animals_action_effect(
     details = details or {}
     upgraded = player.action_upgraded["animals"]
     allow_interactive = bool(details.get("_allow_interactive", False) or details.get("_interactive", False))
+    resume_followup = bool(details.get("_resume_animals_followup"))
 
-    if upgraded and strength >= 5:
+    if upgraded and strength >= 5 and not resume_followup:
         _increase_reputation(
             state=state,
             player=player,
@@ -8010,30 +9003,39 @@ def _perform_animals_action_effect(
     if details.get("skip_animals_action"):
         return
 
-    options = list_legal_animals_options(state=state, player_id=player_id, strength=strength)
-    if not options:
-        return
-
-    selected: Optional[Dict[str, Any]] = None
-    selected_idx_raw = details.get("animals_sequence_index")
-    if selected_idx_raw is not None:
-        selected_idx = int(selected_idx_raw)
-        if selected_idx < 0 or selected_idx >= len(options):
-            raise ValueError("animals_sequence_index is out of range.")
-        selected = options[selected_idx]
+    selected_plays_override_raw = details.get("_selected_plays_override")
+    if selected_plays_override_raw is not None:
+        if not isinstance(selected_plays_override_raw, list):
+            raise ValueError("_selected_plays_override must be a list of animal play payloads.")
+        selected_plays = [copy.deepcopy(item) for item in selected_plays_override_raw if isinstance(item, dict)]
     else:
-        if len(options) == 1:
-            selected = options[0]
+        options = list_legal_animals_options(state=state, player_id=player_id, strength=strength)
+        if not options:
+            return
+
+        selected: Optional[Dict[str, Any]] = None
+        selected_idx_raw = details.get("animals_sequence_index")
+        if selected_idx_raw is not None:
+            selected_idx = int(selected_idx_raw)
+            if selected_idx < 0 or selected_idx >= len(options):
+                raise ValueError("animals_sequence_index is out of range.")
+            selected = options[selected_idx]
         else:
-            raise ValueError(
-                "animals_sequence_index is required when multiple legal animal sequences exist."
-            )
+            if len(options) == 1:
+                selected = options[0]
+            else:
+                raise ValueError(
+                    "animals_sequence_index is required when multiple legal animal sequences exist."
+                )
 
-    if selected is None:
-        return
+        if selected is None:
+            return
 
-    selected_plays = list(selected["plays"])
-    if not selected_plays:
+        selected_plays = list(selected["plays"])
+
+    sponsor_228_postplay = bool(details.get("_resume_animals_sponsor_228_postplay"))
+    pending_sponsor_228_postplay = sponsor_228_postplay
+    if not selected_plays and not sponsor_228_postplay:
         return
 
     interactive_effect_prompts = bool(details.get("_interactive"))
@@ -8042,7 +9044,23 @@ def _perform_animals_action_effect(
     queued_hypnosis_target_players: List[Any] = []
     queued_pilfering_choices: List[Dict[str, Any]] = []
     queued_sell_hand_card_choices: List[List[str]] = []
+    queued_glide_discard_card_choices: List[List[str]] = []
+    queued_glide_reward_choices: List[Dict[str, Any]] = []
     queued_pouch_hand_card_choices: List[List[str]] = []
+    queued_deck_keep_card_choices: List[List[str]] = []
+    queued_digging_choices: List[Dict[str, Any]] = []
+    queued_display_take_choices: List[Dict[str, Any]] = []
+    queued_free_building_placement_choices: List[Dict[str, Any]] = []
+    queued_mark_display_animal_choices: List[Dict[str, Any]] = []
+    queued_trade_choices: List[Dict[str, Any]] = []
+    queued_shark_attack_choices: List[Dict[str, Any]] = []
+    queued_remove_empty_enclosure_choices: List[Dict[str, Any]] = []
+    queued_return_association_worker_choices: List[Dict[str, Any]] = []
+    queued_symbiosis_choices: List[Dict[str, Any]] = []
+    queued_adapt_final_scoring_choices: List[Dict[str, Any]] = []
+    queued_unused_base_project_choices: List[Dict[str, Any]] = []
+    queued_hypnosis_action_details: List[Dict[str, Any]] = []
+    queued_hypnosis_x_spent_choices: List[int] = []
     raw_clever_targets = details.get("clever_targets")
     if isinstance(raw_clever_targets, (list, tuple)):
         for item in raw_clever_targets:
@@ -8078,7 +9096,64 @@ def _perform_animals_action_effect(
             item for item in raw_pilfering_choices if isinstance(item, dict)
         ]
     _append_card_instance_choice_queue(details.get("sell_hand_card_choices"), queued_sell_hand_card_choices)
+    _append_card_instance_choice_queue(details.get("glide_discard_card_choices"), queued_glide_discard_card_choices)
+    _append_dict_choice_queue(details.get("glide_reward_choices"), queued_glide_reward_choices)
     _append_card_instance_choice_queue(details.get("pouch_hand_card_choices"), queued_pouch_hand_card_choices)
+    _append_card_instance_choice_queue(details.get("deck_keep_card_choices"), queued_deck_keep_card_choices)
+    _append_dict_choice_queue(details.get("digging_choices"), queued_digging_choices)
+    _append_dict_choice_queue(details.get("display_take_choices"), queued_display_take_choices)
+    _append_dict_choice_queue(details.get("free_building_placement_choices"), queued_free_building_placement_choices)
+    _append_dict_choice_queue(details.get("mark_display_animal_choices"), queued_mark_display_animal_choices)
+    _append_dict_choice_queue(details.get("trade_choices"), queued_trade_choices)
+    _append_dict_choice_queue(details.get("shark_attack_choices"), queued_shark_attack_choices)
+    _append_dict_choice_queue(details.get("remove_empty_enclosure_choices"), queued_remove_empty_enclosure_choices)
+    _append_dict_choice_queue(details.get("return_association_worker_choices"), queued_return_association_worker_choices)
+    _append_dict_choice_queue(details.get("symbiosis_choices"), queued_symbiosis_choices)
+    _append_dict_choice_queue(details.get("adapt_final_scoring_choices"), queued_adapt_final_scoring_choices)
+    _append_dict_choice_queue(details.get("unused_base_project_choices"), queued_unused_base_project_choices)
+    _append_dict_choice_queue(details.get("hypnosis_action_details_queue"), queued_hypnosis_action_details)
+    raw_hypnosis_x_spent_choices = details.get("hypnosis_x_spent_choices")
+    if isinstance(raw_hypnosis_x_spent_choices, dict):
+        if "x_spent" in raw_hypnosis_x_spent_choices:
+            queued_hypnosis_x_spent_choices.append(int(raw_hypnosis_x_spent_choices.get("x_spent", 0)))
+    elif isinstance(raw_hypnosis_x_spent_choices, (list, tuple)):
+        for item in raw_hypnosis_x_spent_choices:
+            if isinstance(item, dict):
+                if "x_spent" in item:
+                    queued_hypnosis_x_spent_choices.append(int(item.get("x_spent", 0)))
+            else:
+                queued_hypnosis_x_spent_choices.append(int(item))
+    elif raw_hypnosis_x_spent_choices is not None:
+        queued_hypnosis_x_spent_choices.append(int(raw_hypnosis_x_spent_choices))
+    queued_final_scoring_keep_choices: List[List[str]] = []
+    raw_final_scoring_keep_choices = details.get("final_scoring_keep_choices")
+    if isinstance(raw_final_scoring_keep_choices, dict):
+        queued_final_scoring_keep_choices.append(
+            [
+                str(item).strip()
+                for item in list(raw_final_scoring_keep_choices.get("keep_final_scoring_refs") or [])
+                if str(item).strip()
+            ]
+        )
+    elif isinstance(raw_final_scoring_keep_choices, (list, tuple)):
+        if raw_final_scoring_keep_choices and all(isinstance(item, str) for item in raw_final_scoring_keep_choices):
+            queued_final_scoring_keep_choices.append(
+                [str(item).strip() for item in raw_final_scoring_keep_choices if str(item).strip()]
+            )
+        else:
+            for item in raw_final_scoring_keep_choices:
+                if isinstance(item, dict):
+                    queued_final_scoring_keep_choices.append(
+                        [
+                            str(raw).strip()
+                            for raw in list(item.get("keep_final_scoring_refs") or [])
+                            if str(raw).strip()
+                        ]
+                    )
+                elif isinstance(item, (list, tuple)):
+                    queued_final_scoring_keep_choices.append(
+                        [str(raw).strip() for raw in item if str(raw).strip()]
+                    )
     queued_boost_action_choices: List[str] = []
     raw_boost_action_choices = details.get("boost_action_choices")
     if isinstance(raw_boost_action_choices, dict):
@@ -8098,6 +9173,140 @@ def _perform_animals_action_effect(
                 normalized = _normalize_boost_action_mode(item)
             if normalized:
                 queued_boost_action_choices.append(normalized)
+    expand_implicit_choices = bool(details.get("_expand_implicit_choices"))
+
+    def _choose_exact_card_instance_ids(
+        candidate_cards: Sequence[AnimalCard],
+        *,
+        choose_count: int,
+        queued_choices: List[List[str]],
+        detail_key: str,
+        label_prefix: str,
+        prompt_title: str,
+    ) -> List[str]:
+        target = min(max(0, int(choose_count)), len(candidate_cards))
+        if target <= 0:
+            return []
+        if len(candidate_cards) <= target:
+            return [str(card.instance_id or "").strip() for card in candidate_cards if str(card.instance_id or "").strip()]
+        valid_ids = [str(card.instance_id or "").strip() for card in candidate_cards if str(card.instance_id or "").strip()]
+        valid_id_set = set(valid_ids)
+        if queued_choices:
+            requested_ids = [item for item in queued_choices.pop(0) if item]
+            if len(requested_ids) != target or len(set(requested_ids)) != target:
+                raise ValueError(f"{detail_key} must contain exactly {target} distinct card ids.")
+            if any(item not in valid_id_set for item in requested_ids):
+                raise ValueError(f"{detail_key} selected card is not a legal revealed card.")
+            return requested_ids
+        if interactive_effect_prompts:
+            print(prompt_title)
+            for idx, card_obj in enumerate(candidate_cards, start=1):
+                print(f"{idx}. {_card_effect_card_label(card_obj)}")
+            while True:
+                raw = input(f"Select {target} card(s) [1-{len(candidate_cards)}]: ").strip()
+                parts = [part for part in raw.replace(",", " ").split() if part]
+                if len(parts) != target or any(not part.isdigit() for part in parts):
+                    print("Please enter valid card number(s).")
+                    continue
+                picked_indices = [int(part) - 1 for part in parts]
+                if len(set(picked_indices)) != target or any(idx < 0 or idx >= len(candidate_cards) for idx in picked_indices):
+                    print("Please enter distinct in-range numbers.")
+                    continue
+                return [str(candidate_cards[idx].instance_id or "").strip() for idx in picked_indices]
+        if expand_implicit_choices:
+            raise _ActionDetailExpansionRequired(
+                _enumerate_card_instance_choice_variants(
+                    candidate_cards,
+                    detail_key=detail_key,
+                    label_prefix=label_prefix,
+                    choose_count=target,
+                )
+            )
+        raise ValueError(f"{detail_key} requires explicit card choice when multiple legal options exist.")
+
+    def _choose_single_display_index(
+        candidate_indices: Sequence[int],
+        *,
+        queued_choices: List[Dict[str, Any]],
+        detail_key: str,
+        label_prefix: str,
+        prompt_title: str,
+    ) -> Optional[int]:
+        options = [int(idx) for idx in candidate_indices]
+        if not options:
+            return None
+        if queued_choices:
+            entry = queued_choices.pop(0)
+            picked_idx = int(entry.get("display_index", -1))
+            if picked_idx not in options:
+                raise ValueError(f"{detail_key} selected display card is not legal.")
+            return picked_idx
+        if interactive_effect_prompts:
+            print(prompt_title)
+            for idx, display_idx in enumerate(options, start=1):
+                print(f"{idx}. {_display_card_choice_label(state, display_idx)}")
+            while True:
+                raw = input(f"Select card [1-{len(options)}]: ").strip()
+                if raw.isdigit():
+                    picked = int(raw)
+                    if 1 <= picked <= len(options):
+                        return options[picked - 1]
+                print("Please enter a valid number.")
+        if expand_implicit_choices and len(options) > 1:
+            raise _ActionDetailExpansionRequired(
+                _enumerate_display_index_choice_variants(
+                    state,
+                    options,
+                    detail_key=detail_key,
+                    label_prefix=label_prefix,
+                )
+            )
+        if len(options) == 1:
+            return options[0]
+        raise ValueError(f"{detail_key} requires explicit display choice when multiple legal options exist.")
+
+    def _choose_building_selection(
+        legal_buildings: Sequence[Building],
+        *,
+        queued_choices: List[Dict[str, Any]],
+        detail_key: str,
+        label_prefix: str,
+        prompt_title: str,
+    ) -> Optional[Building]:
+        legal = list(legal_buildings)
+        if not legal:
+            return None
+        if queued_choices:
+            entry = queued_choices.pop(0)
+            selection = entry.get("selection") if "selection" in entry else entry
+            if not isinstance(selection, dict):
+                raise ValueError(f"{detail_key} entries must contain a selection object.")
+            picked_building = _find_legal_building_by_serialized_selection(legal, selection)
+            if picked_building is None:
+                raise ValueError(f"{detail_key} selected building is not legal.")
+            return picked_building
+        if interactive_effect_prompts:
+            print(prompt_title)
+            for idx, building in enumerate(legal, start=1):
+                print(f"{idx}. {building.type.name} {_building_cells_text(building)}")
+            while True:
+                raw = input(f"Select placement [1-{len(legal)}]: ").strip()
+                if raw.isdigit():
+                    picked = int(raw)
+                    if 1 <= picked <= len(legal):
+                        return legal[picked - 1]
+                print("Please enter a valid number.")
+        if expand_implicit_choices and len(legal) > 1:
+            raise _ActionDetailExpansionRequired(
+                _enumerate_building_choice_variants(
+                    legal,
+                    detail_key=detail_key,
+                    label_prefix=label_prefix,
+                )
+            )
+        if len(legal) == 1:
+            return legal[0]
+        raise ValueError(f"{detail_key} requires explicit building choice when multiple legal options exist.")
 
     def _choose_action_for_clever() -> str:
         while queued_clever_targets:
@@ -8123,8 +9332,91 @@ def _perform_animals_action_effect(
 
         if len(player.action_order) == 1:
             return player.action_order[0]
-        # Non-interactive fallback: deterministically pick the rightmost action card.
-        return player.action_order[-1]
+        if expand_implicit_choices:
+            raise _ActionDetailExpansionRequired(
+                _enumerate_string_choice_variants(
+                    player.action_order,
+                    detail_key="clever_targets",
+                    label_prefix="clever",
+                )
+            )
+        raise ValueError("clever_targets requires explicit action choice when multiple action cards are legal.")
+
+    current_remaining_plays: List[Dict[str, Any]] = []
+
+    def _remaining_animals_followup_details() -> Dict[str, Any]:
+        followup: Dict[str, Any] = {}
+        if queued_clever_targets:
+            followup["clever_targets"] = copy.deepcopy(queued_clever_targets)
+        if queued_hypnosis_targets:
+            followup["hypnosis_targets"] = copy.deepcopy(queued_hypnosis_targets)
+        if queued_hypnosis_target_players:
+            followup["hypnosis_target_players"] = copy.deepcopy(queued_hypnosis_target_players)
+        if queued_pilfering_choices:
+            followup["pilfering_choices"] = copy.deepcopy(queued_pilfering_choices)
+        if queued_sell_hand_card_choices:
+            followup["sell_hand_card_choices"] = copy.deepcopy(queued_sell_hand_card_choices)
+        if queued_glide_discard_card_choices:
+            followup["glide_discard_card_choices"] = copy.deepcopy(queued_glide_discard_card_choices)
+        if queued_glide_reward_choices:
+            followup["glide_reward_choices"] = copy.deepcopy(queued_glide_reward_choices)
+        if queued_pouch_hand_card_choices:
+            followup["pouch_hand_card_choices"] = copy.deepcopy(queued_pouch_hand_card_choices)
+        if queued_deck_keep_card_choices:
+            followup["deck_keep_card_choices"] = copy.deepcopy(queued_deck_keep_card_choices)
+        if queued_digging_choices:
+            followup["digging_choices"] = copy.deepcopy(queued_digging_choices)
+        if queued_display_take_choices:
+            followup["display_take_choices"] = copy.deepcopy(queued_display_take_choices)
+        if queued_free_building_placement_choices:
+            followup["free_building_placement_choices"] = copy.deepcopy(queued_free_building_placement_choices)
+        if queued_mark_display_animal_choices:
+            followup["mark_display_animal_choices"] = copy.deepcopy(queued_mark_display_animal_choices)
+        if queued_trade_choices:
+            followup["trade_choices"] = copy.deepcopy(queued_trade_choices)
+        if queued_shark_attack_choices:
+            followup["shark_attack_choices"] = copy.deepcopy(queued_shark_attack_choices)
+        if queued_remove_empty_enclosure_choices:
+            followup["remove_empty_enclosure_choices"] = copy.deepcopy(queued_remove_empty_enclosure_choices)
+        if queued_return_association_worker_choices:
+            followup["return_association_worker_choices"] = copy.deepcopy(queued_return_association_worker_choices)
+        if queued_symbiosis_choices:
+            followup["symbiosis_choices"] = copy.deepcopy(queued_symbiosis_choices)
+        if queued_adapt_final_scoring_choices:
+            followup["adapt_final_scoring_choices"] = copy.deepcopy(queued_adapt_final_scoring_choices)
+        if queued_unused_base_project_choices:
+            followup["unused_base_project_choices"] = copy.deepcopy(queued_unused_base_project_choices)
+        if queued_hypnosis_action_details:
+            followup["hypnosis_action_details_queue"] = copy.deepcopy(queued_hypnosis_action_details)
+        if queued_hypnosis_x_spent_choices:
+            followup["hypnosis_x_spent_choices"] = list(queued_hypnosis_x_spent_choices)
+        if queued_final_scoring_keep_choices:
+            followup["final_scoring_keep_choices"] = copy.deepcopy(queued_final_scoring_keep_choices)
+        if queued_boost_action_choices:
+            followup["boost_action_choices"] = copy.deepcopy(queued_boost_action_choices)
+        for key in (
+            "sponsor_draw_card_choices",
+            "sponsor_action_to_slot_1_choices",
+            "sponsor_display_take_choices",
+            "sponsor_pouch_hand_card_choices",
+            "sponsor_sell_hand_card_choices",
+            "sponsor_free_building_placement_choices",
+        ):
+            raw = details.get(key)
+            if isinstance(raw, list) and raw:
+                followup[key] = copy.deepcopy(raw)
+        return followup
+
+    def _queue_animals_followup_pending(kind: str, payload: Dict[str, Any]) -> None:
+        _begin_animals_followup_pending(
+            state,
+            player_id=player_id,
+            kind=kind,
+            payload=payload,
+            remaining_animals_plays=current_remaining_plays,
+            remaining_animals_details=_remaining_animals_followup_details(),
+            sponsor_228_postplay=pending_sponsor_228_postplay,
+        )
 
     initial_hand = list(player.hand)
     resolved_cards: List[AnimalCard] = []
@@ -8143,12 +9435,13 @@ def _perform_animals_action_effect(
             raise ValueError("Cannot play the same animal card twice in one animals action.")
         resolved_cards.append(target_card)
 
-    sponsor_228_triggered = (
+    sponsor_228_triggered = bool(sponsor_228_postplay) or (
         _player_has_sponsor(player, 228)
         and bool(resolved_cards)
         and all(_is_small_animal(card_obj) for card_obj in resolved_cards)
     )
-    if sponsor_228_triggered:
+    pending_sponsor_228_postplay = sponsor_228_triggered
+    if sponsor_228_triggered and not resume_followup:
         used_enclosures = {int(play.get("enclosure_index", -1)) for play in selected_plays}
         projected_money = int(player.money) - sum(int(play.get("card_cost", 0)) for play in selected_plays)
         extra_candidates: List[Tuple[Tuple[int, int, int], Dict[str, Any], AnimalCard]] = []
@@ -8202,7 +9495,8 @@ def _perform_animals_action_effect(
                 f"sponsor_228_extra_small_animal card={chosen_card.number} enclosure={chosen_step['enclosure_index']}"
             )
 
-    for card, play in zip(resolved_cards, selected_plays):
+    for play_index, (card, play) in enumerate(zip(resolved_cards, selected_plays)):
+        current_remaining_plays = [copy.deepcopy(item) for item in selected_plays[play_index + 1:]]
         if card not in player.hand:
             state.effect_log.append(
                 f"animals_followup_skipped_missing_hand_card card={getattr(card, 'number', '?')}"
@@ -8270,6 +9564,14 @@ def _perform_animals_action_effect(
             details=details,
             allow_interactive=allow_interactive,
         )
+        if str(state.pending_decision_kind or "").strip():
+            state.pending_decision_payload.setdefault("resume_kind", "animals_followup")
+            state.pending_decision_payload["resume_animals_player_id"] = int(player_id)
+            state.pending_decision_payload["resume_animals_plays"] = copy.deepcopy(list(current_remaining_plays))
+            state.pending_decision_payload["resume_animals_details"] = _remaining_animals_followup_details()
+            if pending_sponsor_228_postplay:
+                state.pending_decision_payload["resume_animals_sponsor_228_postplay"] = True
+            return False
 
         def _effect_draw_from_deck(count: int) -> Sequence[AnimalCard]:
             drawn_cards = _draw_from_zoo_deck(state, max(0, count))
@@ -8286,7 +9588,7 @@ def _perform_animals_action_effect(
             if action_name in player.action_order:
                 _rotate_action_card_to_slot_1(player, action_name)
 
-        def _effect_boost_action_card(action_name: str) -> str:
+        def _effect_boost(action_name: str) -> str:
             if action_name not in player.action_order:
                 return "skip"
 
@@ -8342,7 +9644,7 @@ def _perform_animals_action_effect(
 
             return "skip"
 
-        def _effect_advance_break(steps: int) -> bool:
+        def _effect_advance_break_track(steps: int) -> bool:
             triggered = _advance_break_track(state=state, steps=max(0, steps), trigger_player=player_id)
             if triggered:
                 _resolve_break(state, allow_interactive=interactive_effect_prompts)
@@ -8367,13 +9669,28 @@ def _perform_animals_action_effect(
                 return display_card.card_type == filter_value
 
             taken = 0
-            for _ in range(max(0, count)):
-                picked_idx = None
-                for idx, display_card in enumerate(state.zoo_display):
-                    if not _matches_filter(display_card):
-                        continue
-                    picked_idx = idx
+            target_count = max(0, count)
+            while taken < target_count:
+                candidate_indices = [
+                    idx for idx, display_card in enumerate(state.zoo_display) if _matches_filter(display_card)
+                ]
+                if not candidate_indices:
                     break
+                remaining = target_count - taken
+                if not replenish_each and remaining >= len(candidate_indices):
+                    chosen_cards = [state.zoo_display[idx] for idx in candidate_indices]
+                    for idx in sorted(candidate_indices, reverse=True):
+                        state.zoo_display.pop(idx)
+                    player.hand.extend(chosen_cards)
+                    taken += len(chosen_cards)
+                    break
+                picked_idx = _choose_single_display_index(
+                    candidate_indices,
+                    queued_choices=queued_display_take_choices,
+                    detail_key="display_take_choices",
+                    label_prefix="display take",
+                    prompt_title="Choose a display card to take.",
+                )
                 if picked_idx is None:
                     break
                 player.hand.append(state.zoo_display.pop(picked_idx))
@@ -8384,7 +9701,191 @@ def _perform_animals_action_effect(
                 _replenish_zoo_display(state)
             return taken
 
-        def _effect_sell_hand_cards(limit: int, money_each: int) -> int:
+        def _effect_perception(draw_count: int, keep_count: int) -> Tuple[int, int]:
+            if draw_count <= 0 or not state.zoo_deck:
+                return 0, 0
+            drawn = _draw_from_zoo_deck(state, max(0, int(draw_count)))
+            if not drawn:
+                return 0, 0
+            keep_target = min(max(0, int(keep_count)), len(drawn))
+            if keep_target >= len(drawn):
+                player.hand.extend(drawn)
+                return len(drawn), len(drawn)
+            if interactive_effect_prompts:
+                chosen_ids = _choose_exact_card_instance_ids(
+                    drawn,
+                    choose_count=keep_target,
+                    queued_choices=queued_deck_keep_card_choices,
+                    detail_key="deck_keep_card_choices",
+                    label_prefix="keep ",
+                    prompt_title="Choose deck card(s) to keep.",
+                )
+            else:
+                _queue_animals_followup_pending(
+                    "revealed_cards_keep",
+                    {
+                        "keep_target": keep_target,
+                        "revealed_cards": copy.deepcopy(drawn),
+                        "revealed_source": "zoo_deck",
+                    },
+                )
+                return len(drawn), 0
+            kept_cards: List[AnimalCard] = []
+            discarded_cards: List[AnimalCard] = []
+            remaining_ids = list(chosen_ids)
+            for drawn_card in drawn:
+                card_id = str(drawn_card.instance_id or "").strip()
+                if card_id in remaining_ids:
+                    kept_cards.append(drawn_card)
+                    remaining_ids.remove(card_id)
+                else:
+                    discarded_cards.append(drawn_card)
+            if remaining_ids:
+                raise ValueError("deck_keep_card_choices could not be resolved from drawn deck cards.")
+            player.hand.extend(kept_cards)
+            state.zoo_discard.extend(discarded_cards)
+            return len(drawn), len(kept_cards)
+
+        def _effect_reveal_keep_by_card_type(draw_count: int, card_type_filter: str) -> Tuple[int, int]:
+            if draw_count <= 0 or not state.zoo_deck:
+                return 0, 0
+            wanted = str(card_type_filter or "").strip().lower()
+            drawn = _draw_from_zoo_deck(state, max(0, int(draw_count)))
+            if not drawn:
+                return 0, 0
+            matching = [card_obj for card_obj in drawn if str(card_obj.card_type).lower() == wanted]
+            if not matching:
+                state.zoo_discard.extend(drawn)
+                return len(drawn), 0
+            if len(matching) == 1:
+                chosen_ids = [str(matching[0].instance_id or "").strip()]
+            elif interactive_effect_prompts:
+                chosen_ids = _choose_exact_card_instance_ids(
+                    matching,
+                    choose_count=1,
+                    queued_choices=queued_deck_keep_card_choices,
+                    detail_key="deck_keep_card_choices",
+                    label_prefix=f"keep {wanted} ",
+                    prompt_title=f"Choose 1 {wanted} card to keep.",
+                )
+            else:
+                _queue_animals_followup_pending(
+                    "revealed_cards_keep",
+                    {
+                        "keep_target": 1,
+                        "revealed_cards": copy.deepcopy(drawn),
+                        "revealed_source": f"reveal_{wanted}",
+                        "card_type_filter": wanted,
+                    },
+                )
+                return len(drawn), 0
+            kept_cards: List[AnimalCard] = []
+            discarded_cards: List[AnimalCard] = []
+            remaining_ids = list(chosen_ids)
+            for drawn_card in drawn:
+                card_id = str(drawn_card.instance_id or "").strip()
+                if card_id in remaining_ids:
+                    kept_cards.append(drawn_card)
+                    remaining_ids.remove(card_id)
+                else:
+                    discarded_cards.append(drawn_card)
+            if remaining_ids:
+                raise ValueError("deck_keep_card_choices could not be resolved from revealed cards.")
+            player.hand.extend(kept_cards)
+            state.zoo_discard.extend(discarded_cards)
+            return len(drawn), len(kept_cards)
+
+        def _effect_digging(loop_count: int) -> int:
+            completed = 0
+            total_loops = max(0, loop_count)
+            for loop_index in range(total_loops):
+                display_indices = list(range(len(state.zoo_display)))
+                hand_cards = list(player.hand)
+                if not display_indices and not hand_cards:
+                    break
+
+                mode = ""
+                selected_display_index: Optional[int] = None
+                selected_hand_id = ""
+                if queued_digging_choices:
+                    payload = queued_digging_choices.pop(0)
+                    mode = str(payload.get("mode") or "").strip().lower()
+                    if mode == "display":
+                        selected_display_index = int(payload.get("display_index", -1))
+                    elif mode == "hand":
+                        selected_hand_id = str(payload.get("card_instance_id") or "").strip()
+                    elif mode == "skip":
+                        break
+                    else:
+                        raise ValueError("digging_choices mode must be 'display', 'hand', or 'skip'.")
+                elif interactive_effect_prompts:
+                    options: List[Tuple[str, Any, str]] = [("skip", None, "Stop digging")]
+                    for display_idx in display_indices:
+                        options.append(("display", display_idx, f"Discard {_display_card_choice_label(state, display_idx)}"))
+                    for hand_card in hand_cards:
+                        options.append(("hand", hand_card.instance_id, f"Discard hand {_card_effect_card_label(hand_card)} and draw 1"))
+                    print("Digging: choose one option.")
+                    for idx, (_, _, label_text) in enumerate(options, start=1):
+                        print(f"{idx}. {label_text}")
+                    while True:
+                        raw = input(f"Select option [1-{len(options)}]: ").strip()
+                        if raw.isdigit():
+                            picked = int(raw)
+                            if 1 <= picked <= len(options):
+                                mode, payload_value, _ = options[picked - 1]
+                                if mode == "skip":
+                                    return completed
+                                if mode == "display":
+                                    selected_display_index = int(payload_value)
+                                else:
+                                    selected_hand_id = str(payload_value)
+                                break
+                        print("Please enter a valid number.")
+                else:
+                    _queue_animals_followup_pending(
+                        "digging_choice",
+                        {"remaining_loops": int(total_loops - loop_index)},
+                    )
+                    return completed
+
+                if mode == "display":
+                    if selected_display_index is None or selected_display_index not in display_indices:
+                        raise ValueError("digging_choices selected display index is not legal.")
+                    discarded_card = state.zoo_display.pop(selected_display_index)
+                    state.zoo_discard.append(discarded_card)
+                    _replenish_zoo_display(state)
+                    completed += 1
+                    if not interactive_effect_prompts and loop_index + 1 < total_loops and (state.zoo_display or player.hand):
+                        _queue_animals_followup_pending(
+                            "digging_choice",
+                            {"remaining_loops": int(total_loops - loop_index - 1)},
+                        )
+                        return completed
+                    continue
+
+                if mode == "hand":
+                    chosen_hand_card = next(
+                        (hand_card for hand_card in player.hand if hand_card.instance_id == selected_hand_id),
+                        None,
+                    )
+                    if chosen_hand_card is None:
+                        raise ValueError("digging_choices selected hand card is not in hand.")
+                    player.hand.remove(chosen_hand_card)
+                    state.zoo_discard.append(chosen_hand_card)
+                    player.hand.extend(_draw_from_zoo_deck(state, 1))
+                    completed += 1
+                    if not interactive_effect_prompts and loop_index + 1 < total_loops and (state.zoo_display or player.hand):
+                        _queue_animals_followup_pending(
+                            "digging_choice",
+                            {"remaining_loops": int(total_loops - loop_index - 1)},
+                        )
+                        return completed
+                    continue
+
+                break
+            return completed
+
+        def _effect_sun_bathing(limit: int, money_each: int) -> int:
             max_sell = min(max(0, limit), len(player.hand))
             if max_sell <= 0:
                 return 0
@@ -8440,7 +9941,7 @@ def _perform_animals_action_effect(
                 player.money += len(sold_cards) * money_each
             return len(sold_cards)
 
-        def _effect_pouch_hand_cards(limit: int, appeal_each: int) -> int:
+        def _effect_pouch(limit: int, appeal_each: int) -> int:
             max_pouch = min(max(0, limit), len(player.hand))
             if max_pouch <= 0:
                 return 0
@@ -8500,7 +10001,7 @@ def _perform_animals_action_effect(
                 player.appeal += len(pouched_cards) * appeal_each
             return len(pouched_cards)
 
-        def _effect_place_free_kiosk_or_pavilion(times: int) -> int:
+        def _effect_posturing(times: int) -> int:
             _ensure_player_map_initialized(state, player)
             if player.zoo_map is None:
                 return 0
@@ -8527,7 +10028,43 @@ def _perform_animals_action_effect(
                         building.rotation.value,
                     )
                 )
-                picked = legal[0]
+                if queued_free_building_placement_choices:
+                    choice_payload = queued_free_building_placement_choices.pop(0)
+                    if bool(choice_payload.get("skip")):
+                        break
+                    selection = choice_payload.get("selection") if "selection" in choice_payload else choice_payload
+                    if not isinstance(selection, dict):
+                        raise ValueError("free_building_placement_choices must contain selection objects.")
+                    picked = _find_legal_building_by_serialized_selection(legal, selection)
+                    if picked is None:
+                        raise ValueError("free_building_placement_choices selected placement is not legal.")
+                elif interactive_effect_prompts:
+                    print("Choose a free kiosk or pavilion placement.")
+                    print("1. Skip")
+                    for idx, building in enumerate(legal, start=2):
+                        print(f"{idx}. {building.type.name} {_building_cells_text(building)}")
+                    while True:
+                        raw = input(f"Select placement [1-{len(legal) + 1}]: ").strip()
+                        if raw.isdigit():
+                            picked_option = int(raw)
+                            if picked_option == 1:
+                                return placed
+                            if 2 <= picked_option <= len(legal) + 1:
+                                picked = legal[picked_option - 2]
+                                break
+                        print("Please enter a valid number.")
+                elif expand_implicit_choices:
+                    variants = [({"free_building_placement_choices": [{"skip": True}]}, "free-build(skip)")]
+                    variants.extend(
+                        _enumerate_building_choice_variants(
+                            legal,
+                            detail_key="free_building_placement_choices",
+                            label_prefix="free-build",
+                        )
+                    )
+                    raise _ActionDetailExpansionRequired(variants)
+                else:
+                    picked = legal[0]
                 player.zoo_map.add_building(picked)
                 if picked.type == BuildingType.PAVILION:
                     player.appeal += 1
@@ -8552,13 +10089,13 @@ def _perform_animals_action_effect(
                 placed += 1
             return placed
 
-        def _effect_add_multiplier_token(action_name: str) -> bool:
+        def _effect_multiplier(action_name: str) -> bool:
             if action_name not in player.multiplier_tokens_on_actions:
                 return False
             player.multiplier_tokens_on_actions[action_name] += 1
             return True
 
-        def _effect_apply_venom(amount: int) -> int:
+        def _effect_venom(amount: int) -> int:
             affected = 0
             for idx, other in enumerate(state.players):
                 if idx == player_id:
@@ -8571,7 +10108,7 @@ def _perform_animals_action_effect(
                     affected += 1
             return affected
 
-        def _effect_apply_constriction(amount: int) -> int:
+        def _effect_constriction(amount: int) -> int:
             affected = 0
             for idx, other in enumerate(state.players):
                 if idx == player_id:
@@ -8609,15 +10146,30 @@ def _perform_animals_action_effect(
                     target_ids,
                     effect_name="Hypnosis",
                 )
+            elif expand_implicit_choices:
+                raise _ActionDetailExpansionRequired(
+                    _enumerate_target_player_choice_variants(
+                        state,
+                        target_ids,
+                        detail_key="hypnosis_target_players",
+                        label_prefix="hypnosis target",
+                    )
+                )
             else:
-                # Non-interactive fallback: deterministically pick the first legal target player.
-                target_id = int(sorted(target_ids)[0])
+                raise ValueError("Hypnosis requires explicit target player when multiple target players are legal.")
             target_player = state.players[target_id]
             available_actions = list(target_player.action_order[: max(0, max_slot)])
             if not available_actions:
                 return f"target={target_player.name} no_action"
 
-            def _hypnosis_concrete_details_for_action(action_name: str, strength_value: int) -> Optional[Dict[str, Any]]:
+            def _hypnosis_concrete_variants_for_action(action_name: str, x_spent_value: int) -> List[Action]:
+                base_strength_for_action = target_player.action_order.index(action_name) + 1
+                strength_value = _effective_action_strength(
+                    target_player,
+                    action_name,
+                    x_spent=x_spent_value,
+                    base_strength=base_strength_for_action,
+                )
                 template_action = Action(
                     ActionType.MAIN_ACTION,
                     value=0,
@@ -8629,35 +10181,31 @@ def _perform_animals_action_effect(
                 )
                 try:
                     if action_name == "animals":
-                        concrete = _enumerate_concrete_animals_actions(state, target_player, target_id, template_action)
+                        concrete = _enumerate_concrete_animals_actions(state, player, player_id, template_action)
                     elif action_name == "cards":
-                        concrete = _enumerate_concrete_cards_actions(state, target_player, template_action)
+                        concrete = _enumerate_concrete_cards_actions(state, player, template_action)
                     elif action_name == "build":
-                        concrete = _enumerate_concrete_build_actions(state, target_player, target_id, template_action)
+                        concrete = _enumerate_concrete_build_actions(state, player, player_id, template_action)
                     elif action_name == "association":
-                        concrete = _enumerate_concrete_association_actions(state, target_player, target_id, template_action)
+                        concrete = _enumerate_concrete_association_actions(state, player, player_id, template_action)
                     elif action_name == "sponsors":
-                        concrete = _enumerate_concrete_sponsors_actions(state, target_player, target_id, template_action)
+                        concrete = _enumerate_concrete_sponsors_actions(state, player, player_id, template_action)
                     else:
-                        return None
+                        return []
                 except ValueError:
-                    return None
-                if not concrete:
-                    return None
-                return copy.deepcopy(concrete[0].details or {})
+                    return []
+                return list(concrete)
 
-            executable_actions: List[str] = []
+            executable_variants_by_action: Dict[str, Dict[int, List[Action]]] = {}
             for action_name in available_actions:
-                base_strength_for_action = target_player.action_order.index(action_name) + 1
-                effective_strength_for_action = _effective_action_strength(
-                    target_player,
-                    action_name,
-                    x_spent=0,
-                    base_strength=base_strength_for_action,
-                )
-                if _hypnosis_concrete_details_for_action(action_name, effective_strength_for_action) is None:
-                    continue
-                executable_actions.append(action_name)
+                variants_by_x: Dict[int, List[Action]] = {}
+                for x_choice in range(max(0, int(player.x_tokens)) + 1):
+                    concrete_variants = _hypnosis_concrete_variants_for_action(action_name, x_choice)
+                    if concrete_variants:
+                        variants_by_x[int(x_choice)] = concrete_variants
+                if variants_by_x:
+                    executable_variants_by_action[action_name] = variants_by_x
+            executable_actions = list(executable_variants_by_action.keys())
             if not executable_actions:
                 return f"target={target_player.name} no_action"
 
@@ -8693,28 +10241,60 @@ def _perform_animals_action_effect(
                             break
                     print("Please enter a valid number.")
             elif chosen_action is None:
-                if len(executable_actions) == 1:
-                    chosen_action = executable_actions[0]
-                else:
-                    # Non-interactive fallback: deterministically pick slot-1 action in available range.
-                    chosen_action = executable_actions[0]
+                if len(executable_actions) > 1 and expand_implicit_choices:
+                    raise _ActionDetailExpansionRequired(
+                        _enumerate_string_choice_variants(
+                            executable_actions,
+                            detail_key="hypnosis_targets",
+                            label_prefix="hypnosis action",
+                        )
+                    )
+                if len(executable_actions) > 1:
+                    raise ValueError("Hypnosis requires explicit action choice when multiple actions are legal.")
+                chosen_action = executable_actions[0]
 
             if chosen_action is None:
                 raise ValueError("Hypnosis action selection failed.")
 
-            x_spent = 0
-            if player.x_tokens > 0 and interactive_effect_prompts:
-                while True:
-                    raw_x = input(f"Spend X-tokens for Hypnosis action [0-{player.x_tokens}] (default 0): ").strip()
-                    if raw_x == "":
-                        x_spent = 0
-                        break
-                    if raw_x.isdigit():
-                        picked_x = int(raw_x)
-                        if 0 <= picked_x <= player.x_tokens:
-                            x_spent = picked_x
+            valid_x_spent_values = sorted(executable_variants_by_action[chosen_action].keys())
+            if not valid_x_spent_values:
+                return f"target={target_player.name} no_action"
+            if queued_hypnosis_x_spent_choices:
+                x_spent = int(queued_hypnosis_x_spent_choices.pop(0))
+                if x_spent not in valid_x_spent_values:
+                    raise ValueError("hypnosis_x_spent_choices selected x-spend is not legal.")
+            elif interactive_effect_prompts:
+                if len(valid_x_spent_values) == 1:
+                    x_spent = valid_x_spent_values[0]
+                else:
+                    while True:
+                        raw_x = input(
+                            "Spend X-tokens for Hypnosis action "
+                            f"{valid_x_spent_values} (default {valid_x_spent_values[0]}): "
+                        ).strip()
+                        if raw_x == "":
+                            x_spent = valid_x_spent_values[0]
                             break
-                    print("Please enter a valid number.")
+                        if raw_x.isdigit():
+                            picked_x = int(raw_x)
+                            if picked_x in valid_x_spent_values:
+                                x_spent = picked_x
+                                break
+                        print("Please enter a valid number.")
+            elif len(valid_x_spent_values) == 1:
+                x_spent = valid_x_spent_values[0]
+            elif expand_implicit_choices:
+                raise _ActionDetailExpansionRequired(
+                    _enumerate_int_choice_variants(
+                        valid_x_spent_values,
+                        detail_key="hypnosis_x_spent_choices",
+                        label_prefix="hypnosis x",
+                    )
+                )
+            else:
+                raise ValueError(
+                    "Hypnosis requires explicit x-spend choice when multiple x-spend values are legal."
+                )
 
             if x_spent > 0:
                 player.x_tokens -= x_spent
@@ -8765,7 +10345,34 @@ def _perform_animals_action_effect(
                         strength=effective_strength,
                     )
             else:
-                hypnosis_details = _hypnosis_concrete_details_for_action(chosen_action, effective_strength)
+                if queued_hypnosis_action_details:
+                    hypnosis_details = copy.deepcopy(queued_hypnosis_action_details.pop(0))
+                else:
+                    concrete_variants = list(executable_variants_by_action.get(chosen_action, {}).get(x_spent, []))
+                    if len(concrete_variants) == 1:
+                        hypnosis_details = copy.deepcopy(concrete_variants[0].details or {})
+                    elif len(concrete_variants) > 1 and expand_implicit_choices:
+                        raise _ActionDetailExpansionRequired(
+                            [
+                                (
+                                    {
+                                        "hypnosis_action_details_queue": [
+                                            copy.deepcopy(candidate.details or {})
+                                        ]
+                                    },
+                                    (
+                                        "hypnosis detail("
+                                        + str((candidate.details or {}).get("action_label") or candidate)
+                                        + ")"
+                                    ),
+                                )
+                                for candidate in concrete_variants
+                            ]
+                        )
+                    elif concrete_variants:
+                        raise ValueError(
+                            "Hypnosis requires explicit hypnosis_action_details_queue when multiple concrete actions are legal."
+                        )
 
             skip_dispatch = (
                 chosen_action == "build"
@@ -8823,6 +10430,15 @@ def _perform_animals_action_effect(
                     )
                 else:
                     if not queued_pilfering_choices:
+                        if expand_implicit_choices:
+                            raise _ActionDetailExpansionRequired(
+                                _enumerate_target_player_choice_variants(
+                                    state,
+                                    [int(item) for item in eligible_target_ids],
+                                    detail_key="pilfering_choices",
+                                    label_prefix="pilfering target",
+                                )
+                            )
                         target_id = int(sorted(int(item) for item in eligible_target_ids)[0])
                     else:
                         choice_payload = queued_pilfering_choices.pop(0)
@@ -8856,12 +10472,59 @@ def _perform_animals_action_effect(
                             choice = "card"
                             break
                         print("Please enter 1 or 2.")
+                    if choice == "card" and len(target_player.hand) > 1:
+                        print(f"Pilfering: choose 1 card from {target_player.name}'s hand to transfer.")
+                        for idx, hand_card in enumerate(target_player.hand, start=1):
+                            print(f"{idx}. {_card_effect_card_label(hand_card)}")
+                        while True:
+                            raw_card = input(f"Select card [1-{len(target_player.hand)}]: ").strip()
+                            if raw_card.isdigit():
+                                picked_card = int(raw_card)
+                                if 1 <= picked_card <= len(target_player.hand):
+                                    chosen_card_index = picked_card - 1
+                                    break
+                            print("Please enter a valid number.")
                 elif can_take_money and can_take_card:
                     if choice_payload is None:
-                        if not queued_pilfering_choices:
-                            choice = "money"
-                        else:
+                        if queued_pilfering_choices:
                             choice_payload = queued_pilfering_choices.pop(0)
+                        elif expand_implicit_choices:
+                            variants: List[Tuple[Dict[str, Any], str]] = [
+                                (
+                                    {"pilfering_choices": [{"choice": "money"}]},
+                                    "pilfering(money)",
+                                )
+                            ]
+                            hand_cards = [
+                                hand_card
+                                for hand_card in target_player.hand
+                                if str(hand_card.instance_id or "").strip()
+                            ]
+                            if len(hand_cards) <= 1:
+                                variants.append(
+                                    (
+                                        {"pilfering_choices": [{"choice": "card"}]},
+                                        "pilfering(card)",
+                                    )
+                                )
+                            else:
+                                for hand_card in hand_cards:
+                                    variants.append(
+                                        (
+                                            {
+                                                "pilfering_choices": [
+                                                    {
+                                                        "choice": "card",
+                                                        "card_instance_id": str(hand_card.instance_id or ""),
+                                                    }
+                                                ]
+                                            },
+                                            f"pilfering(card {_card_effect_card_label(hand_card)})",
+                                        )
+                                    )
+                            raise _ActionDetailExpansionRequired(variants)
+                        else:
+                            choice = "money"
                     if choice_payload is not None:
                         choice, chosen_card_index = _resolve_pilfering_choice_from_details(
                             target_player=target_player,
@@ -8885,7 +10548,7 @@ def _perform_animals_action_effect(
                 results.append(f"{target_player.name}:none")
             return "; ".join(results)
 
-        def _effect_scavenge_from_discard(draw_count: int, keep_count: int) -> Tuple[int, int]:
+        def _effect_scavenging(draw_count: int, keep_count: int) -> Tuple[int, int]:
             if draw_count <= 0 or not state.zoo_discard:
                 return 0, 0
             random.shuffle(state.zoo_discard)
@@ -8894,32 +10557,172 @@ def _perform_animals_action_effect(
                 if not state.zoo_discard:
                     break
                 drawn.append(state.zoo_discard.pop(0))
-            kept = min(max(0, keep_count), len(drawn))
-            player.hand.extend(drawn[:kept])
-            state.zoo_discard.extend(drawn[kept:])
-            return len(drawn), kept
+            kept_target = min(max(0, keep_count), len(drawn))
+            if kept_target >= len(drawn):
+                player.hand.extend(drawn)
+                return len(drawn), len(drawn)
+            if interactive_effect_prompts:
+                chosen_ids = _choose_exact_card_instance_ids(
+                    drawn,
+                    choose_count=kept_target,
+                    queued_choices=queued_deck_keep_card_choices,
+                    detail_key="deck_keep_card_choices",
+                    label_prefix="scavenge keep ",
+                    prompt_title="Choose scavenged card(s) to keep.",
+                )
+            else:
+                _queue_animals_followup_pending(
+                    "revealed_cards_keep",
+                    {
+                        "keep_target": kept_target,
+                        "revealed_cards": copy.deepcopy(drawn),
+                        "revealed_source": "zoo_discard_shuffle",
+                    },
+                )
+                return len(drawn), 0
+            kept_cards: List[AnimalCard] = []
+            discarded_cards: List[AnimalCard] = []
+            remaining_ids = list(chosen_ids)
+            for drawn_card in drawn:
+                card_id = str(drawn_card.instance_id or "").strip()
+                if card_id in remaining_ids:
+                    kept_cards.append(drawn_card)
+                    remaining_ids.remove(card_id)
+                else:
+                    discarded_cards.append(drawn_card)
+            if remaining_ids:
+                raise ValueError("deck_keep_card_choices could not be resolved from scavenged cards.")
+            player.hand.extend(kept_cards)
+            state.zoo_discard.extend(discarded_cards)
+            return len(drawn), len(kept_cards)
 
-        def _effect_draw_final_scoring_keep(draw_count: int, keep_count: int) -> Tuple[int, int]:
+        def _effect_resistance(draw_count: int, keep_count: int) -> Tuple[int, int]:
             if draw_count <= 0 or not state.final_scoring_deck:
                 return 0, 0
             drawn: List[SetupCardRef] = []
-            for _ in range(draw_count):
+            for _ in range(max(0, int(draw_count))):
                 if not state.final_scoring_deck:
                     break
                 drawn.append(state.final_scoring_deck.pop(0))
-            kept = min(max(0, keep_count), len(drawn))
-            player.final_scoring_cards.extend(drawn[:kept])
-            state.final_scoring_discard.extend(drawn[kept:])
-            return len(drawn), kept
+            if not drawn:
+                return 0, 0
 
-        def _effect_take_unused_base_project(count: int) -> int:
+            kept_target = min(max(0, int(keep_count)), len(drawn))
+            chosen_refs: List[str]
+            if kept_target >= len(drawn):
+                chosen_refs = [str(card.data_id or "").strip() for card in drawn]
+            elif interactive_effect_prompts:
+                print("Resistance: choose final scoring card(s) to keep.")
+                for idx, card_ref in enumerate(drawn, start=1):
+                    print(f"{idx}. {_final_scoring_card_label(card_ref)}")
+                while True:
+                    raw_pick = input(f"Select {kept_target} card(s) [1-{len(drawn)}]: ").strip()
+                    parts = [part for part in raw_pick.replace(",", " ").split() if part]
+                    if len(parts) != kept_target or any(not part.isdigit() for part in parts):
+                        print("Please enter valid card number(s).")
+                        continue
+                    picked_indices = [int(part) - 1 for part in parts]
+                    if len(set(picked_indices)) != kept_target or any(
+                        idx < 0 or idx >= len(drawn) for idx in picked_indices
+                    ):
+                        print("Please enter distinct in-range numbers.")
+                        continue
+                    chosen_refs = [str(drawn[idx].data_id or "").strip() for idx in picked_indices]
+                    break
+            else:
+                _queue_animals_followup_pending(
+                    "revealed_final_scoring_keep",
+                    {
+                        "keep_target": kept_target,
+                        "revealed_cards": copy.deepcopy(drawn),
+                    },
+                )
+                return len(drawn), 0
+
+            valid_ref_ids = {str(card.data_id or "").strip() for card in drawn}
+            chosen_refs = [ref for ref in chosen_refs if ref]
+            if len(chosen_refs) != kept_target or len(set(chosen_refs)) != len(chosen_refs):
+                raise ValueError("Resistance keep choice must contain distinct final scoring references.")
+            if any(ref not in valid_ref_ids for ref in chosen_refs):
+                raise ValueError("Resistance keep choice must come from drawn final scoring cards.")
+
+            remaining_refs = list(chosen_refs)
+            kept_cards: List[SetupCardRef] = []
+            discarded_cards: List[SetupCardRef] = []
+            for card_ref in drawn:
+                card_id = str(card_ref.data_id or "").strip()
+                if card_id in remaining_refs:
+                    kept_cards.append(card_ref)
+                    remaining_refs.remove(card_id)
+                else:
+                    discarded_cards.append(card_ref)
+            if remaining_refs:
+                raise ValueError("Resistance keep choice could not be resolved from drawn final scoring cards.")
+
+            player.final_scoring_cards.extend(kept_cards)
+            state.final_scoring_discard.extend(discarded_cards)
+            return len(drawn), len(kept_cards)
+
+        def _effect_assertion(count: int) -> int:
             if count <= 0:
                 return 0
             taken = 0
             for idx in range(count):
                 if not state.unused_base_conservation_projects:
                     break
-                project = state.unused_base_conservation_projects.pop(0)
+                if queued_unused_base_project_choices:
+                    payload = queued_unused_base_project_choices.pop(0)
+                    if bool(payload.get("skip")):
+                        break
+                    project_data_id = str(payload.get("project_data_id") or "").strip()
+                    project_index = next(
+                        (
+                            candidate_index
+                            for candidate_index, candidate in enumerate(state.unused_base_conservation_projects)
+                            if str(candidate.data_id or "").strip() == project_data_id
+                        ),
+                        None,
+                    )
+                    if project_index is None:
+                        raise ValueError("unused_base_project_choices selected project is not legal.")
+                elif interactive_effect_prompts:
+                    print("Assertion: choose 1 unused base conservation project.")
+                    print("1. Skip")
+                    for option_index, project in enumerate(state.unused_base_conservation_projects, start=2):
+                        print(f"{option_index}. {_final_scoring_card_label(project)}")
+                    while True:
+                        raw = input(
+                            f"Select project [1-{len(state.unused_base_conservation_projects) + 1}]: "
+                        ).strip()
+                        if raw.isdigit():
+                            picked = int(raw)
+                            if picked == 1:
+                                return taken
+                            if 2 <= picked <= len(state.unused_base_conservation_projects) + 1:
+                                project_index = picked - 2
+                                break
+                        print("Please enter a valid number.")
+                elif expand_implicit_choices:
+                    variants: List[Tuple[Dict[str, Any], str]] = [
+                        ({"unused_base_project_choices": [{"skip": True}]}, "assertion(skip)")
+                    ]
+                    for project in state.unused_base_conservation_projects:
+                        variants.append(
+                            (
+                                {
+                                    "unused_base_project_choices": [
+                                        {"project_data_id": str(project.data_id or "").strip()}
+                                    ]
+                                },
+                                f"assertion({_final_scoring_card_label(project)})",
+                            )
+                        )
+                    raise _ActionDetailExpansionRequired(variants)
+                else:
+                    raise ValueError(
+                        "unused_base_project_choices entry is required when unused base projects are available."
+                    )
+                project = state.unused_base_conservation_projects.pop(project_index)
                 instance_id = (
                     f"assert-{project.data_id}-{state.turn_index}-{player_id}-{len(player.hand)}-{idx}"
                 )
@@ -8927,7 +10730,7 @@ def _perform_animals_action_effect(
                 taken += 1
             return taken
 
-        def _effect_gain_x_tokens(amount: int) -> int:
+        def _effect_inventive(amount: int) -> int:
             if amount <= 0:
                 return 0
             before = player.x_tokens
@@ -8968,7 +10771,215 @@ def _perform_animals_action_effect(
                         player.extra_strength_actions.get(strength_value, 0) + 1
                     )
 
-        def _effect_adapt_final_scoring(draw_count: int) -> Tuple[int, int]:
+        def _effect_glide(limit: int) -> str:
+            reserved_instance_ids = {
+                str(next_play.get("card_instance_id") or "").strip()
+                for next_play in current_remaining_plays
+                if str(next_play.get("card_instance_id") or "").strip()
+            }
+            discardable_cards = [
+                hand_card
+                for hand_card in player.hand
+                if str(hand_card.instance_id or "").strip()
+                and str(hand_card.instance_id or "").strip() not in reserved_instance_ids
+                and int(_card_icon_counts(hand_card).get("seaanimal", 0)) > 0
+            ]
+            max_discard = min(max(0, int(limit)), len(discardable_cards))
+            discarded_cards: List[AnimalCard] = []
+            if max_discard > 0:
+                discard_indices: List[int] = []
+                if queued_glide_discard_card_choices:
+                    requested_ids = queued_glide_discard_card_choices.pop(0)
+                    if len(requested_ids) > max_discard:
+                        raise ValueError(
+                            f"glide_discard_card_choices can contain at most {max_discard} card(s)."
+                        )
+                    if len(set(requested_ids)) != len(requested_ids):
+                        raise ValueError("glide_discard_card_choices card_instance_ids must be unique.")
+                    for requested_id in requested_ids:
+                        matching_index = next(
+                            (
+                                idx
+                                for idx, hand_card in enumerate(discardable_cards)
+                                if hand_card.instance_id == requested_id
+                            ),
+                            None,
+                        )
+                        if matching_index is None:
+                            raise ValueError("glide_discard_card_choices selected card is not legal.")
+                        discard_indices.append(matching_index)
+                elif interactive_effect_prompts:
+                    discard_indices = _prompt_choose_hand_cards_for_human(
+                        player,
+                        max_choose=max_discard,
+                        candidate_cards=discardable_cards,
+                        effect_name="Glide",
+                        action_label="discard",
+                        reward_label="to count Sea Animal icons",
+                    )
+                elif expand_implicit_choices:
+                    raise _ActionDetailExpansionRequired(
+                        _enumerate_card_instance_choice_variants(
+                            discardable_cards,
+                            detail_key="glide_discard_card_choices",
+                            label_prefix="glide-discard",
+                            choose_count=max_discard,
+                            min_choose=0,
+                        )
+                    )
+                if len(set(discard_indices)) != len(discard_indices):
+                    raise ValueError("Selected Glide discard card indices must be unique.")
+                if any(idx < 0 or idx >= len(discardable_cards) for idx in discard_indices):
+                    raise ValueError("Selected Glide discard card index is out of range.")
+                discarded_ids = {
+                    discardable_cards[idx].instance_id
+                    for idx in sorted(discard_indices)
+                }
+                discarded_cards = [
+                    hand_card for hand_card in player.hand if hand_card.instance_id in discarded_ids
+                ]
+                player.hand = [
+                    hand_card for hand_card in player.hand if hand_card.instance_id not in discarded_ids
+                ]
+                state.zoo_discard.extend(discarded_cards)
+
+            sea_icon_count = sum(
+                int(_card_icon_counts(discarded_card).get("seaanimal", 0))
+                for discarded_card in discarded_cards
+            )
+            reputation_rewards = 0
+            appeal_rewards = 0
+            kiosk_rewards = 0
+
+            for reward_index in range(sea_icon_count):
+                legal_kiosks: List[Building] = []
+                _ensure_player_map_initialized(state, player)
+                if player.zoo_map is not None:
+                    legal_kiosks = player.zoo_map.legal_building_placements(
+                        is_build_upgraded=True,
+                        has_diversity_researcher=_player_has_sponsor(player, 219),
+                        max_building_size=1,
+                        already_built_buildings=set(),
+                    )
+                    legal_kiosks = [
+                        building for building in legal_kiosks if building.type == BuildingType.KIOSK
+                    ]
+                    legal_kiosks.sort(
+                        key=lambda building: (
+                            _building_layout_key(building),
+                            building.origin_hex.x,
+                            building.origin_hex.y,
+                            building.rotation.value,
+                        )
+                    )
+
+                if queued_glide_reward_choices:
+                    reward_choice = copy.deepcopy(queued_glide_reward_choices.pop(0))
+                elif interactive_effect_prompts:
+                    options: List[Tuple[str, Optional[Building], str]] = [
+                        ("reputation", None, "+1 reputation"),
+                        ("appeal", None, "+2 appeal"),
+                    ]
+                    for kiosk_building in legal_kiosks:
+                        options.append(
+                            (
+                                "kiosk",
+                                kiosk_building,
+                                f"kiosk {_building_cells_text(kiosk_building)}",
+                            )
+                        )
+                    print(
+                        "Glide: choose 1 reward."
+                        + f" ({reward_index + 1}/{sea_icon_count})"
+                    )
+                    for idx, (_, _, label_text) in enumerate(options, start=1):
+                        print(f"{idx}. {label_text}")
+                    while True:
+                        raw = input(f"Select reward [1-{len(options)}]: ").strip()
+                        if raw.isdigit():
+                            picked_option = int(raw)
+                            if 1 <= picked_option <= len(options):
+                                reward_name, kiosk_building, _ = options[picked_option - 1]
+                                reward_choice = {"reward": reward_name}
+                                if kiosk_building is not None:
+                                    reward_choice["selection"] = _building_selection_payload_from_building(
+                                        kiosk_building
+                                    )
+                                break
+                        print("Please enter a valid number.")
+                else:
+                    variants: List[Tuple[Dict[str, Any], str]] = [
+                        ({"glide_reward_choices": [{"reward": "reputation"}]}, "glide(+1 reputation)"),
+                        ({"glide_reward_choices": [{"reward": "appeal"}]}, "glide(+2 appeal)"),
+                    ]
+                    for kiosk_building in legal_kiosks:
+                        variants.append(
+                            (
+                                {
+                                    "glide_reward_choices": [
+                                        {
+                                            "reward": "kiosk",
+                                            "selection": _building_selection_payload_from_building(kiosk_building),
+                                        }
+                                    ]
+                                },
+                                f"glide(kiosk {_building_cells_text(kiosk_building)})",
+                            )
+                        )
+                    if expand_implicit_choices:
+                        raise _ActionDetailExpansionRequired(variants)
+                    raise ValueError("glide_reward_choices entry is required when Glide grants a reward.")
+
+                reward_name = str(reward_choice.get("reward") or "").strip().lower()
+                if reward_name == "reputation":
+                    _increase_reputation(
+                        state=state,
+                        player=player,
+                        amount=1,
+                        allow_interactive=interactive_effect_prompts,
+                    )
+                    reputation_rewards += 1
+                    continue
+
+                if reward_name == "appeal":
+                    player.appeal += 2
+                    appeal_rewards += 1
+                    continue
+
+                if reward_name != "kiosk":
+                    raise ValueError("glide_reward_choices reward must be reputation, appeal, or kiosk.")
+                if not legal_kiosks:
+                    raise ValueError("glide_reward_choices selected kiosk reward is not legal.")
+                selection = reward_choice.get("selection")
+                if selection is None and len(legal_kiosks) > 1:
+                    raise ValueError(
+                        "glide_reward_choices kiosk reward requires explicit selection when multiple kiosks are legal."
+                    )
+                placement_details = (
+                    {"selection": copy.deepcopy(selection)}
+                    if isinstance(selection, dict)
+                    else {}
+                )
+                placed = _place_free_building_of_type_if_possible(
+                    state=state,
+                    player=player,
+                    building_type=BuildingType.KIOSK,
+                    player_id=player_id,
+                    details=placement_details,
+                )
+                if not placed:
+                    raise ValueError("glide_reward_choices selected kiosk placement is no longer legal.")
+                kiosk_rewards += 1
+
+            return (
+                f"discarded={len(discarded_cards)} "
+                f"sea_icons={sea_icon_count} "
+                f"reputation=+{reputation_rewards} "
+                f"appeal=+{appeal_rewards * 2} "
+                f"kiosks={kiosk_rewards}"
+            )
+
+        def _effect_adapt(draw_count: int) -> Tuple[int, int]:
             if draw_count <= 0:
                 return 0, 0
             drawn: List[SetupCardRef] = []
@@ -8981,14 +10992,62 @@ def _perform_animals_action_effect(
             discard_count = min(draw_count, len(player.final_scoring_cards))
             if discard_count <= 0:
                 return len(drawn), 0
-            discarded_cards = list(player.final_scoring_cards[:discard_count])
+            if len(player.final_scoring_cards) <= discard_count:
+                discarded_cards = list(player.final_scoring_cards)
+            elif interactive_effect_prompts:
+                print("Adapt: choose final scoring card(s) to discard.")
+                for idx, card_ref in enumerate(player.final_scoring_cards, start=1):
+                    print(f"{idx}. {_final_scoring_card_label(card_ref)}")
+                while True:
+                    raw_pick = input(f"Select {discard_count} card(s) [1-{len(player.final_scoring_cards)}]: ").strip()
+                    parts = [part for part in raw_pick.replace(",", " ").split() if part]
+                    if len(parts) != discard_count or any(not part.isdigit() for part in parts):
+                        print("Please enter valid card number(s).")
+                        continue
+                    picked_indices = [int(part) - 1 for part in parts]
+                    if len(set(picked_indices)) != discard_count or any(
+                        idx < 0 or idx >= len(player.final_scoring_cards) for idx in picked_indices
+                    ):
+                        print("Please enter distinct in-range numbers.")
+                        continue
+                    discarded_cards = [player.final_scoring_cards[idx] for idx in picked_indices]
+                    break
+            elif queued_adapt_final_scoring_choices:
+                requested = queued_adapt_final_scoring_choices.pop(0)
+                requested_refs = [
+                    str(item).strip()
+                    for item in list(requested.get("discard_final_scoring_refs") or [])
+                    if str(item).strip()
+                ]
+                if len(requested_refs) != discard_count or len(set(requested_refs)) != discard_count:
+                    raise ValueError("adapt_final_scoring_choices must contain distinct discard_final_scoring_refs.")
+                remaining_refs = list(requested_refs)
+                discarded_cards = []
+                for card_ref in player.final_scoring_cards:
+                    ref = str(card_ref.data_id or "").strip()
+                    if ref in remaining_refs:
+                        discarded_cards.append(card_ref)
+                        remaining_refs.remove(ref)
+                if remaining_refs:
+                    raise ValueError("adapt_final_scoring_choices selected final scoring card is not legal.")
+            else:
+                _begin_animals_followup_pending(
+                    state,
+                    player_id=player_id,
+                    kind="final_scoring_discard",
+                    payload={"discard_target": discard_count},
+                    remaining_animals_plays=current_remaining_plays,
+                    remaining_animals_details=_remaining_animals_followup_details(),
+                    sponsor_228_postplay=pending_sponsor_228_postplay,
+                )
+                return len(drawn), 0
             for card_ref in discarded_cards:
                 if card_ref in player.final_scoring_cards:
                     player.final_scoring_cards.remove(card_ref)
             state.final_scoring_discard.extend(discarded_cards)
             return len(drawn), len(discarded_cards)
 
-        def _effect_remove_empty_enclosure_refund(count: int) -> Tuple[int, int]:
+        def _effect_cut_down(count: int) -> Tuple[int, int]:
             removed = 0
             refunded = 0
             for _ in range(max(0, count)):
@@ -9009,7 +11068,65 @@ def _perform_animals_action_effect(
                         item[1].rotation,
                     )
                 )
-                enclosure_idx, enclosure = candidates[0]
+                if queued_remove_empty_enclosure_choices:
+                    choice_payload = queued_remove_empty_enclosure_choices.pop(0)
+                    if bool(choice_payload.get("skip")):
+                        break
+                    selected_origin = choice_payload.get("origin")
+                    selected_rotation = str(choice_payload.get("rotation") or "").strip()
+                    selected_size = int(choice_payload.get("size", -1))
+                    chosen = next(
+                        (
+                            item
+                            for item in candidates
+                            if list(item[1].origin or []) == list(selected_origin or [])
+                            and str(item[1].rotation or "") == selected_rotation
+                            and int(item[1].size) == selected_size
+                        ),
+                        None,
+                    )
+                    if chosen is None:
+                        raise ValueError("remove_empty_enclosure_choices selected enclosure is not legal.")
+                    enclosure_idx, enclosure = chosen
+                elif interactive_effect_prompts:
+                    print("Choose an empty standard enclosure to remove.")
+                    print("1. Skip")
+                    for idx, (_, enclosure) in enumerate(candidates, start=2):
+                        print(
+                            f"{idx}. size={enclosure.size} origin={enclosure.origin} rotation={enclosure.rotation}"
+                        )
+                    while True:
+                        raw = input(f"Select enclosure [1-{len(candidates) + 1}]: ").strip()
+                        if raw.isdigit():
+                            picked = int(raw)
+                            if picked == 1:
+                                return removed, refunded
+                            if 2 <= picked <= len(candidates) + 1:
+                                enclosure_idx, enclosure = candidates[picked - 2]
+                                break
+                        print("Please enter a valid number.")
+                elif expand_implicit_choices:
+                    variants: List[Tuple[Dict[str, Any], str]] = [
+                        ({"remove_empty_enclosure_choices": [{"skip": True}]}, "cut-down(skip)")
+                    ]
+                    for _, candidate in candidates:
+                        variants.append(
+                            (
+                                {
+                                    "remove_empty_enclosure_choices": [
+                                        {
+                                            "origin": list(candidate.origin or []),
+                                            "rotation": str(candidate.rotation or ""),
+                                            "size": int(candidate.size),
+                                        }
+                                    ]
+                                },
+                                f"cut-down(size={candidate.size}, origin={candidate.origin})",
+                            )
+                        )
+                    raise _ActionDetailExpansionRequired(variants)
+                else:
+                    enclosure_idx, enclosure = candidates[0]
                 player.enclosures.pop(enclosure_idx)
                 remove_origin = enclosure.origin
                 if remove_origin is None:
@@ -9040,16 +11157,56 @@ def _perform_animals_action_effect(
                 removed += 1
             return removed, refunded
 
-        def _effect_return_association_worker(count: int) -> int:
+        def _effect_extra_shift(count: int) -> int:
             returned = 0
             for _ in range(max(0, count)):
                 if player.workers_on_association_board <= 0:
                     break
-                chosen_task = None
-                for task_kind in reversed(ASSOCIATION_TASK_KINDS):
-                    if player.association_workers_by_task.get(task_kind, 0) > 0:
-                        chosen_task = task_kind
+                legal_tasks = [
+                    task_kind
+                    for task_kind in ASSOCIATION_TASK_KINDS
+                    if player.association_workers_by_task.get(task_kind, 0) > 0
+                ]
+                if not legal_tasks:
+                    break
+                if queued_return_association_worker_choices:
+                    payload = queued_return_association_worker_choices.pop(0)
+                    if bool(payload.get("skip")):
                         break
+                    chosen_task = str(payload.get("task_kind") or "").strip()
+                    if chosen_task not in legal_tasks:
+                        raise ValueError("return_association_worker_choices selected task is not legal.")
+                elif interactive_effect_prompts:
+                    print("Choose 1 association task to recall a worker from.")
+                    print("1. Skip")
+                    for idx, task_kind in enumerate(legal_tasks, start=2):
+                        print(f"{idx}. {task_kind}")
+                    while True:
+                        raw = input(f"Select task [1-{len(legal_tasks) + 1}]: ").strip()
+                        if raw.isdigit():
+                            picked = int(raw)
+                            if picked == 1:
+                                return returned
+                            if 2 <= picked <= len(legal_tasks) + 1:
+                                chosen_task = legal_tasks[picked - 2]
+                                break
+                        print("Please enter a valid number.")
+                elif expand_implicit_choices:
+                    variants: List[Tuple[Dict[str, Any], str]] = [
+                        ({"return_association_worker_choices": [{"skip": True}]}, "extra-shift(skip)")
+                    ]
+                    for task_kind in legal_tasks:
+                        variants.append(
+                            (
+                                {"return_association_worker_choices": [{"task_kind": task_kind}]},
+                                f"extra-shift({task_kind})",
+                            )
+                        )
+                    raise _ActionDetailExpansionRequired(variants)
+                else:
+                    raise ValueError(
+                        "return_association_worker_choices entry is required when recalling a worker is possible."
+                    )
                 if chosen_task is None:
                     break
                 player.association_workers_by_task[chosen_task] -= 1
@@ -9058,26 +11215,35 @@ def _perform_animals_action_effect(
                 returned += 1
             return returned
 
-        def _effect_mark_display_animal(count: int) -> int:
+        def _effect_mark(count: int) -> int:
             to_mark = max(0, count)
             if to_mark <= 0:
                 return 0
             marked = 0
-            accessible = min(_reputation_display_limit(player.reputation), len(state.zoo_display))
-            for idx in range(accessible):
-                display_card = state.zoo_display[idx]
-                if display_card.card_type != "animal":
-                    continue
-                card_id = _card_identity(display_card)
-                if card_id in state.marked_display_card_ids:
-                    continue
-                state.marked_display_card_ids.add(card_id)
-                marked += 1
-                if marked >= to_mark:
+            for _ in range(to_mark):
+                accessible = min(_reputation_display_limit(player.reputation), len(state.zoo_display))
+                candidate_indices = [
+                    idx
+                    for idx in range(accessible)
+                    if state.zoo_display[idx].card_type == "animal"
+                    and _card_identity(state.zoo_display[idx]) not in state.marked_display_card_ids
+                ]
+                if not candidate_indices:
                     break
+                picked_idx = _choose_single_display_index(
+                    candidate_indices,
+                    queued_choices=queued_mark_display_animal_choices,
+                    detail_key="mark_display_animal_choices",
+                    label_prefix="mark",
+                    prompt_title="Choose an animal card in display to mark.",
+                )
+                if picked_idx is None:
+                    break
+                state.marked_display_card_ids.add(_card_identity(state.zoo_display[picked_idx]))
+                marked += 1
             return marked
 
-        def _effect_place_free_large_bird_aviary(times: int) -> int:
+        def _effect_peacocking(times: int) -> int:
             _ensure_player_map_initialized(state, player)
             if player.zoo_map is None:
                 return 0
@@ -9102,7 +11268,43 @@ def _perform_animals_action_effect(
                         b.rotation.value,
                     )
                 )
-                picked = legal[0]
+                if queued_free_building_placement_choices:
+                    choice_payload = queued_free_building_placement_choices.pop(0)
+                    if bool(choice_payload.get("skip")):
+                        break
+                    selection = choice_payload.get("selection") if "selection" in choice_payload else choice_payload
+                    if not isinstance(selection, dict):
+                        raise ValueError("free_building_placement_choices must contain selection objects.")
+                    picked = _find_legal_building_by_serialized_selection(legal, selection)
+                    if picked is None:
+                        raise ValueError("free_building_placement_choices selected placement is not legal.")
+                elif interactive_effect_prompts:
+                    print("Choose a free Large Bird Aviary placement.")
+                    print("1. Skip")
+                    for idx, building in enumerate(legal, start=2):
+                        print(f"{idx}. {building.type.name} {_building_cells_text(building)}")
+                    while True:
+                        raw = input(f"Select placement [1-{len(legal) + 1}]: ").strip()
+                        if raw.isdigit():
+                            picked_option = int(raw)
+                            if picked_option == 1:
+                                return placed
+                            if 2 <= picked_option <= len(legal) + 1:
+                                picked = legal[picked_option - 2]
+                                break
+                        print("Please enter a valid number.")
+                elif expand_implicit_choices:
+                    variants = [({"free_building_placement_choices": [{"skip": True}]}, "aviary(skip)")]
+                    variants.extend(
+                        _enumerate_building_choice_variants(
+                            legal,
+                            detail_key="free_building_placement_choices",
+                            label_prefix="aviary",
+                        )
+                    )
+                    raise _ActionDetailExpansionRequired(variants)
+                else:
+                    picked = legal[0]
                 player.zoo_map.add_building(picked)
                 _register_enclosure_building(player, picked)
                 bonuses = _building_bonuses(state, picked)
@@ -9126,7 +11328,7 @@ def _perform_animals_action_effect(
                 placed += 1
             return placed
 
-        def _effect_trade_hand_with_display(count: int) -> int:
+        def _effect_trade(count: int) -> int:
             traded = 0
             for _ in range(max(0, count)):
                 if not player.hand or not state.zoo_display:
@@ -9134,8 +11336,83 @@ def _perform_animals_action_effect(
                 accessible = min(_reputation_display_limit(player.reputation), len(state.zoo_display))
                 if accessible <= 0:
                     break
-                display_idx = 0
-                hand_idx = 0
+                valid_hand_cards = [
+                    hand_card
+                    for hand_card in player.hand
+                    if str(hand_card.instance_id or "").strip()
+                ]
+                if not valid_hand_cards:
+                    break
+                trade_options: List[Tuple[int, int, str]] = []
+                for hand_idx, hand_card in enumerate(player.hand):
+                    if not str(hand_card.instance_id or "").strip():
+                        continue
+                    for display_idx in range(accessible):
+                        trade_options.append(
+                            (
+                                hand_idx,
+                                display_idx,
+                                f"hand {_card_effect_card_label(hand_card)} <-> {_display_card_choice_label(state, display_idx)}",
+                            )
+                        )
+                if queued_trade_choices:
+                    payload = queued_trade_choices.pop(0)
+                    selected_display_index = int(payload.get("display_index", -1))
+                    selected_hand_id = str(payload.get("hand_card_instance_id") or "").strip()
+                    if selected_display_index < 0 or selected_display_index >= accessible:
+                        raise ValueError("trade_choices selected display card is not legal.")
+                    hand_idx = next(
+                        (idx for idx, hand_card in enumerate(player.hand) if hand_card.instance_id == selected_hand_id),
+                        None,
+                    )
+                    if hand_idx is None:
+                        raise ValueError("trade_choices selected hand card is not in hand.")
+                    display_idx = selected_display_index
+                elif interactive_effect_prompts:
+                    print("Trade: choose 1 hand card and 1 display card.")
+                    for idx, (_, _, label_text) in enumerate(trade_options, start=1):
+                        print(f"{idx}. {label_text}")
+                    while True:
+                        raw = input(f"Select trade [1-{len(trade_options)}]: ").strip()
+                        if raw.isdigit():
+                            picked = int(raw)
+                            if 1 <= picked <= len(trade_options):
+                                hand_idx, display_idx, _ = trade_options[picked - 1]
+                                break
+                        print("Please enter a valid number.")
+                elif expand_implicit_choices:
+                    variants: List[Tuple[Dict[str, Any], str]] = []
+                    for hand_card in valid_hand_cards:
+                        hand_id = str(hand_card.instance_id or "").strip()
+                        hand_index = next(
+                            idx for idx, item in enumerate(player.hand) if item.instance_id == hand_id
+                        )
+                        for display_idx in range(accessible):
+                            variants.append(
+                                (
+                                    {
+                                        "trade_choices": [
+                                            {
+                                                "hand_card_instance_id": hand_id,
+                                                "display_index": int(display_idx),
+                                            }
+                                        ]
+                                    },
+                                    (
+                                        "trade("
+                                        + f"hand {_card_effect_card_label(player.hand[hand_index])} <-> "
+                                        + f"{_display_card_choice_label(state, display_idx)})"
+                                    ),
+                                )
+                            )
+                    raise _ActionDetailExpansionRequired(variants)
+                else:
+                    if len(trade_options) == 1:
+                        hand_idx, display_idx, _ = trade_options[0]
+                    else:
+                        raise ValueError(
+                            "trade_choices entry is required when multiple legal hand/display trades exist."
+                        )
                 hand_card = player.hand.pop(hand_idx)
                 display_card = state.zoo_display[display_idx]
                 state.zoo_display[display_idx] = hand_card
@@ -9150,9 +11427,51 @@ def _perform_animals_action_effect(
             candidate_indices = [
                 idx for idx in range(accessible) if state.zoo_display[idx].card_type == "animal"
             ]
-            picked_indices = candidate_indices[: max(0, count)]
-            if not picked_indices:
+            discard_target = min(max(0, count), len(candidate_indices))
+            if discard_target <= 0:
                 return 0, 0
+            if queued_shark_attack_choices:
+                payload = queued_shark_attack_choices.pop(0)
+                picked_indices = [int(idx) for idx in list(payload.get("display_indices") or [])]
+                if len(picked_indices) != discard_target or len(set(picked_indices)) != discard_target:
+                    raise ValueError("shark_attack_choices must contain distinct display_indices.")
+                if any(idx not in candidate_indices for idx in picked_indices):
+                    raise ValueError("shark_attack_choices selected display card is not legal.")
+            elif interactive_effect_prompts:
+                print("Shark Attack: choose animal card(s) in reputation range to discard.")
+                for idx, display_idx in enumerate(candidate_indices, start=1):
+                    print(f"{idx}. {_display_card_choice_label(state, display_idx)}")
+                while True:
+                    raw = input(f"Select {discard_target} card(s) [1-{len(candidate_indices)}]: ").strip()
+                    parts = [part for part in raw.replace(',', ' ').split() if part]
+                    if len(parts) != discard_target or any(not part.isdigit() for part in parts):
+                        print("Please enter valid card number(s).")
+                        continue
+                    picked = [candidate_indices[int(part) - 1] for part in parts if 1 <= int(part) <= len(candidate_indices)]
+                    if len(picked) != discard_target or len(set(picked)) != discard_target:
+                        print("Please enter distinct in-range numbers.")
+                        continue
+                    picked_indices = picked
+                    break
+            elif expand_implicit_choices and len(candidate_indices) > discard_target:
+                variants: List[Tuple[Dict[str, Any], str]] = []
+                for picked_indices in _enumerate_index_combinations(
+                    total_items=len(candidate_indices),
+                    min_choose=discard_target,
+                    max_choose=discard_target,
+                ):
+                    selected_display_indices = [candidate_indices[idx] for idx in picked_indices]
+                    variants.append(
+                        (
+                            {"shark_attack_choices": [{"display_indices": list(selected_display_indices)}]},
+                            "shark("
+                            + ", ".join(_display_card_choice_label(state, idx) for idx in selected_display_indices)
+                            + ")",
+                        )
+                    )
+                raise _ActionDetailExpansionRequired(variants)
+            else:
+                picked_indices = candidate_indices[:discard_target]
             discarded_cards: List[AnimalCard] = []
             for idx in sorted(picked_indices, reverse=True):
                 discarded_cards.append(state.zoo_display.pop(idx))
@@ -9163,7 +11482,7 @@ def _perform_animals_action_effect(
             _replenish_zoo_display(state)
             return len(discarded_cards), gained_money
 
-        def _effect_take_specific_base_project(target: str, count: int) -> int:
+        def _effect_dominance(target: str, count: int) -> int:
             wanted = target.strip().lower()
             if not wanted or count <= 0:
                 return 0
@@ -9183,12 +11502,12 @@ def _perform_animals_action_effect(
                 idx += 1
             return taken
 
-        def _effect_grant_camouflage_ignore(amount: int) -> None:
+        def _effect_camouflage(amount: int) -> None:
             if amount <= 0:
                 return
             player.camouflage_condition_ignores += amount
 
-        def _effect_symbiosis_copy() -> List[str]:
+        def _effect_symbiosis() -> List[str]:
             candidates: List[AnimalCard] = []
             for zoo_card in reversed(player.zoo_cards):
                 if zoo_card is card:
@@ -9196,106 +11515,179 @@ def _perform_animals_action_effect(
                 if str(zoo_card.card_type).lower() != "animal":
                     continue
                 nested_effect = resolve_card_effect(zoo_card)
-                if nested_effect.code in {"none", "symbiosis_copy"}:
+                if nested_effect.code in {"none", "symbiosis"}:
                     continue
                 if nested_effect.code.startswith("unimplemented:"):
                     continue
                 candidates.append(zoo_card)
             if not candidates:
                 return []
-            nested_card = candidates[0]
+            if queued_symbiosis_choices:
+                payload = queued_symbiosis_choices.pop(0)
+                card_instance_id = str(payload.get("card_instance_id") or "").strip()
+                nested_card = next((candidate for candidate in candidates if candidate.instance_id == card_instance_id), None)
+                if nested_card is None:
+                    raise ValueError("symbiosis_choices selected copied card is not legal.")
+            elif interactive_effect_prompts:
+                print("Symbiosis: choose 1 zoo animal to copy.")
+                for idx, candidate in enumerate(candidates, start=1):
+                    print(f"{idx}. {_card_effect_card_label(candidate)}")
+                while True:
+                    raw = input(f"Select copied card [1-{len(candidates)}]: ").strip()
+                    if raw.isdigit():
+                        picked = int(raw)
+                        if 1 <= picked <= len(candidates):
+                            nested_card = candidates[picked - 1]
+                            break
+                    print("Please enter a valid number.")
+            elif expand_implicit_choices and len(candidates) > 1:
+                raise _ActionDetailExpansionRequired(
+                    [
+                        (
+                            {"symbiosis_choices": [{"card_instance_id": str(candidate.instance_id or '')}]},
+                            f"symbiosis({_card_effect_card_label(candidate)})",
+                        )
+                        for candidate in candidates
+                        if str(candidate.instance_id or "").strip()
+                    ]
+                )
+            else:
+                nested_card = candidates[0]
             return apply_animal_effect(
                 card=nested_card,
                 move_action_to_slot_1=_effect_move_action_to_slot_1,
-                advance_break=_effect_advance_break,
+                advance_break=_effect_advance_break_track,
                 draw_from_deck=_effect_draw_from_deck,
                 push_to_discard=_effect_push_to_discard,
-                choose_action_for_clever=_choose_action_for_clever,
-                increase_workers=lambda n: setattr(player, "workers", min(MAX_WORKERS, player.workers + max(0, n))),
+                clever=_choose_action_for_clever,
+                full_throated=lambda n: setattr(player, "workers", min(MAX_WORKERS, player.workers + max(0, n))),
                 increase_appeal=lambda n: setattr(player, "appeal", player.appeal + max(0, n)),
                 gain_money=_effect_gain_money,
                 take_display_cards=_effect_take_display_cards,
-                sell_hand_cards=_effect_sell_hand_cards,
-                pouch_hand_cards=_effect_pouch_hand_cards,
-                place_free_kiosk_or_pavilion=_effect_place_free_kiosk_or_pavilion,
-                add_multiplier_token=_effect_add_multiplier_token,
-                apply_venom=_effect_apply_venom,
-                apply_constriction=_effect_apply_constriction,
+                glide=_effect_glide,
+                sun_bathing=_effect_sun_bathing,
+                pouch=_effect_pouch,
+                posturing=_effect_posturing,
+                multiplier=_effect_multiplier,
+                venom=_effect_venom,
+                constriction=_effect_constriction,
                 perform_hypnosis=_effect_hypnosis,
                 perform_pilfering=_effect_pilfering,
-                scavenge_from_discard=_effect_scavenge_from_discard,
+                digging=_effect_digging,
+                scavenging=_effect_scavenging,
                 mark_extra_action=_effect_mark_extra_action,
-                increase_conservation=lambda n: setattr(player, "conservation", player.conservation + max(0, n)),
-                draw_final_scoring_keep=_effect_draw_final_scoring_keep,
-                take_unused_base_project=_effect_take_unused_base_project,
-                gain_x_tokens=_effect_gain_x_tokens,
+                iconic_animal=lambda n: setattr(player, "conservation", player.conservation + max(0, n)),
+                resistance=_effect_resistance,
+                perception=_effect_perception,
+                reveal_keep_by_card_type=_effect_reveal_keep_by_card_type,
+                assertion=_effect_assertion,
+                inventive=_effect_inventive,
                 count_icon=_effect_count_icon,
                 count_primary_icons=_effect_count_primary_icons,
-                adapt_final_scoring=_effect_adapt_final_scoring,
-                remove_empty_enclosure_refund=_effect_remove_empty_enclosure_refund,
-                return_association_worker=_effect_return_association_worker,
-                mark_display_animal=_effect_mark_display_animal,
-                place_free_large_bird_aviary=_effect_place_free_large_bird_aviary,
-                trade_hand_with_display=_effect_trade_hand_with_display,
+                adapt=_effect_adapt,
+                cut_down=_effect_cut_down,
+                extra_shift=_effect_extra_shift,
+                mark=_effect_mark,
+                peacocking=_effect_peacocking,
+                trade=_effect_trade,
                 shark_attack=_effect_shark_attack,
-                take_specific_base_project=_effect_take_specific_base_project,
-                symbiosis_copy=None,
-                grant_camouflage_ignore=_effect_grant_camouflage_ignore,
-                boost_action_card=_effect_boost_action_card,
+                dominance=_effect_dominance,
+                symbiosis=None,
+                camouflage=_effect_camouflage,
+                boost=_effect_boost,
             )
 
         effect_messages = apply_animal_effect(
             card=card,
             move_action_to_slot_1=_effect_move_action_to_slot_1,
-            advance_break=_effect_advance_break,
+            advance_break=_effect_advance_break_track,
             draw_from_deck=_effect_draw_from_deck,
             push_to_discard=_effect_push_to_discard,
-            choose_action_for_clever=_choose_action_for_clever,
-            increase_workers=lambda n: setattr(player, "workers", min(MAX_WORKERS, player.workers + max(0, n))),
+            clever=_choose_action_for_clever,
+            full_throated=lambda n: setattr(player, "workers", min(MAX_WORKERS, player.workers + max(0, n))),
             increase_appeal=lambda n: setattr(player, "appeal", player.appeal + max(0, n)),
             gain_money=_effect_gain_money,
             take_display_cards=_effect_take_display_cards,
-            sell_hand_cards=_effect_sell_hand_cards,
-            pouch_hand_cards=_effect_pouch_hand_cards,
-            place_free_kiosk_or_pavilion=_effect_place_free_kiosk_or_pavilion,
-            add_multiplier_token=_effect_add_multiplier_token,
-            apply_venom=_effect_apply_venom,
-            apply_constriction=_effect_apply_constriction,
+            glide=_effect_glide,
+            sun_bathing=_effect_sun_bathing,
+            pouch=_effect_pouch,
+            posturing=_effect_posturing,
+            multiplier=_effect_multiplier,
+            venom=_effect_venom,
+            constriction=_effect_constriction,
             perform_hypnosis=_effect_hypnosis,
             perform_pilfering=_effect_pilfering,
-            scavenge_from_discard=_effect_scavenge_from_discard,
+            digging=_effect_digging,
+            scavenging=_effect_scavenging,
             mark_extra_action=_effect_mark_extra_action,
-            increase_conservation=lambda n: setattr(player, "conservation", player.conservation + max(0, n)),
-            draw_final_scoring_keep=_effect_draw_final_scoring_keep,
-            take_unused_base_project=_effect_take_unused_base_project,
-            gain_x_tokens=_effect_gain_x_tokens,
+            iconic_animal=lambda n: setattr(player, "conservation", player.conservation + max(0, n)),
+            resistance=_effect_resistance,
+            perception=_effect_perception,
+            reveal_keep_by_card_type=_effect_reveal_keep_by_card_type,
+            assertion=_effect_assertion,
+            inventive=_effect_inventive,
             count_icon=_effect_count_icon,
             count_primary_icons=_effect_count_primary_icons,
-            adapt_final_scoring=_effect_adapt_final_scoring,
-            remove_empty_enclosure_refund=_effect_remove_empty_enclosure_refund,
-            return_association_worker=_effect_return_association_worker,
-            mark_display_animal=_effect_mark_display_animal,
-            place_free_large_bird_aviary=_effect_place_free_large_bird_aviary,
-            trade_hand_with_display=_effect_trade_hand_with_display,
+            adapt=_effect_adapt,
+            cut_down=_effect_cut_down,
+            extra_shift=_effect_extra_shift,
+            mark=_effect_mark,
+            peacocking=_effect_peacocking,
+            trade=_effect_trade,
             shark_attack=_effect_shark_attack,
-            take_specific_base_project=_effect_take_specific_base_project,
-            symbiosis_copy=_effect_symbiosis_copy,
-            grant_camouflage_ignore=_effect_grant_camouflage_ignore,
-            boost_action_card=_effect_boost_action_card,
+            dominance=_effect_dominance,
+            symbiosis=_effect_symbiosis,
+            camouflage=_effect_camouflage,
+            boost=_effect_boost,
         )
+        if str(state.pending_decision_kind or "").strip():
+            return
         for message in effect_messages:
             card_id = card.instance_id or str(card.number)
             state.effect_log.append(f"{card_id}: {message}")
 
     if sponsor_228_triggered:
-        picked_idx = next(
-            (
-                idx
-                for idx, display_card in enumerate(state.zoo_display)
-                if display_card.card_type == "animal" and _is_small_animal(display_card)
-            ),
-            None,
-        )
+        candidate_indices = [
+            idx
+            for idx, display_card in enumerate(state.zoo_display)
+            if display_card.card_type == "animal" and _is_small_animal(display_card)
+        ]
+        picked_idx: Optional[int] = None
+        queued_sponsor_display_take_choices = list(details.get("sponsor_display_take_choices") or [])
+        if candidate_indices:
+            if queued_sponsor_display_take_choices:
+                entry = queued_sponsor_display_take_choices.pop(0)
+                picked_idx = int(entry.get("display_index", -1))
+                if picked_idx not in candidate_indices:
+                    raise ValueError("sponsor_display_take_choices selected display card is not legal.")
+                details["sponsor_display_take_choices"] = queued_sponsor_display_take_choices
+            elif allow_interactive:
+                print("Choose a small animal in the display to take into hand.")
+                print("1. Skip")
+                for idx, display_idx in enumerate(candidate_indices, start=2):
+                    print(f"{idx}. {_display_card_choice_label(state, display_idx)}")
+                while True:
+                    raw = input(f"Select card [1-{len(candidate_indices) + 1}]: ").strip()
+                    if raw.isdigit():
+                        picked_option = int(raw)
+                        if picked_option == 1:
+                            break
+                        if 2 <= picked_option <= len(candidate_indices) + 1:
+                            picked_idx = candidate_indices[picked_option - 2]
+                            break
+                    print("Please enter a valid number.")
+            elif expand_implicit_choices and len(candidate_indices) > 1:
+                raise _ActionDetailExpansionRequired(
+                    [({"sponsor_display_take_choices": [{"skip": True}]}, "sponsor228(skip)")]
+                    + _enumerate_display_index_choice_variants(
+                        state,
+                        candidate_indices,
+                        detail_key="sponsor_display_take_choices",
+                        label_prefix="sponsor228",
+                    )
+                )
+            elif candidate_indices:
+                picked_idx = candidate_indices[0]
         if picked_idx is not None:
             player.hand.append(state.zoo_display.pop(picked_idx))
             _replenish_zoo_display(state)
@@ -9923,6 +12315,73 @@ def _take_one_card_from_deck_or_reputation_range_with_choice(
     raise ValueError("draw_source must be 'deck' or 'display'.")
 
 
+def _take_one_card_from_deck_or_reputation_range_with_details(
+    state: GameState,
+    player: PlayerState,
+    *,
+    details: Dict[str, Any],
+    detail_key: str,
+    label_prefix: str,
+    prompt_title: str,
+    allow_interactive: bool = False,
+) -> bool:
+    accessible = min(_reputation_display_limit(int(player.reputation)), len(state.zoo_display))
+    options: List[Tuple[str, Optional[int], str]] = []
+    for idx in range(accessible):
+        options.append(("display", idx, _display_card_choice_label(state, idx)))
+    if state.zoo_deck:
+        options.append(("deck", None, "deck"))
+    if not options:
+        return False
+
+    choice_payload = _pop_detail_queue_entry(details, detail_key)
+    if choice_payload is not None:
+        draw_source = str(choice_payload.get("draw_source") or "").strip().lower()
+        display_index_raw = choice_payload.get("display_index")
+        display_index = int(display_index_raw) if display_index_raw is not None else None
+        return _take_one_card_from_deck_or_reputation_range_with_choice(
+            state,
+            player,
+            draw_source=draw_source,
+            display_index=display_index,
+        )
+
+    if allow_interactive:
+        print(prompt_title)
+        for idx, (_, _, label_text) in enumerate(options, start=1):
+            print(f"{idx}. {label_text}")
+        while True:
+            raw = input(f"Select source [1-{len(options)}]: ").strip()
+            if raw.isdigit():
+                picked = int(raw)
+                if 1 <= picked <= len(options):
+                    draw_source, display_index, _ = options[picked - 1]
+                    return _take_one_card_from_deck_or_reputation_range_with_choice(
+                        state,
+                        player,
+                        draw_source=draw_source,
+                        display_index=display_index,
+                    )
+            print("Please enter a valid number.")
+
+    if bool(details.get("_expand_implicit_choices")) and len(options) > 1:
+        variants: List[Tuple[Dict[str, Any], str]] = []
+        for draw_source, display_index, label_text in options:
+            payload: Dict[str, Any] = {"draw_source": draw_source}
+            if display_index is not None:
+                payload["display_index"] = int(display_index)
+            variants.append(({detail_key: [payload]}, f"{label_prefix}({label_text})"))
+        raise _ActionDetailExpansionRequired(variants)
+
+    default_draw_source, default_display_index, _ = options[0]
+    return _take_one_card_from_deck_or_reputation_range_with_choice(
+        state,
+        player,
+        draw_source=default_draw_source,
+        display_index=default_display_index,
+    )
+
+
 def _take_one_card_from_reputation_range(
     state: GameState,
     player: PlayerState,
@@ -10272,11 +12731,235 @@ def _apply_sponsor_passive_triggers_on_card_play(
     details: Optional[Dict[str, Any]] = None,
     *,
     allow_interactive: bool = False,
-) -> None:
+) -> bool:
     details = details or {}
+    expand_implicit_choices = bool(details.get("_expand_implicit_choices"))
+    resume_owner_id_raw = details.get("_resume_sponsor_passive_owner_id")
+    resume_owner_id = int(resume_owner_id_raw) if resume_owner_id_raw is not None else None
+    resume_stage = str(details.get("_resume_sponsor_passive_stage") or "").strip()
+    resume_249_remaining = int(details.get("_resume_sponsor_249_remaining_triggers", -1))
+    resume_252_remaining = int(details.get("_resume_sponsor_252_remaining_triggers", -1))
     played_icon_counts = _card_icon_counts(played_card)
     played_icon_keys = set(played_icon_counts.keys())
+    stage_order = [
+        "science",
+        "global_money",
+        "bear",
+        "own_icon_appeal",
+        "248",
+        "214",
+        "212",
+        "210",
+        "211",
+        "213",
+        "227",
+        "249",
+        "250",
+        "252",
+        "253",
+        "262",
+    ]
+
+    def _should_run(stage_name: str) -> bool:
+        if not resume_stage:
+            return True
+        try:
+            return stage_order.index(stage_name) >= stage_order.index(resume_stage)
+        except ValueError:
+            return True
+
+    def _pending_payload_for_hidden_choice(
+        *,
+        owner_id: int,
+        effect_code: str,
+        remaining_249: int,
+        remaining_252: int,
+        revealed_cards: Sequence[AnimalCard],
+        card_type_filter: str = "",
+        revealed_source: str,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "keep_target": 1,
+            "revealed_cards": list(revealed_cards),
+            "revealed_source": revealed_source,
+            "resume_sponsor_passive_effect": effect_code,
+            "resume_sponsor_passive_owner_id": int(owner_id),
+            "resume_sponsor_passive_played_by_player_id": int(played_by_player_id),
+            "resume_sponsor_passive_played_card": played_card,
+            "resume_sponsor_passive_details": copy.deepcopy(details),
+            "resume_sponsor_249_remaining_triggers": max(0, int(remaining_249)),
+            "resume_sponsor_252_remaining_triggers": max(0, int(remaining_252)),
+        }
+        if card_type_filter:
+            payload["card_type_filter"] = str(card_type_filter)
+        return payload
+
+    def _choose_action_to_slot_1(owner: PlayerState) -> str:
+        if not owner.action_order:
+            raise ValueError("No action cards are available to move.")
+        queued_choice = _pop_detail_queue_entry(details, "sponsor_action_to_slot_1_choices")
+        if queued_choice is not None:
+            chosen_action = str(queued_choice.get("action_name") or "").strip()
+            if chosen_action not in owner.action_order:
+                raise ValueError("sponsor_action_to_slot_1_choices selected action is not legal.")
+            return chosen_action
+        if allow_interactive:
+            print("Choose an action card to move to slot 1.")
+            for idx, action_name in enumerate(owner.action_order, start=1):
+                print(f"{idx}. {action_name}")
+            while True:
+                raw = input(f"Select action [1-{len(owner.action_order)}]: ").strip()
+                if raw.isdigit():
+                    picked = int(raw)
+                    if 1 <= picked <= len(owner.action_order):
+                        return owner.action_order[picked - 1]
+                print("Please enter a valid number.")
+        if expand_implicit_choices and len(owner.action_order) > 1:
+            raise _ActionDetailExpansionRequired(
+                [
+                    (
+                        {"sponsor_action_to_slot_1_choices": [{"action_name": action_name}]},
+                        f"sponsor214({action_name})",
+                    )
+                    for action_name in owner.action_order
+                ]
+            )
+        return owner.action_order[-1]
+
+    def _choose_optional_hand_cards(
+        owner: PlayerState,
+        *,
+        detail_key: str,
+        label_prefix: str,
+        max_count: int,
+    ) -> List[AnimalCard]:
+        legal_cards = [card for card in owner.hand if str(card.instance_id or "").strip()]
+        if max_count <= 0 or not legal_cards:
+            return []
+        queued_choice = _pop_detail_queue_entry(details, detail_key)
+        if queued_choice is not None:
+            requested_ids = [
+                str(item).strip()
+                for item in list(queued_choice.get("card_instance_ids") or [])
+                if str(item).strip()
+            ]
+            if len(set(requested_ids)) != len(requested_ids):
+                raise ValueError(f"{detail_key} card_instance_ids must be unique.")
+            if len(requested_ids) > max_count:
+                raise ValueError(f"{detail_key} can contain at most {max_count} card(s).")
+            chosen_cards: List[AnimalCard] = []
+            remaining_ids = list(requested_ids)
+            for hand_card in owner.hand:
+                hand_id = str(hand_card.instance_id or "").strip()
+                if hand_id in remaining_ids:
+                    chosen_cards.append(hand_card)
+                    remaining_ids.remove(hand_id)
+            if remaining_ids:
+                raise ValueError(f"{detail_key} selected card is not in hand.")
+            return chosen_cards
+        if allow_interactive:
+            print("Choose hand card(s). Leave blank to skip.")
+            for idx, card in enumerate(legal_cards, start=1):
+                print(f"{idx}. {_card_effect_card_label(card)}")
+            while True:
+                raw = input(f"Select up to {max_count} card(s) [1-{len(legal_cards)}]: ").strip()
+                if raw == "":
+                    return []
+                parts = [part for part in raw.replace(",", " ").split() if part]
+                if any(not part.isdigit() for part in parts):
+                    print("Please enter valid card numbers.")
+                    continue
+                picked_indices = [int(part) - 1 for part in parts]
+                if len(set(picked_indices)) != len(picked_indices):
+                    print("Please enter distinct card numbers.")
+                    continue
+                if len(picked_indices) > max_count or any(idx < 0 or idx >= len(legal_cards) for idx in picked_indices):
+                    print("Please enter in-range card numbers.")
+                    continue
+                return [legal_cards[idx] for idx in picked_indices]
+        if expand_implicit_choices:
+            raise _ActionDetailExpansionRequired(
+                _enumerate_card_instance_choice_variants(
+                    legal_cards,
+                    detail_key=detail_key,
+                    label_prefix=label_prefix,
+                    choose_count=min(max_count, len(legal_cards)),
+                    min_choose=0,
+                )
+            )
+        return legal_cards[: max_count]
+
+    def _choose_optional_building_placement(
+        owner: PlayerState,
+        *,
+        owner_id: int,
+        building_type: BuildingType,
+        detail_key: str,
+        label_prefix: str,
+    ) -> Optional[Dict[str, Any]]:
+        _ensure_player_map_initialized(state, owner)
+        if owner.zoo_map is None:
+            return None
+        legal = owner.zoo_map.legal_building_placements(
+            is_build_upgraded=bool(owner.action_upgraded["build"]),
+            has_diversity_researcher=_player_has_sponsor(owner, 219),
+            max_building_size=len(building_type.layout),
+            already_built_buildings=set(),
+        )
+        legal = [building for building in legal if building.type == building_type]
+        if not legal:
+            return None
+        legal.sort(
+            key=lambda building: (
+                _building_layout_key(building),
+                building.origin_hex.x,
+                building.origin_hex.y,
+                building.rotation.value,
+            )
+        )
+        queued_choice = _pop_detail_queue_entry(details, detail_key)
+        if queued_choice is not None:
+            if bool(queued_choice.get("skip")):
+                return None
+            selection = queued_choice.get("selection") if "selection" in queued_choice else queued_choice
+            if not isinstance(selection, dict):
+                raise ValueError(f"{detail_key} entries must contain a selection object.")
+            picked = _find_legal_building_by_serialized_selection(legal, selection)
+            if picked is None:
+                raise ValueError(f"{detail_key} selected placement is not legal.")
+            return {"selection": _building_selection_payload_from_building(picked)}
+        if allow_interactive:
+            print("Choose a free building placement.")
+            print("1. Skip")
+            for idx, building in enumerate(legal, start=2):
+                print(f"{idx}. {building.type.name} {_building_cells_text(building)}")
+            while True:
+                raw = input(f"Select placement [1-{len(legal) + 1}]: ").strip()
+                if raw.isdigit():
+                    picked = int(raw)
+                    if picked == 1:
+                        return None
+                    if 2 <= picked <= len(legal) + 1:
+                        chosen = legal[picked - 2]
+                        return {"selection": _building_selection_payload_from_building(chosen)}
+                print("Please enter a valid number.")
+        if expand_implicit_choices:
+            variants: List[Tuple[Dict[str, Any], str]] = [
+                ({detail_key: [{"skip": True}]}, f"{label_prefix}(skip)")
+            ]
+            variants.extend(
+                _enumerate_building_choice_variants(
+                    legal,
+                    detail_key=detail_key,
+                    label_prefix=label_prefix,
+                )
+            )
+            raise _ActionDetailExpansionRequired(variants)
+        return {"selection": _building_selection_payload_from_building(legal[0])}
+
     for owner_id, owner in enumerate(state.players):
+        if resume_owner_id is not None and owner_id != resume_owner_id:
+            continue
         sponsor_numbers = {card.number for card in _player_played_sponsor_cards(owner)}
         if not sponsor_numbers:
             continue
@@ -10284,7 +12967,7 @@ def _apply_sponsor_passive_triggers_on_card_play(
         owner_is_actor = owner_id == played_by_player_id
 
         science_icons = int(played_icon_counts.get("science", 0))
-        if science_icons > 0:
+        if _should_run("science") and science_icons > 0:
             if owner_is_actor and 202 in sponsor_numbers:
                 _increase_reputation(
                     state=state,
@@ -10297,36 +12980,47 @@ def _apply_sponsor_passive_triggers_on_card_play(
             if 208 in sponsor_numbers:
                 owner.money += 2 * science_icons
 
-        for sponsor_no, icon_name in SPONSOR_GLOBAL_ICON_MONEY_TRIGGERS.items():
-            icon_count = int(played_icon_counts.get(icon_name, 0))
-            if sponsor_no in sponsor_numbers and icon_count > 0:
-                owner.money += 3 * icon_count
+        if _should_run("global_money"):
+            for sponsor_no, icon_name in SPONSOR_GLOBAL_ICON_MONEY_TRIGGERS.items():
+                icon_count = int(played_icon_counts.get(icon_name, 0))
+                if sponsor_no in sponsor_numbers and icon_count > 0:
+                    owner.money += 3 * icon_count
 
         bear_icons = int(played_icon_counts.get("bear", 0))
-        if 251 in sponsor_numbers and bear_icons > 0:
+        if _should_run("bear") and 251 in sponsor_numbers and bear_icons > 0:
             owner.appeal += 2 * bear_icons
 
-        for sponsor_no, (icon_name, appeal_gain) in SPONSOR_OWN_ICON_APPEAL_TRIGGERS.items():
-            icon_count = int(played_icon_counts.get(icon_name, 0))
-            if owner_is_actor and sponsor_no in sponsor_numbers and icon_count > 0:
-                owner.appeal += appeal_gain * icon_count
+        if _should_run("own_icon_appeal"):
+            for sponsor_no, (icon_name, appeal_gain) in SPONSOR_OWN_ICON_APPEAL_TRIGGERS.items():
+                icon_count = int(played_icon_counts.get(icon_name, 0))
+                if owner_is_actor and sponsor_no in sponsor_numbers and icon_count > 0:
+                    owner.appeal += appeal_gain * icon_count
 
         primate_icons = int(played_icon_counts.get("primate", 0))
-        if owner_is_actor and 248 in sponsor_numbers and primate_icons > 0:
+        if _should_run("248") and owner_is_actor and 248 in sponsor_numbers and primate_icons > 0:
             owner.x_tokens = min(MAX_X_TOKENS, owner.x_tokens + primate_icons)
 
         africa_icons = int(played_icon_counts.get("africa", 0))
-        if owner_is_actor and 214 in sponsor_numbers and africa_icons > 0 and owner.action_order:
+        if _should_run("214") and owner_is_actor and 214 in sponsor_numbers and africa_icons > 0 and owner.action_order:
             for _ in range(africa_icons):
-                _rotate_action_card_to_slot_1(owner, owner.action_order[-1])
-        if owner_is_actor and 212 in sponsor_numbers:
+                _rotate_action_card_to_slot_1(owner, _choose_action_to_slot_1(owner))
+        if _should_run("212") and owner_is_actor and 212 in sponsor_numbers:
             australia_icons = int(played_icon_counts.get("australia", 0))
             pouch_host = next((card for card in owner.zoo_cards if card.number == 212), None)
             pouched = 0
             for _ in range(australia_icons):
                 if not owner.hand:
                     break
-                pouched_card = owner.hand.pop(0)
+                chosen_cards = _choose_optional_hand_cards(
+                    owner,
+                    detail_key="sponsor_pouch_hand_card_choices",
+                    label_prefix="sponsor212",
+                    max_count=1,
+                )
+                if not chosen_cards:
+                    continue
+                pouched_card = chosen_cards[0]
+                owner.hand.remove(pouched_card)
                 _pouch_cards_under_host(
                     owner,
                     host_card_instance_id=getattr(pouch_host, "instance_id", ""),
@@ -10337,88 +13031,149 @@ def _apply_sponsor_passive_triggers_on_card_play(
             if pouched > 0:
                 state.effect_log.append(f"sponsor_212_pouch_card_for_appeal={pouched * 2}")
 
-        if owner_is_actor and 210 in sponsor_numbers:
+        if _should_run("210") and owner_is_actor and 210 in sponsor_numbers:
             america_icons = int(played_icon_counts.get("america", 0))
             placed = 0
             for _ in range(america_icons):
-                if _place_free_building_of_type_if_possible(
+                placement_details = _choose_optional_building_placement(
+                    owner,
+                    owner_id=owner_id,
+                    building_type=BuildingType.KIOSK,
+                    detail_key="sponsor_free_building_placement_choices",
+                    label_prefix="sponsor210",
+                )
+                if placement_details is not None and _place_free_building_of_type_if_possible(
                     state=state,
                     player=owner,
                     building_type=BuildingType.KIOSK,
                     player_id=owner_id,
+                    details=placement_details,
                 ):
                     placed += 1
             if placed > 0:
                 state.effect_log.append(f"sponsor_210_free_kiosk={placed}")
-        if owner_is_actor and 211 in sponsor_numbers:
+        if _should_run("211") and owner_is_actor and 211 in sponsor_numbers:
             europe_icons = int(played_icon_counts.get("europe", 0))
             placed = 0
             for _ in range(europe_icons):
-                if _place_free_building_of_type_if_possible(
+                placement_details = _choose_optional_building_placement(
+                    owner,
+                    owner_id=owner_id,
+                    building_type=BuildingType.SIZE_1,
+                    detail_key="sponsor_free_building_placement_choices",
+                    label_prefix="sponsor211",
+                )
+                if placement_details is not None and _place_free_building_of_type_if_possible(
                     state=state,
                     player=owner,
                     building_type=BuildingType.SIZE_1,
                     player_id=owner_id,
+                    details=placement_details,
                 ):
                     placed += 1
             if placed > 0:
                 state.effect_log.append(f"sponsor_211_free_size_1_enclosure={placed}")
-        if owner_is_actor and 213 in sponsor_numbers:
+        if _should_run("213") and owner_is_actor and 213 in sponsor_numbers:
             asia_icons = int(played_icon_counts.get("asia", 0))
             placed = 0
             for _ in range(asia_icons):
-                if _place_free_building_of_type_if_possible(
+                placement_details = _choose_optional_building_placement(
+                    owner,
+                    owner_id=owner_id,
+                    building_type=BuildingType.PAVILION,
+                    detail_key="sponsor_free_building_placement_choices",
+                    label_prefix="sponsor213",
+                )
+                if placement_details is not None and _place_free_building_of_type_if_possible(
                     state=state,
                     player=owner,
                     building_type=BuildingType.PAVILION,
                     player_id=owner_id,
+                    details=placement_details,
                 ):
                     placed += 1
             if placed > 0:
                 state.effect_log.append(f"sponsor_213_free_pavilion={placed}")
 
-        if owner_is_actor and 227 in sponsor_numbers and played_card.card_type == "animal":
+        if _should_run("227") and owner_is_actor and 227 in sponsor_numbers and played_card.card_type == "animal":
             mode = (owner.sponsor_waza_assignment_mode or "").strip().lower()
             if mode == "small" and _is_small_animal(played_card):
                 owner.appeal += 2
             if mode == "large" and _is_large_animal(played_card):
                 owner.appeal += 4
 
-        if owner_is_actor and 249 in sponsor_numbers:
-            bird_icons = int(played_icon_counts.get("bird", 0))
-            for _ in range(bird_icons):
+        if _should_run("249") and owner_is_actor and 249 in sponsor_numbers:
+            bird_icons = (
+                max(0, resume_249_remaining)
+                if resume_owner_id == owner_id and resume_249_remaining >= 0 and resume_stage == "249"
+                else int(played_icon_counts.get("bird", 0))
+            )
+            predator_icons_for_resume = int(played_icon_counts.get("predator", 0))
+            for idx in range(bird_icons):
                 revealed = _draw_from_zoo_deck(state, 2)
-                if revealed:
-                    owner.hand.append(revealed[0])
-                    state.zoo_discard.extend(revealed[1:])
+                if not revealed:
+                    continue
+                _set_pending_decision(
+                    state,
+                    kind="revealed_cards_keep",
+                    player_id=owner_id,
+                    payload=_pending_payload_for_hidden_choice(
+                        owner_id=owner_id,
+                        effect_code="sponsor_249",
+                        remaining_249=bird_icons - idx - 1,
+                        remaining_252=predator_icons_for_resume,
+                        revealed_cards=revealed,
+                        revealed_source="sponsor_249",
+                    ),
+                )
+                return True
 
-        if owner_is_actor and 250 in sponsor_numbers:
+        if _should_run("250") and owner_is_actor and 250 in sponsor_numbers:
             reptile_icons = int(played_icon_counts.get("reptile", 0))
             for _ in range(reptile_icons):
-                sell_count = min(2, len(owner.hand))
-                for _ in range(sell_count):
-                    state.zoo_discard.append(owner.hand.pop(0))
+                chosen_cards = _choose_optional_hand_cards(
+                    owner,
+                    detail_key="sponsor_sell_hand_card_choices",
+                    label_prefix="sponsor250",
+                    max_count=min(2, len(owner.hand)),
+                )
+                for chosen_card in chosen_cards:
+                    if chosen_card not in owner.hand:
+                        continue
+                    owner.hand.remove(chosen_card)
+                    state.zoo_discard.append(chosen_card)
                     owner.money += 4
 
-        if owner_is_actor and 252 in sponsor_numbers:
-            predator_icons = int(played_icon_counts.get("predator", 0))
-            for _ in range(predator_icons):
+        if _should_run("252") and owner_is_actor and 252 in sponsor_numbers:
+            predator_icons = (
+                max(0, resume_252_remaining)
+                if resume_owner_id == owner_id and resume_252_remaining >= 0 and resume_stage in {"249", "250", "252"}
+                else int(played_icon_counts.get("predator", 0))
+            )
+            for idx in range(predator_icons):
                 predator_count = _player_icon_inventory(owner).get("predator", 0)
                 if predator_count <= 0:
                     continue
                 revealed = _draw_from_zoo_deck(state, predator_count)
-                kept: Optional[AnimalCard] = next(
-                    (card for card in revealed if card.card_type == "animal"),
-                    None,
+                if not revealed:
+                    continue
+                _set_pending_decision(
+                    state,
+                    kind="revealed_cards_keep",
+                    player_id=owner_id,
+                    payload=_pending_payload_for_hidden_choice(
+                        owner_id=owner_id,
+                        effect_code="sponsor_252",
+                        remaining_249=0,
+                        remaining_252=predator_icons - idx - 1,
+                        revealed_cards=revealed,
+                        card_type_filter="animal",
+                        revealed_source="sponsor_252",
+                    ),
                 )
-                for card in revealed:
-                    if kept is not None and card.instance_id == kept.instance_id:
-                        continue
-                    state.zoo_discard.append(card)
-                if kept is not None:
-                    owner.hand.append(kept)
+                return True
 
-        if owner_is_actor and 253 in sponsor_numbers:
+        if _should_run("253") and owner_is_actor and 253 in sponsor_numbers:
             herbivore_icons = int(played_icon_counts.get("herbivore", 0))
             for _ in range(herbivore_icons):
                 if not _play_sponsor_from_hand_via_253(
@@ -10429,7 +13184,7 @@ def _apply_sponsor_passive_triggers_on_card_play(
                 ):
                     break
 
-        if owner_is_actor and 262 in sponsor_numbers:
+        if _should_run("262") and owner_is_actor and 262 in sponsor_numbers:
             current_types = _distinct_continent_and_category_types_from_cards(owner.zoo_cards)
             previous_cards: List[AnimalCard] = []
             removed = False
@@ -10443,6 +13198,7 @@ def _apply_sponsor_passive_triggers_on_card_play(
             if gained > 0:
                 owner.appeal += gained
                 owner.money += gained * 2
+    return False
 
 
 def _sponsor_requirements_met(
@@ -10631,7 +13387,15 @@ def _apply_sponsor_immediate_effects(
         messages.append("immediate(unique_building_placed)=1")
 
     if number in {201, 254}:
-        taken = _take_one_card_from_deck_or_reputation_range(state, player)
+        taken = _take_one_card_from_deck_or_reputation_range_with_details(
+            state,
+            player,
+            details=details,
+            detail_key="sponsor_draw_card_choices",
+            label_prefix=f"sponsor#{number} draw",
+            prompt_title="Choose 1 card from deck or reputation range.",
+            allow_interactive=allow_interactive,
+        )
         messages.append(f"immediate(draw_1_from_deck_or_reputation_range)={1 if taken else 0}")
     if number == 254:
         _increase_reputation(
@@ -10988,7 +13752,7 @@ def _perform_sponsors_action_effect(
     _validate_sponsor_sequence_affordability(state=state, player=player, resolved_cards=resolved_cards)
 
     took_from_display = False
-    for source, card, _, _ in resolved_cards:
+    for index, (source, card, _, _) in enumerate(resolved_cards):
         took_from_display = (
             _play_sponsor_card_from_source(
                 state=state,
@@ -11000,6 +13764,22 @@ def _perform_sponsors_action_effect(
             )
             or took_from_display
         )
+        if str(state.pending_decision_kind or "").strip():
+            remaining_resolved = resolved_cards[index + 1 :]
+            remaining_selections = [
+                {
+                    "source": source_name,
+                    "source_index": int(source_index),
+                    "card_instance_id": str(remaining_card.instance_id or ""),
+                }
+                for source_name, remaining_card, source_index, _extra_display_cost in remaining_resolved
+            ]
+            state.pending_decision_payload.setdefault("resume_kind", "sponsors_followup")
+            state.pending_decision_payload["resume_sponsors_player_id"] = int(player_id)
+            state.pending_decision_payload["resume_sponsor_selections"] = remaining_selections
+            state.pending_decision_payload["resume_sponsor_details"] = copy.deepcopy(details)
+            state.pending_decision_payload["resume_sponsor_took_from_display"] = bool(took_from_display)
+            return False
     if took_from_display:
         _replenish_zoo_display(state)
     return False
@@ -11258,11 +14038,13 @@ def _prompt_choose_hand_cards_for_human(
     *,
     max_choose: int,
     min_choose: int = 0,
+    candidate_cards: Optional[Sequence[AnimalCard]] = None,
     effect_name: str,
     action_label: str,
     reward_label: str,
 ) -> List[int]:
-    if max_choose <= 0 or not player.hand:
+    cards = list(candidate_cards) if candidate_cards is not None else list(player.hand)
+    if max_choose <= 0 or not cards:
         return []
     lower = max(0, min(int(min_choose), max_choose))
     if lower == max_choose:
@@ -11271,7 +14053,7 @@ def _prompt_choose_hand_cards_for_human(
         choose_label = f"{lower}-{max_choose}"
     return _prompt_card_combination_indices_impl(
         title=f"{effect_name}: choose {choose_label} hand card(s) {reward_label}.",
-        cards=player.hand,
+        cards=cards,
         format_card_line=lambda card: _format_card_line_for_player(card, player),
         min_choose=lower,
         max_choose=max_choose,
@@ -11723,6 +14505,65 @@ def _resolve_break_discard_pending_action(
         _validate_card_zones(state)
 
 
+def _resolve_break_card_draw_choice_pending_action(
+    state: GameState,
+    player: PlayerState,
+    action: Action,
+) -> None:
+    payload = dict(state.pending_decision_payload or {})
+    details = dict(action.details or {})
+    draw_source = str(details.get("draw_source") or "").strip().lower()
+    display_index_raw = details.get("display_index")
+    display_index = int(display_index_raw) if display_index_raw is not None else None
+    if draw_source not in {"deck", "display"}:
+        raise ValueError("break_card_draw_choice requires draw_source 'deck' or 'display'.")
+
+    _take_one_card_from_deck_or_reputation_range_with_choice(
+        state,
+        player,
+        draw_source=draw_source,
+        display_index=display_index,
+    )
+    _apply_sponsor_break_income_effects_for_player_after_card_draw(state, player)
+
+    current_player_id = int(state.pending_decision_player_id)
+    break_income_index = int(payload.get("break_income_index", 0))
+    resume_turn_player_id_raw = payload.get("resume_turn_player_id")
+    resume_turn_player_id = int(resume_turn_player_id_raw) if resume_turn_player_id_raw is not None else None
+    resume_turn_consumed_venom = bool(payload.get("resume_turn_consumed_venom"))
+
+    _clear_pending_decision(state)
+    if _maybe_begin_conservation_reward_pending(
+        state,
+        player_id=current_player_id,
+        resume_kind="break_remaining",
+        break_income_index=break_income_index,
+        resume_turn_player_id=resume_turn_player_id,
+        resume_turn_consumed_venom=resume_turn_consumed_venom,
+    ):
+        _validate_card_zones(state)
+        return
+    if not _resolve_break_remaining_stages(
+        state,
+        start_income_index=break_income_index,
+        preprocessed=True,
+        resume_turn_player_id=resume_turn_player_id,
+        resume_turn_consumed_venom=resume_turn_consumed_venom,
+    ):
+        _validate_card_zones(state)
+        return
+    if resume_turn_player_id is not None:
+        resume_player = state.players[resume_turn_player_id]
+        _complete_turn_after_break_resolution(
+            state,
+            resume_player,
+            player_id=resume_turn_player_id,
+            consumed_venom=resume_turn_consumed_venom,
+        )
+    else:
+        _validate_card_zones(state)
+
+
 def _resolve_opening_draft_keep_pending_action(
     state: GameState,
     player: PlayerState,
@@ -12006,6 +14847,223 @@ def _resolve_conservation_reward_pending_action(
     _validate_card_zones(state)
 
 
+def _resolve_revealed_cards_keep_pending_action(
+    state: GameState,
+    player: PlayerState,
+    action: Action,
+) -> None:
+    payload = dict(state.pending_decision_payload or {})
+    keep_target = int(payload.get("keep_target", 0))
+    if keep_target <= 0:
+        raise ValueError("revealed_cards_keep pending decision requires a positive keep target.")
+    revealed_cards = [
+        card
+        for card in list(payload.get("revealed_cards") or [])
+        if isinstance(card, AnimalCard)
+    ]
+    card_type_filter = str(payload.get("card_type_filter") or "").strip().lower()
+    candidates = [
+        card
+        for card in revealed_cards
+        if not card_type_filter or str(card.card_type).strip().lower() == card_type_filter
+    ]
+    details = dict(action.details or {})
+    keep_card_instance_ids = [str(item).strip() for item in list(details.get("keep_card_instance_ids") or []) if str(item).strip()]
+    if len(keep_card_instance_ids) != keep_target:
+        raise ValueError(f"Exactly {keep_target} keep_card_instance_id(s) are required.")
+    if len(set(keep_card_instance_ids)) != keep_target:
+        raise ValueError("keep_card_instance_id values must be unique.")
+
+    candidate_ids = {
+        str(card.instance_id or "").strip()
+        for card in candidates
+        if str(card.instance_id or "").strip()
+    }
+    if any(card_id not in candidate_ids for card_id in keep_card_instance_ids):
+        raise ValueError("Selected revealed card is not a legal choice.")
+
+    kept_cards: List[AnimalCard] = []
+    discarded_cards: List[AnimalCard] = []
+    remaining_ids = list(keep_card_instance_ids)
+    for revealed_card in revealed_cards:
+        card_id = str(revealed_card.instance_id or "").strip()
+        if card_id in remaining_ids:
+            kept_cards.append(revealed_card)
+            remaining_ids.remove(card_id)
+        else:
+            discarded_cards.append(revealed_card)
+    if remaining_ids:
+        raise ValueError("Selected revealed cards could not be resolved.")
+
+    player.hand.extend(kept_cards)
+    state.zoo_discard.extend(discarded_cards)
+    _finalize_revealed_cards_keep_resolution(
+        state,
+        player,
+        payload=payload,
+    )
+
+
+def _resolve_revealed_final_scoring_keep_pending_action(
+    state: GameState,
+    player: PlayerState,
+    action: Action,
+) -> None:
+    payload = dict(state.pending_decision_payload or {})
+    keep_target = int(payload.get("keep_target", 0))
+    if keep_target <= 0:
+        raise ValueError("revealed_final_scoring_keep pending decision requires a positive keep target.")
+    revealed_cards = [
+        card
+        for card in list(payload.get("revealed_cards") or [])
+        if isinstance(card, SetupCardRef)
+    ]
+    details = dict(action.details or {})
+    keep_final_scoring_refs = [
+        str(item).strip()
+        for item in list(details.get("keep_final_scoring_refs") or [])
+        if str(item).strip()
+    ]
+    if len(keep_final_scoring_refs) != keep_target:
+        raise ValueError(f"Exactly {keep_target} keep_final_scoring_refs value(s) are required.")
+    if len(set(keep_final_scoring_refs)) != keep_target:
+        raise ValueError("keep_final_scoring_refs values must be unique.")
+
+    revealed_refs = {
+        str(card.data_id or "").strip()
+        for card in revealed_cards
+        if str(card.data_id or "").strip()
+    }
+    if any(card_ref not in revealed_refs for card_ref in keep_final_scoring_refs):
+        raise ValueError("Selected final scoring card is not a legal revealed choice.")
+
+    kept_cards: List[SetupCardRef] = []
+    discarded_cards: List[SetupCardRef] = []
+    remaining_refs = list(keep_final_scoring_refs)
+    for revealed_card in revealed_cards:
+        card_ref = str(revealed_card.data_id or "").strip()
+        if card_ref in remaining_refs:
+            kept_cards.append(revealed_card)
+            remaining_refs.remove(card_ref)
+        else:
+            discarded_cards.append(revealed_card)
+    if remaining_refs:
+        raise ValueError("Selected final scoring cards could not be resolved.")
+
+    player.final_scoring_cards.extend(kept_cards)
+    state.final_scoring_discard.extend(discarded_cards)
+    _finalize_animals_pending_resolution(
+        state,
+        player,
+        player_id=int(state.pending_decision_player_id),
+        payload=payload,
+    )
+
+
+def _resolve_final_scoring_discard_pending_action(
+    state: GameState,
+    player: PlayerState,
+    action: Action,
+) -> None:
+    payload = dict(state.pending_decision_payload or {})
+    discard_target = int(payload.get("discard_target", 0))
+    if discard_target <= 0:
+        raise ValueError("final_scoring_discard pending decision requires a positive discard target.")
+    details = dict(action.details or {})
+    discard_refs = [
+        str(item).strip()
+        for item in list(details.get("discard_final_scoring_refs") or [])
+        if str(item).strip()
+    ]
+    if len(discard_refs) != discard_target or len(set(discard_refs)) != discard_target:
+        raise ValueError("discard_final_scoring_refs must contain distinct final scoring refs.")
+    remaining_refs = list(discard_refs)
+    discarded_cards: List[SetupCardRef] = []
+    for card_ref in list(player.final_scoring_cards):
+        ref = str(card_ref.data_id or "").strip()
+        if ref in remaining_refs:
+            discarded_cards.append(card_ref)
+            remaining_refs.remove(ref)
+    if remaining_refs:
+        raise ValueError("Selected final scoring discard card is not currently owned.")
+    for card_ref in discarded_cards:
+        if card_ref in player.final_scoring_cards:
+            player.final_scoring_cards.remove(card_ref)
+    state.final_scoring_discard.extend(discarded_cards)
+    _finalize_animals_pending_resolution(
+        state,
+        player,
+        player_id=int(state.pending_decision_player_id),
+        payload=payload,
+    )
+
+
+def _resolve_digging_pending_action(
+    state: GameState,
+    player: PlayerState,
+    action: Action,
+) -> None:
+    payload = dict(state.pending_decision_payload or {})
+    remaining_loops = int(payload.get("remaining_loops", 0))
+    if remaining_loops <= 0:
+        raise ValueError("digging_choice pending decision requires a positive remaining_loops.")
+    details = dict(action.details or {})
+    choice_mode = str(details.get("digging_choice_mode") or "").strip().lower()
+    if choice_mode not in {"skip", "display", "hand"}:
+        raise ValueError("digging_choice_mode must be 'skip', 'display', or 'hand'.")
+
+    _clear_pending_decision(state)
+    if choice_mode == "display":
+        display_index = int(details.get("display_index", -1))
+        if display_index < 0 or display_index >= len(state.zoo_display):
+            raise ValueError("Selected digging display index is out of range.")
+        discarded_card = state.zoo_display.pop(display_index)
+        state.zoo_discard.append(discarded_card)
+        _replenish_zoo_display(state)
+        remaining_loops -= 1
+    elif choice_mode == "hand":
+        card_instance_id = str(details.get("hand_card_instance_id") or "").strip()
+        chosen_card = next((card for card in player.hand if card.instance_id == card_instance_id), None)
+        if chosen_card is None:
+            raise ValueError("Selected digging hand card is not in hand.")
+        player.hand.remove(chosen_card)
+        state.zoo_discard.append(chosen_card)
+        player.hand.extend(_draw_from_zoo_deck(state, 1))
+        remaining_loops -= 1
+    else:
+        remaining_loops = 0
+
+    if remaining_loops > 0 and _maybe_begin_digging_pending(
+        state,
+        player,
+        player_id=int(payload.get("resume_animals_player_id", state.current_player)),
+        remaining_loops=remaining_loops,
+        resume_payload=payload,
+    ):
+        _validate_card_zones(state)
+        return
+
+    break_triggered = bool(payload.get("break_triggered"))
+    consumed_venom = bool(payload.get("consumed_venom"))
+    _resume_animals_followup_from_pending_payload(
+        state,
+        player_id=int(payload.get("resume_animals_player_id", state.current_player)),
+        payload=payload,
+    )
+    if str(state.pending_decision_kind or "").strip():
+        state.pending_decision_payload["break_triggered"] = break_triggered
+        state.pending_decision_payload["consumed_venom"] = consumed_venom
+        _validate_card_zones(state)
+        return
+    _finalize_turn(
+        state,
+        player,
+        player_id=int(payload.get("resume_animals_player_id", state.current_player)),
+        break_triggered=break_triggered,
+        consumed_venom=consumed_venom,
+    )
+
+
 def apply_action(state: GameState, action: Action) -> None:
     _validate_card_zones(state)
     pending_kind = str(state.pending_decision_kind or "").strip()
@@ -12032,6 +15090,9 @@ def apply_action(state: GameState, action: Action) -> None:
         if pending_kind == "break_discard":
             _resolve_break_discard_pending_action(state, player, action)
             return
+        if pending_kind == "break_card_draw_choice":
+            _resolve_break_card_draw_choice_pending_action(state, player, action)
+            return
         if pending_kind == "opening_draft_keep":
             _resolve_opening_draft_keep_pending_action(state, player, action)
             return
@@ -12042,6 +15103,18 @@ def apply_action(state: GameState, action: Action) -> None:
                 player_id=player_id,
                 action=action,
             )
+            return
+        if pending_kind == "revealed_cards_keep":
+            _resolve_revealed_cards_keep_pending_action(state, player, action)
+            return
+        if pending_kind == "revealed_final_scoring_keep":
+            _resolve_revealed_final_scoring_keep_pending_action(state, player, action)
+            return
+        if pending_kind == "final_scoring_discard":
+            _resolve_final_scoring_discard_pending_action(state, player, action)
+            return
+        if pending_kind == "digging_choice":
+            _resolve_digging_pending_action(state, player, action)
             return
         raise ValueError(f"Unsupported pending decision kind: {pending_kind}")
 
@@ -12474,8 +15547,8 @@ def play_game(
         print("Opening setup:")
         print(
             "Card effects coverage (zoo deck): "
-            f"total={effect_coverage['total']} supported={effect_coverage['supported']} "
-            f"unsupported={effect_coverage['unsupported']} no_effect={effect_coverage['no_effect']}"
+            f"total={effect_coverage['total']} mapped={effect_coverage['mapped']} "
+            f"unmapped={effect_coverage['unmapped']} no_effect={effect_coverage['no_effect']}"
         )
         print(f"- CP 2 fixed options: {opening.conservation_space_2_fixed_options}")
         print(

@@ -2686,7 +2686,7 @@ def test_pilfering_noninteractive_defaults_to_money_loss_when_both_losses_are_le
     assert target.money == 6
 
 
-def test_pilfering_noninteractive_uses_explicit_card_loss_choice_and_random_card(monkeypatch):
+def test_pilfering_noninteractive_uses_explicit_card_loss_choice():
     state = setup_game(seed=190, player_names=["P1", "P2"])
     actor = state.players[0]
     target = state.players[1]
@@ -2710,7 +2710,6 @@ def test_pilfering_noninteractive_uses_explicit_card_loss_choice_and_random_card
         AnimalCard("Expensive Animal", 12, 4, 3, 1, number=9910, instance_id="expensive"),
         AnimalCard("Cheap Animal", 1, 1, 0, 0, number=9911, instance_id="cheap"),
     ]
-    monkeypatch.setattr(main.random, "randrange", lambda upper: 1)
 
     _perform_animals_action_effect(
         state=state,
@@ -2719,7 +2718,7 @@ def test_pilfering_noninteractive_uses_explicit_card_loss_choice_and_random_card
         strength=3,
         details={
             "animals_sequence_index": 0,
-            "pilfering_choices": [{"choice": "card"}],
+            "pilfering_choices": [{"choice": "card", "card_instance_id": "cheap"}],
         },
     )
 
@@ -2836,9 +2835,8 @@ def test_pilfering_interactive_target_can_choose_card_loss_and_receive_random_ca
         AnimalCard("Card B", 8, 3, 0, 0, number=9913, instance_id="card-b"),
     ]
 
-    responses = iter(["2"])
+    responses = iter(["2", "2"])
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
-    monkeypatch.setattr(main.random, "randrange", lambda upper: 1)
 
     _perform_animals_action_effect(
         state=state,

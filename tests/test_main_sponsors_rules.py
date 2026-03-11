@@ -13,6 +13,7 @@ from main import (
     BuildingType,
     HexTile,
     _resolve_break,
+    _resolve_break_remaining_stages,
     _final_score_points,
     _apply_sponsor_passive_triggers_on_card_play,
     _player_icon_snapshot,
@@ -397,6 +398,356 @@ def test_sponsor_228_allows_extra_small_animal_and_take_small_from_display():
     assert 9802 in played_numbers
     assert 9803 in played_numbers
     assert any(card.number == 9804 for card in player.hand)
+
+
+def test_break_income_sponsor_201_uses_pending_draw_choice():
+    state = make_state(7071)
+    player = state.players[0]
+    for other in state.players:
+        other.hand = []
+    state.break_trigger_player = 0
+    player.zoo_cards.append(
+        AnimalCard(
+            name="ScienceLab201",
+            cost=3,
+            size=0,
+            appeal=0,
+            conservation=0,
+            card_type="sponsor",
+            number=201,
+            instance_id="s201",
+        )
+    )
+    display_card = AnimalCard(
+        name="DisplayChoice",
+        cost=1,
+        size=1,
+        appeal=0,
+        conservation=0,
+        card_type="animal",
+        number=9811,
+        instance_id="display-choice",
+    )
+    deck_card = AnimalCard(
+        name="DeckChoice",
+        cost=1,
+        size=1,
+        appeal=0,
+        conservation=0,
+        card_type="animal",
+        number=9812,
+        instance_id="deck-choice",
+    )
+    player.reputation = 3
+    state.zoo_display = [
+        display_card,
+        AnimalCard("BreakDisplayB", 1, 1, 0, 0, card_type="animal", number=9819, instance_id="break-display-b"),
+        AnimalCard("BreakDisplayC", 1, 1, 0, 0, card_type="animal", number=9820, instance_id="break-display-c"),
+    ]
+    state.zoo_deck = [
+        deck_card,
+        AnimalCard("BreakDeckB", 1, 1, 0, 0, card_type="animal", number=9821, instance_id="break-deck-b"),
+        AnimalCard("BreakDeckC", 1, 1, 0, 0, card_type="animal", number=9822, instance_id="break-deck-c"),
+        AnimalCard("BreakDeckD", 1, 1, 0, 0, card_type="animal", number=9823, instance_id="break-deck-d"),
+    ]
+
+    _resolve_break_remaining_stages(state, preprocessed=True)
+
+    assert state.pending_decision_kind == "break_card_draw_choice"
+
+    actions = legal_actions(player, state=state, player_id=0)
+    display_action = next(
+        action
+        for action in actions
+        if (action.details or {}).get("draw_source") == "display"
+    )
+    apply_action(state, display_action)
+
+    assert state.pending_decision_kind == ""
+    assert any(card.instance_id == "display-choice" for card in player.hand)
+    assert state.break_progress == 0
+
+
+def test_animals_legal_actions_expand_sponsor_214_action_choices():
+    state = make_state(7072)
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    player.money = 20
+    player.zoo_cards.append(
+        AnimalCard(
+            name="AfricaExpert214",
+            cost=4,
+            size=0,
+            appeal=0,
+            conservation=0,
+            card_type="sponsor",
+            number=214,
+            instance_id="s214",
+        )
+    )
+    player.hand = [
+        AnimalCard(
+            name="AfricaAnimal",
+            cost=0,
+            size=1,
+            appeal=1,
+            conservation=0,
+            card_type="animal",
+            badges=("Africa",),
+            number=9813,
+            instance_id="a-9813",
+        )
+    ]
+    player.enclosures = [Enclosure(size=1, occupied=False)]
+
+    actions = [
+        action
+        for action in legal_actions(player, state=state, player_id=0)
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "animals"
+    ]
+
+    chosen_actions = {
+        str(((action.details or {}).get("sponsor_action_to_slot_1_choices") or [{}])[0].get("action_name") or "")
+        for action in actions
+        if (action.details or {}).get("sponsor_action_to_slot_1_choices")
+    }
+
+    assert chosen_actions == set(player.action_order)
+
+
+def test_animals_legal_actions_expand_sponsor_210_free_build_choices():
+    state = make_state(7073)
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    player.money = 20
+    player.zoo_cards.append(
+        AnimalCard(
+            name="AmericaExpert210",
+            cost=4,
+            size=0,
+            appeal=0,
+            conservation=0,
+            card_type="sponsor",
+            number=210,
+            instance_id="s210-choices",
+        )
+    )
+    player.hand = [
+        AnimalCard(
+            name="AmericaAnimal",
+            cost=0,
+            size=1,
+            appeal=1,
+            conservation=0,
+            card_type="animal",
+            badges=("America",),
+            number=9814,
+            instance_id="a-9814",
+        )
+    ]
+    player.enclosures = [Enclosure(size=1, occupied=False)]
+
+    actions = [
+        action
+        for action in legal_actions(player, state=state, player_id=0)
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "animals"
+    ]
+
+    variants = [
+        list((action.details or {}).get("sponsor_free_building_placement_choices") or [])
+        for action in actions
+    ]
+    assert any(choice_list and bool(choice_list[0].get("skip")) for choice_list in variants)
+    assert len(
+        {
+            tuple(
+                tuple(cell)
+                for cell in list(((choice_list[0].get("selection") or {}).get("cells") or []))
+            )
+            for choice_list in variants
+            if choice_list and not bool(choice_list[0].get("skip"))
+        }
+    ) > 1
+
+
+def test_animals_legal_actions_expand_sponsor_228_display_take_choices():
+    state = make_state(7074)
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    player.money = 20
+    player.zoo_cards.append(
+        AnimalCard(
+            name="SmallProgram228",
+            cost=5,
+            size=0,
+            appeal=0,
+            conservation=0,
+            card_type="sponsor",
+            number=228,
+            instance_id="s228-choices",
+        )
+    )
+    player.hand = [
+        AnimalCard("Small1", 1, 1, 1, 0, card_type="animal", number=9815, instance_id="small-1"),
+        AnimalCard("Small2", 1, 1, 1, 0, card_type="animal", number=9816, instance_id="small-2"),
+    ]
+    player.enclosures = [Enclosure(size=1, occupied=False), Enclosure(size=1, occupied=False)]
+    state.zoo_display = [
+        AnimalCard("DispSmall1", 1, 1, 1, 0, card_type="animal", number=9817, instance_id="disp-small-1"),
+        AnimalCard("DispSmall2", 1, 1, 1, 0, card_type="animal", number=9818, instance_id="disp-small-2"),
+    ]
+
+    actions = [
+        action
+        for action in legal_actions(player, state=state, player_id=0)
+        if action.type == ActionType.MAIN_ACTION and action.card_name == "animals"
+    ]
+
+    variants = [list((action.details or {}).get("sponsor_display_take_choices") or []) for action in actions]
+    chosen_indices = {
+        int(choice_list[0].get("display_index", -1))
+        for choice_list in variants
+        if choice_list and not bool(choice_list[0].get("skip"))
+    }
+    assert chosen_indices == {0, 1}
+
+
+def test_animals_sponsor_249_uses_pending_revealed_keep_choice():
+    state = make_state(7075)
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    player.money = 20
+    player.zoo_cards.append(
+        AnimalCard(
+            name="BirdHouse249",
+            cost=4,
+            size=0,
+            appeal=0,
+            conservation=0,
+            card_type="sponsor",
+            number=249,
+            instance_id="s249",
+        )
+    )
+    player.hand = [
+        AnimalCard(
+            name="BirdAnimal",
+            cost=0,
+            size=1,
+            appeal=1,
+            conservation=0,
+            card_type="animal",
+            badges=("Bird",),
+            number=9819,
+            instance_id="bird-play",
+        )
+    ]
+    player.enclosures = [Enclosure(size=1, occupied=False)]
+    keep_first = AnimalCard("KeepFirst", 1, 1, 0, 0, card_type="animal", number=9820, instance_id="keep-first")
+    keep_second = AnimalCard("KeepSecond", 1, 1, 0, 0, card_type="sponsor", number=9821, instance_id="keep-second")
+    state.zoo_deck = [keep_first, keep_second]
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            card_name="animals",
+            details={"animals_sequence_index": 0},
+        ),
+    )
+
+    assert state.pending_decision_kind == "revealed_cards_keep"
+
+    actions = legal_actions(player, state=state, player_id=0)
+    chosen = next(
+        action
+        for action in actions
+        if list((action.details or {}).get("keep_card_instance_ids") or []) == ["keep-second"]
+    )
+    apply_action(state, chosen)
+
+    assert state.pending_decision_kind == ""
+    assert any(card.instance_id == "keep-second" for card in player.hand)
+    assert all(card.instance_id != "keep-first" for card in player.hand)
+
+
+def test_animals_sponsor_252_uses_pending_revealed_keep_choice():
+    state = make_state(7076)
+    player = state.players[0]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    player.money = 20
+    player.zoo_cards.extend(
+        [
+            AnimalCard(
+                name="PredatorLab252",
+                cost=4,
+                size=0,
+                appeal=0,
+                conservation=0,
+                card_type="sponsor",
+                number=252,
+                instance_id="s252",
+            ),
+            AnimalCard(
+                name="PredatorResident",
+                cost=0,
+                size=1,
+                appeal=0,
+                conservation=0,
+                card_type="animal",
+                badges=("Predator",),
+                number=9822,
+                instance_id="predator-resident",
+            ),
+        ]
+    )
+    player.hand = [
+        AnimalCard(
+            name="PredatorPlay",
+            cost=0,
+            size=1,
+            appeal=1,
+            conservation=0,
+            card_type="animal",
+            badges=("Predator",),
+            number=9823,
+            instance_id="predator-play",
+        )
+    ]
+    player.enclosures = [Enclosure(size=1, occupied=False)]
+    state.zoo_deck = [
+        AnimalCard("AnimalChoiceA", 1, 1, 0, 0, card_type="animal", number=9824, instance_id="animal-a"),
+        AnimalCard("AnimalChoiceB", 1, 1, 0, 0, card_type="animal", number=9825, instance_id="animal-b"),
+        AnimalCard("AnimalChoiceC", 1, 1, 0, 0, card_type="animal", number=9826, instance_id="animal-c"),
+    ]
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            card_name="animals",
+            details={"animals_sequence_index": 0},
+        ),
+    )
+
+    assert state.pending_decision_kind == "revealed_cards_keep"
+
+    actions = legal_actions(player, state=state, player_id=0)
+    chosen = next(
+        action
+        for action in actions
+        if list((action.details or {}).get("keep_card_instance_ids") or []) == ["animal-b"]
+    )
+    apply_action(state, chosen)
+
+    assert state.pending_decision_kind == ""
+    assert any(card.instance_id == "animal-b" for card in player.hand)
+    assert all(card.instance_id != "animal-a" for card in player.hand)
 
 
 def test_sponsor_253_plays_sponsor_from_hand_on_herbivore_trigger():

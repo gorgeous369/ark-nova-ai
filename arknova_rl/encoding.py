@@ -92,8 +92,13 @@ class ActionFeatureEncoder:
         self.pending_kinds: Tuple[str, ...] = (
             "cards_discard",
             "break_discard",
+            "break_card_draw_choice",
             "opening_draft_keep",
             "conservation_reward",
+            "revealed_cards_keep",
+            "revealed_final_scoring_keep",
+            "final_scoring_discard",
+            "digging_choice",
             "",
         )
         self.text_hash_dim = int(text_hash_dim)
@@ -286,8 +291,13 @@ class ObservationEncoder:
             "",
             "cards_discard",
             "break_discard",
+            "break_card_draw_choice",
             "opening_draft_keep",
             "conservation_reward",
+            "revealed_cards_keep",
+            "revealed_final_scoring_keep",
+            "final_scoring_discard",
+            "digging_choice",
         )
         self.hand_hash_dim = int(hand_hash_dim)
         self.final_hash_dim = int(final_hash_dim)

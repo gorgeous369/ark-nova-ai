@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 ActionMover = Callable[[str], None]
 BoostActionExecutor = Callable[[str], str]
-BreakAdvancer = Callable[[int], bool]
+BreakTrackAdvancer = Callable[[int], bool]
 DeckDrawer = Callable[[int], Sequence[Any]]
 DiscardPusher = Callable[[Sequence[Any]], None]
 MoneyGainer = Callable[[int], None]
@@ -25,9 +25,12 @@ MultiplierAdder = Callable[[str], bool]
 TokenApplier = Callable[[int], int]
 HypnosisExecutor = Callable[[int], str]
 PilferingExecutor = Callable[[int], str]
+DiggingExecutor = Callable[[int], int]
 DiscardScavenger = Callable[[int, int], Tuple[int, int]]
 ExtraActionMarker = Callable[[str], None]
 FinalScoringDrawer = Callable[[int, int], Tuple[int, int]]
+DeckKeepChoiceExecutor = Callable[[int, int], Tuple[int, int]]
+RevealKeepByTypeExecutor = Callable[[int, str], Tuple[int, int]]
 BaseProjectTaker = Callable[[int], int]
 XTokenGainer = Callable[[int], int]
 IconCounter = Callable[[str], int]
@@ -42,6 +45,7 @@ SharkAttackExecutor = Callable[[int], Tuple[int, int]]
 SpecificProjectTaker = Callable[[str, int], int]
 SymbiosisExecutor = Callable[[], List[str]]
 CamouflageGrant = Callable[[int], None]
+GlideRewardExecutor = Callable[[int], str]
 
 
 @dataclass(frozen=True)
@@ -90,7 +94,7 @@ def resolve_card_effect(card: Any) -> ResolvedCardEffect:
 
     sprint = _extract_int_from_title("Sprint", title)
     if sprint is not None:
-        return ResolvedCardEffect(code="draw_from_deck", value=sprint, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="sprint", value=sprint, raw_title=title, raw_text=text)
 
     hunter = _extract_int_from_title("Hunter", title)
     if hunter is not None:
@@ -100,13 +104,13 @@ def resolve_card_effect(card: Any) -> ResolvedCardEffect:
     if snapping is not None:
         replenish_each = "replenish in between" in text.lower()
         target = "replenish_each" if replenish_each else "single_replenish"
-        return ResolvedCardEffect(code="take_display_cards", value=snapping, target=target, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="snapping", value=snapping, target=target, raw_title=title, raw_text=text)
 
     perception = _extract_int_from_title("Perception", title)
     if perception is not None:
         keep_count = _extract_int_from_text(r"Add\s+(\d+)\s+to\s+your\s+hand", text, default=1)
         return ResolvedCardEffect(
-            code="draw_keep_from_deck",
+            code="perception",
             value=perception,
             target=str(max(1, keep_count)),
             raw_title=title,
@@ -117,7 +121,7 @@ def resolve_card_effect(card: Any) -> ResolvedCardEffect:
     if scavenging is not None:
         keep_count = _extract_int_from_text(r"Add\s+(\d+)\s+to\s+your\s+hand", text, default=1)
         return ResolvedCardEffect(
-            code="scavenge_from_discard",
+            code="scavenging",
             value=scavenging,
             target=str(max(1, keep_count)),
             raw_title=title,
@@ -136,28 +140,33 @@ def resolve_card_effect(card: Any) -> ResolvedCardEffect:
         if target == "building":
             target = "build"
         if target in {"animals", "cards", "build", "association", "sponsors"}:
-            return ResolvedCardEffect(code="boost_action_card", target=target, raw_title=title, raw_text=text)
+            return ResolvedCardEffect(code="boost", target=target, raw_title=title, raw_text=text)
 
     if title.lower() == "clever":
-        return ResolvedCardEffect(code="move_any_action_to_slot_1", raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="clever", raw_title=title, raw_text=text)
 
     if title.lower() == "full-throated":
-        return ResolvedCardEffect(code="hire_worker", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="full_throated", value=1, raw_title=title, raw_text=text)
 
-    if title.lower() in {"pack", "petting zoo animal"}:
+    if title.lower() == "pack":
         gain_match = re.search(r"Gain\s+(\d+)", text, flags=re.I)
         gain = int(gain_match.group(1)) if gain_match else 1
-        return ResolvedCardEffect(code="gain_appeal", value=gain, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="pack", value=gain, raw_title=title, raw_text=text)
+
+    if title.lower() == "petting zoo animal":
+        gain_match = re.search(r"Gain\s+(\d+)", text, flags=re.I)
+        gain = int(gain_match.group(1)) if gain_match else 1
+        return ResolvedCardEffect(code="petting_zoo_animal", value=gain, raw_title=title, raw_text=text)
 
     glide = _extract_int_from_title("Glide", title)
     if glide is not None:
-        return ResolvedCardEffect(code="advance_break", value=glide, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="glide", value=glide, raw_title=title, raw_text=text)
 
     jumping = _extract_int_from_title("Jumping", title)
     if jumping is not None:
         gain_money = _extract_int_from_text(r"Gain\s+(\d+)", text, default=0)
         return ResolvedCardEffect(
-            code="jumping_break_and_money",
+            code="jumping",
             value=jumping,
             target=str(max(0, gain_money)),
             raw_title=title,
@@ -166,12 +175,12 @@ def resolve_card_effect(card: Any) -> ResolvedCardEffect:
 
     sun_bathing = _extract_int_from_title("Sun Bathing", title)
     if sun_bathing is not None:
-        return ResolvedCardEffect(code="sell_hand_cards", value=sun_bathing, target="4", raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="sun_bathing", value=sun_bathing, target="4", raw_title=title, raw_text=text)
 
     pouch = _extract_int_from_title("Pouch", title)
     if pouch is not None:
         return ResolvedCardEffect(
-            code="pouch_hand_for_appeal",
+            code="pouch",
             value=pouch,
             target="2",
             raw_title=title,
@@ -180,7 +189,7 @@ def resolve_card_effect(card: Any) -> ResolvedCardEffect:
 
     digging = _extract_int_from_title("Digging", title)
     if digging is not None:
-        return ResolvedCardEffect(code="digging_cycle", value=digging, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="digging", value=digging, raw_title=title, raw_text=text)
 
     pilfering = _extract_int_from_title("Pilfering", title)
     if pilfering is not None:
@@ -188,17 +197,17 @@ def resolve_card_effect(card: Any) -> ResolvedCardEffect:
 
     posturing = _extract_int_from_title("Posturing", title)
     if posturing is not None:
-        return ResolvedCardEffect(code="free_kiosk_or_pavilion", value=posturing, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="posturing", value=posturing, raw_title=title, raw_text=text)
 
     venom = _extract_int_from_title("Venom", title)
     if venom is not None:
-        return ResolvedCardEffect(code="venom_tokens", value=venom, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="venom", value=venom, raw_title=title, raw_text=text)
 
     if title.lower() == "constriction":
-        return ResolvedCardEffect(code="constriction_tokens", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="constriction", value=1, raw_title=title, raw_text=text)
 
     if title.lower() == "sponsor magnet":
-        return ResolvedCardEffect(code="take_display_sponsors", value=999, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="sponsor_magnet", value=999, raw_title=title, raw_text=text)
 
     multiplier_match = re.match(r"^Multiplier:\s*(\w+)$", title, flags=re.I)
     if multiplier_match:
@@ -208,7 +217,7 @@ def resolve_card_effect(card: Any) -> ResolvedCardEffect:
         if target == "building":
             target = "build"
         if target in {"animals", "cards", "build", "association", "sponsors"}:
-            return ResolvedCardEffect(code="multiplier_token", target=target, value=1, raw_title=title, raw_text=text)
+            return ResolvedCardEffect(code="multiplier", target=target, value=1, raw_title=title, raw_text=text)
 
     action_match = re.match(r"^Action:\s*(\w+)$", title, flags=re.I)
     if action_match:
@@ -222,79 +231,79 @@ def resolve_card_effect(card: Any) -> ResolvedCardEffect:
         if target == "building":
             target = "build"
         if target in {"animals", "cards", "build", "association", "sponsors"}:
-            return ResolvedCardEffect(code="extra_action_granted", target=target, value=1, raw_title=title, raw_text=text)
+            return ResolvedCardEffect(code="action", target=target, value=1, raw_title=title, raw_text=text)
 
     iconic_match = re.match(r"^Iconic Animal:\s*([a-zA-Z]+)$", title, flags=re.I)
     if iconic_match:
         gain = _extract_int_from_text(r"Gain\s+(\d+)", text, default=1)
-        return ResolvedCardEffect(code="gain_conservation", value=max(0, gain), raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="iconic_animal", value=max(0, gain), raw_title=title, raw_text=text)
 
     if title.lower() == "resistance":
-        return ResolvedCardEffect(code="draw_final_scoring_keep", value=2, target="1", raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="resistance", value=2, target="1", raw_title=title, raw_text=text)
 
     if title.lower() == "assertion":
-        return ResolvedCardEffect(code="take_unused_base_project", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="assertion", value=1, raw_title=title, raw_text=text)
 
     if title.lower() == "determination":
-        return ResolvedCardEffect(code="extra_action_any", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="determination", value=1, raw_title=title, raw_text=text)
 
     hypnosis = _extract_int_from_title("Hypnosis", title)
     if hypnosis is not None:
         return ResolvedCardEffect(code="hypnosis", value=hypnosis, raw_title=title, raw_text=text)
 
     if title.lower() == "inventive":
-        return ResolvedCardEffect(code="gain_x_tokens", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="inventive", value=1, raw_title=title, raw_text=text)
 
     if title.lower() == "inventive: bear":
-        return ResolvedCardEffect(code="gain_x_tokens_from_icon", target="Bear", raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="inventive_bear", target="Bear", raw_title=title, raw_text=text)
 
     if title.lower() == "inventive: primary":
-        return ResolvedCardEffect(code="gain_x_tokens_from_primary", value=3, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="inventive_primary", value=3, raw_title=title, raw_text=text)
 
     flock = _extract_int_from_title("Flock Animal", title)
     if flock is not None:
-        return ResolvedCardEffect(code="flock_optional", value=flock, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="flock_animal", value=flock, raw_title=title, raw_text=text)
 
     if title.lower() == "symbiosis":
-        return ResolvedCardEffect(code="symbiosis_copy", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="symbiosis", value=1, raw_title=title, raw_text=text)
 
     if title.lower() == "camouflage":
-        return ResolvedCardEffect(code="camouflage_grant", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="camouflage", value=1, raw_title=title, raw_text=text)
 
     if title.lower() == "scuba dive x":
         return ResolvedCardEffect(code="scuba_dive_x", target="seaanimal", raw_title=title, raw_text=text)
 
     if title.lower() == "monkey gang":
-        return ResolvedCardEffect(code="reveal_until_badge", target="Primate", raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="monkey_gang", target="Primate", raw_title=title, raw_text=text)
 
     adapt = _extract_int_from_title("Adapt", title)
     if adapt is not None:
-        return ResolvedCardEffect(code="adapt_final_scoring", value=adapt, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="adapt", value=adapt, raw_title=title, raw_text=text)
 
     if title.lower() == "cut down":
-        return ResolvedCardEffect(code="remove_empty_enclosure_refund", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="cut_down", value=1, raw_title=title, raw_text=text)
 
     if title.lower() == "dominance":
-        return ResolvedCardEffect(code="take_specific_base_project", target="primates", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="dominance", target="primates", value=1, raw_title=title, raw_text=text)
 
     if title.lower() == "extra shift":
-        return ResolvedCardEffect(code="return_association_worker", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="extra_shift", value=1, raw_title=title, raw_text=text)
 
     if title.lower() == "mark":
-        return ResolvedCardEffect(code="mark_display_animal", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="mark", value=1, raw_title=title, raw_text=text)
 
     if title.lower() == "peacocking":
-        return ResolvedCardEffect(code="place_free_large_bird_aviary", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="peacocking", value=1, raw_title=title, raw_text=text)
 
     if title.lower() == "sea animal magnet":
-        return ResolvedCardEffect(code="take_display_by_badge", target="SeaAnimal", value=999, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="sea_animal_magnet", target="SeaAnimal", value=999, raw_title=title, raw_text=text)
 
     shark = _extract_int_from_title("Shark Attack", title)
     if shark is not None:
         return ResolvedCardEffect(code="shark_attack", value=shark, raw_title=title, raw_text=text)
 
     if title.lower() == "trade":
-        return ResolvedCardEffect(code="trade_hand_with_display", value=1, raw_title=title, raw_text=text)
+        return ResolvedCardEffect(code="trade", value=1, raw_title=title, raw_text=text)
 
     return ResolvedCardEffect(
         code=f"unimplemented:{title}",
@@ -308,41 +317,45 @@ def apply_animal_effect(
     *,
     card: Any,
     move_action_to_slot_1: ActionMover,
-    advance_break: BreakAdvancer,
+    advance_break: BreakTrackAdvancer,
     draw_from_deck: DeckDrawer,
     push_to_discard: DiscardPusher,
-    choose_action_for_clever: Optional[Callable[[], str]] = None,
-    increase_workers: Optional[Callable[[int], None]] = None,
+    clever: Optional[Callable[[], str]] = None,
+    full_throated: Optional[Callable[[int], None]] = None,
     increase_appeal: Optional[Callable[[int], None]] = None,
     gain_money: Optional[MoneyGainer] = None,
     take_display_cards: Optional[DisplayTaker] = None,
-    sell_hand_cards: Optional[HandSeller] = None,
-    pouch_hand_cards: Optional[HandPoucher] = None,
-    place_free_kiosk_or_pavilion: Optional[FreeSmallBuilder] = None,
-    add_multiplier_token: Optional[MultiplierAdder] = None,
-    apply_venom: Optional[TokenApplier] = None,
-    apply_constriction: Optional[TokenApplier] = None,
+    sun_bathing: Optional[HandSeller] = None,
+    pouch: Optional[HandPoucher] = None,
+    posturing: Optional[FreeSmallBuilder] = None,
+    multiplier: Optional[MultiplierAdder] = None,
+    venom: Optional[TokenApplier] = None,
+    constriction: Optional[TokenApplier] = None,
     perform_hypnosis: Optional[HypnosisExecutor] = None,
     perform_pilfering: Optional[PilferingExecutor] = None,
-    scavenge_from_discard: Optional[DiscardScavenger] = None,
+    digging: Optional[DiggingExecutor] = None,
+    scavenging: Optional[DiscardScavenger] = None,
     mark_extra_action: Optional[ExtraActionMarker] = None,
-    increase_conservation: Optional[Callable[[int], None]] = None,
-    draw_final_scoring_keep: Optional[FinalScoringDrawer] = None,
-    take_unused_base_project: Optional[BaseProjectTaker] = None,
-    gain_x_tokens: Optional[XTokenGainer] = None,
+    iconic_animal: Optional[Callable[[int], None]] = None,
+    resistance: Optional[FinalScoringDrawer] = None,
+    perception: Optional[DeckKeepChoiceExecutor] = None,
+    reveal_keep_by_card_type: Optional[RevealKeepByTypeExecutor] = None,
+    assertion: Optional[BaseProjectTaker] = None,
+    inventive: Optional[XTokenGainer] = None,
     count_icon: Optional[IconCounter] = None,
     count_primary_icons: Optional[PrimaryIconCounter] = None,
-    adapt_final_scoring: Optional[FinalScoringAdapter] = None,
-    remove_empty_enclosure_refund: Optional[EnclosureRemover] = None,
-    return_association_worker: Optional[AssociationWorkerReturner] = None,
-    mark_display_animal: Optional[DisplayMarker] = None,
-    place_free_large_bird_aviary: Optional[LargeBirdAviaryPlacer] = None,
-    trade_hand_with_display: Optional[TradeExecutor] = None,
+    adapt: Optional[FinalScoringAdapter] = None,
+    cut_down: Optional[EnclosureRemover] = None,
+    extra_shift: Optional[AssociationWorkerReturner] = None,
+    mark: Optional[DisplayMarker] = None,
+    peacocking: Optional[LargeBirdAviaryPlacer] = None,
+    trade: Optional[TradeExecutor] = None,
     shark_attack: Optional[SharkAttackExecutor] = None,
-    take_specific_base_project: Optional[SpecificProjectTaker] = None,
-    symbiosis_copy: Optional[SymbiosisExecutor] = None,
-    grant_camouflage_ignore: Optional[CamouflageGrant] = None,
-    boost_action_card: Optional[BoostActionExecutor] = None,
+    dominance: Optional[SpecificProjectTaker] = None,
+    symbiosis: Optional[SymbiosisExecutor] = None,
+    camouflage: Optional[CamouflageGrant] = None,
+    boost: Optional[BoostActionExecutor] = None,
+    glide: Optional[GlideRewardExecutor] = None,
 ) -> List[str]:
     effect = resolve_card_effect(card)
     messages: List[str] = []
@@ -350,138 +363,127 @@ def apply_animal_effect(
     if effect.code == "none":
         return messages
 
-    if effect.code == "draw_from_deck":
+    if effect.code == "sprint":
         drawn = list(draw_from_deck(max(0, effect.value)))
         messages.append(f"effect[{effect.code}] drew={len(drawn)}")
         return messages
 
     if effect.code == "hunter":
-        reveal_count = max(0, effect.value)
-        revealed = list(draw_from_deck(reveal_count))
-        if not revealed:
-            messages.append("effect[hunter] reveal=0")
-            return messages
-        picked = None
-        for candidate in revealed:
-            if str(getattr(candidate, "card_type", "")).lower() == "animal":
-                picked = candidate
-                break
-        if picked is not None:
-            # Keep picked in hand because draw_from_deck has already moved it there.
-            leftovers = [card_obj for card_obj in revealed if card_obj is not picked]
-            if leftovers:
-                push_to_discard(leftovers)
-            messages.append(f"effect[hunter] revealed={len(revealed)} kept=1 discarded={len(leftovers)}")
-            return messages
-        # No animal found -> all revealed should be discarded from hand by caller policy.
-        push_to_discard(revealed)
-        messages.append(f"effect[hunter] revealed={len(revealed)} kept=0 discarded={len(revealed)}")
+        if reveal_keep_by_card_type is None:
+            raise ValueError("hunter requires reveal_keep_by_card_type callback.")
+        drew, kept = reveal_keep_by_card_type(max(0, effect.value), "animal")
+        messages.append(
+            f"effect[hunter] revealed={drew} kept={kept} discarded={max(0, drew - kept)}"
+        )
         return messages
 
-    if effect.code == "take_display_cards":
+    if effect.code == "snapping":
         if take_display_cards is None:
-            messages.append("effect[take_display_cards] unsupported(no_callback)")
+            messages.append("effect[snapping] unsupported(no_callback)")
             return messages
         replenish_each = effect.target == "replenish_each"
         taken = take_display_cards(max(0, effect.value), "", replenish_each)
-        messages.append(f"effect[take_display_cards] taken={taken}")
+        messages.append(f"effect[snapping] taken={taken}")
         return messages
 
-    if effect.code == "draw_keep_from_deck":
-        draw_count = max(0, effect.value)
-        keep_count = max(1, int(effect.target or "1"))
-        drawn = list(draw_from_deck(draw_count))
-        if len(drawn) > keep_count:
-            leftovers = drawn[keep_count:]
-            push_to_discard(leftovers)
-        kept = min(len(drawn), keep_count)
-        discarded = max(0, len(drawn) - kept)
-        messages.append(f"effect[draw_keep_from_deck] drew={len(drawn)} kept={kept} discarded={discarded}")
+    if effect.code == "perception":
+        if perception is None:
+            raise ValueError("perception requires perception callback.")
+        drew, kept = perception(
+            max(0, effect.value),
+            max(1, int(effect.target or "1")),
+        )
+        messages.append(
+            f"effect[perception] drew={drew} kept={kept} discarded={max(0, drew - kept)}"
+        )
         return messages
 
-    if effect.code == "scavenge_from_discard":
-        if scavenge_from_discard is None:
-            messages.append("effect[scavenge_from_discard] unsupported(no_callback)")
+    if effect.code == "scavenging":
+        if scavenging is None:
+            messages.append("effect[scavenging] unsupported(no_callback)")
             return messages
         draw_count = max(0, effect.value)
         keep_count = max(1, int(effect.target or "1"))
-        drew, kept = scavenge_from_discard(draw_count, keep_count)
-        messages.append(f"effect[scavenge_from_discard] drew={drew} kept={kept} discarded={max(0, drew - kept)}")
+        drew, kept = scavenging(draw_count, keep_count)
+        messages.append(f"effect[scavenging] drew={drew} kept={kept} discarded={max(0, drew - kept)}")
         return messages
 
-    if effect.code == "boost_action_card":
-        if effect.target and boost_action_card is not None:
-            result = str(boost_action_card(effect.target)).strip()
-            if result:
-                messages.append(f"effect[{effect.code}] target={effect.target} {result}")
-            else:
-                messages.append(f"effect[{effect.code}] target={effect.target}")
+    if effect.code == "boost":
+        if not effect.target:
+            raise ValueError("boost requires effect target.")
+        if boost is None:
+            raise ValueError("boost requires boost callback.")
+        result = str(boost(effect.target)).strip()
+        if result:
+            messages.append(f"effect[{effect.code}] target={effect.target} {result}")
+        else:
+            messages.append(f"effect[{effect.code}] target={effect.target}")
         return messages
 
-    if effect.code == "move_any_action_to_slot_1":
-        chosen = choose_action_for_clever() if choose_action_for_clever else "cards"
+    if effect.code == "clever":
+        if clever is None:
+            raise ValueError("clever requires clever callback.")
+        chosen = clever()
         move_action_to_slot_1(chosen)
         messages.append(f"effect[{effect.code}] target={chosen}")
         return messages
 
-    if effect.code == "hire_worker":
-        if increase_workers is not None:
-            increase_workers(max(0, effect.value))
-            messages.append(f"effect[{effect.code}] workers=+{max(0, effect.value)}")
+    if effect.code == "full_throated":
+        if full_throated is None:
+            raise ValueError("full_throated requires full_throated callback.")
+        full_throated(max(0, effect.value))
+        messages.append(f"effect[{effect.code}] workers=+{max(0, effect.value)}")
         return messages
 
-    if effect.code == "gain_appeal":
-        if increase_appeal is not None:
-            increase_appeal(max(0, effect.value))
-            messages.append(f"effect[{effect.code}] appeal=+{max(0, effect.value)}")
+    if effect.code in {"pack", "petting_zoo_animal"}:
+        if increase_appeal is None:
+            raise ValueError(f"{effect.code} requires increase_appeal callback.")
+        increase_appeal(max(0, effect.value))
+        messages.append(f"effect[{effect.code}] appeal=+{max(0, effect.value)}")
         return messages
 
-    if effect.code == "advance_break":
-        advance_break(max(0, effect.value))
-        messages.append(f"effect[{effect.code}] break=+{max(0, effect.value)}")
+    if effect.code == "glide":
+        if glide is None:
+            messages.append("effect[glide] unsupported(no_callback)")
+            return messages
+        summary = str(glide(max(0, effect.value))).strip()
+        if summary:
+            messages.append(f"effect[glide] {summary}")
+        else:
+            messages.append("effect[glide] resolved")
         return messages
 
-    if effect.code == "jumping_break_and_money":
-        advance_break(max(0, effect.value))
+    if effect.code == "jumping":
         money = max(0, int(effect.target or "0"))
-        if gain_money is not None and money > 0:
+        if gain_money is None:
+            raise ValueError("jumping requires gain_money callback.")
+        advance_break(max(0, effect.value))
+        if money > 0:
             gain_money(money)
-        messages.append(f"effect[jumping_break_and_money] break=+{max(0, effect.value)} money=+{money}")
+        messages.append(f"effect[jumping] break=+{max(0, effect.value)} money=+{money}")
         return messages
 
-    if effect.code == "sell_hand_cards":
-        if sell_hand_cards is None:
-            messages.append("effect[sell_hand_cards] unsupported(no_callback)")
+    if effect.code == "sun_bathing":
+        if sun_bathing is None:
+            messages.append("effect[sun_bathing] unsupported(no_callback)")
             return messages
-        sold = sell_hand_cards(max(0, effect.value), max(0, int(effect.target or "0")))
-        messages.append(f"effect[sell_hand_cards] sold={sold}")
+        sold = sun_bathing(max(0, effect.value), max(0, int(effect.target or "0")))
+        messages.append(f"effect[sun_bathing] sold={sold}")
         return messages
 
-    if effect.code == "pouch_hand_for_appeal":
-        if pouch_hand_cards is None:
-            messages.append("effect[pouch_hand_for_appeal] unsupported(no_callback)")
+    if effect.code == "pouch":
+        if pouch is None:
+            messages.append("effect[pouch] unsupported(no_callback)")
             return messages
-        pouched = pouch_hand_cards(max(0, effect.value), max(0, int(effect.target or "0")))
-        messages.append(f"effect[pouch_hand_for_appeal] pouched={pouched}")
+        pouched = pouch(max(0, effect.value), max(0, int(effect.target or "0")))
+        messages.append(f"effect[pouch] pouched={pouched}")
         return messages
 
-    if effect.code == "digging_cycle":
-        if take_display_cards is None or sell_hand_cards is None or draw_from_deck is None:
-            messages.append("effect[digging_cycle] unsupported(no_callback)")
-            return messages
-        loops = max(0, effect.value)
-        did = 0
-        for _ in range(loops):
-            took = take_display_cards(1, "", True)
-            if took > 0:
-                did += 1
-                continue
-            sold = sell_hand_cards(1, 0)
-            if sold <= 0:
-                break
-            draw_from_deck(1)
-            did += 1
-        messages.append(f"effect[digging_cycle] loops={did}")
+    if effect.code == "digging":
+        if digging is None:
+            raise ValueError("digging requires digging callback.")
+        did = digging(max(0, effect.value))
+        messages.append(f"effect[digging] loops={did}")
         return messages
 
     if effect.code == "pilfering":
@@ -492,28 +494,28 @@ def apply_animal_effect(
         messages.append(f"effect[pilfering] {summary}".rstrip())
         return messages
 
-    if effect.code == "free_kiosk_or_pavilion":
-        if place_free_kiosk_or_pavilion is None:
-            messages.append("effect[free_kiosk_or_pavilion] unsupported(no_callback)")
+    if effect.code == "posturing":
+        if posturing is None:
+            messages.append("effect[posturing] unsupported(no_callback)")
             return messages
-        placed = place_free_kiosk_or_pavilion(max(0, effect.value))
-        messages.append(f"effect[free_kiosk_or_pavilion] placed={placed}")
+        placed = posturing(max(0, effect.value))
+        messages.append(f"effect[posturing] placed={placed}")
         return messages
 
-    if effect.code == "venom_tokens":
-        if apply_venom is None:
-            messages.append("effect[venom_tokens] unsupported(no_callback)")
+    if effect.code == "venom":
+        if venom is None:
+            messages.append("effect[venom] unsupported(no_callback)")
             return messages
-        affected = apply_venom(max(0, effect.value))
-        messages.append(f"effect[venom_tokens] affected_players={affected}")
+        affected = venom(max(0, effect.value))
+        messages.append(f"effect[venom] affected_players={affected}")
         return messages
 
-    if effect.code == "constriction_tokens":
-        if apply_constriction is None:
-            messages.append("effect[constriction_tokens] unsupported(no_callback)")
+    if effect.code == "constriction":
+        if constriction is None:
+            messages.append("effect[constriction] unsupported(no_callback)")
             return messages
-        affected = apply_constriction(max(0, effect.value))
-        messages.append(f"effect[constriction_tokens] affected_players={affected}")
+        affected = constriction(max(0, effect.value))
+        messages.append(f"effect[constriction] affected_players={affected}")
         return messages
 
     if effect.code == "hypnosis":
@@ -524,60 +526,60 @@ def apply_animal_effect(
         messages.append(f"effect[hypnosis] {summary}".rstrip())
         return messages
 
-    if effect.code == "take_display_sponsors":
+    if effect.code == "sponsor_magnet":
         if take_display_cards is None:
-            messages.append("effect[take_display_sponsors] unsupported(no_callback)")
+            messages.append("effect[sponsor_magnet] unsupported(no_callback)")
             return messages
         taken = take_display_cards(max(0, effect.value), "sponsor", False)
-        messages.append(f"effect[take_display_sponsors] taken={taken}")
+        messages.append(f"effect[sponsor_magnet] taken={taken}")
         return messages
 
-    if effect.code == "multiplier_token":
-        if add_multiplier_token is None or not effect.target:
-            messages.append("effect[multiplier_token] unsupported(no_callback)")
+    if effect.code == "multiplier":
+        if multiplier is None or not effect.target:
+            messages.append("effect[multiplier] unsupported(no_callback)")
             return messages
-        ok = add_multiplier_token(effect.target)
-        messages.append(f"effect[multiplier_token] target={effect.target} applied={1 if ok else 0}")
+        ok = multiplier(effect.target)
+        messages.append(f"effect[multiplier] target={effect.target} applied={1 if ok else 0}")
         return messages
 
-    if effect.code == "extra_action_granted":
+    if effect.code == "action":
         if mark_extra_action is None:
-            messages.append("effect[extra_action_granted] unsupported(no_callback)")
+            messages.append("effect[action] unsupported(no_callback)")
             return messages
         mark_extra_action(effect.target or "unknown")
-        messages.append(f"effect[extra_action_granted] target={effect.target}")
+        messages.append(f"effect[action] target={effect.target}")
         return messages
 
-    if effect.code == "gain_conservation":
-        if increase_conservation is None:
-            messages.append("effect[gain_conservation] unsupported(no_callback)")
+    if effect.code == "iconic_animal":
+        if iconic_animal is None:
+            messages.append("effect[iconic_animal] unsupported(no_callback)")
             return messages
-        increase_conservation(max(0, effect.value))
-        messages.append(f"effect[gain_conservation] conservation=+{max(0, effect.value)}")
+        iconic_animal(max(0, effect.value))
+        messages.append(f"effect[iconic_animal] conservation=+{max(0, effect.value)}")
         return messages
 
-    if effect.code == "draw_final_scoring_keep":
-        if draw_final_scoring_keep is None:
-            messages.append("effect[draw_final_scoring_keep] unsupported(no_callback)")
+    if effect.code == "resistance":
+        if resistance is None:
+            messages.append("effect[resistance] unsupported(no_callback)")
             return messages
-        drew, kept = draw_final_scoring_keep(max(0, effect.value), max(1, int(effect.target or "1")))
-        messages.append(f"effect[draw_final_scoring_keep] drew={drew} kept={kept} discarded={max(0, drew-kept)}")
+        drew, kept = resistance(max(0, effect.value), max(1, int(effect.target or "1")))
+        messages.append(f"effect[resistance] drew={drew} kept={kept} discarded={max(0, drew-kept)}")
         return messages
 
-    if effect.code == "take_unused_base_project":
-        if take_unused_base_project is None:
-            messages.append("effect[take_unused_base_project] unsupported(no_callback)")
+    if effect.code == "assertion":
+        if assertion is None:
+            messages.append("effect[assertion] unsupported(no_callback)")
             return messages
-        taken = take_unused_base_project(max(0, effect.value))
-        messages.append(f"effect[take_unused_base_project] taken={taken}")
+        taken = assertion(max(0, effect.value))
+        messages.append(f"effect[assertion] taken={taken}")
         return messages
 
-    if effect.code == "extra_action_any":
+    if effect.code == "determination":
         if mark_extra_action is None:
-            messages.append("effect[extra_action_any] unsupported(no_callback)")
+            messages.append("effect[determination] unsupported(no_callback)")
             return messages
         mark_extra_action("any")
-        messages.append("effect[extra_action_any] granted=1")
+        messages.append("effect[determination] granted=1")
         return messages
 
     if effect.code == "extra_action_strength":
@@ -588,75 +590,66 @@ def apply_animal_effect(
         messages.append(f"effect[extra_action_strength] strength={max(0, effect.value)}")
         return messages
 
-    if effect.code == "gain_x_tokens":
-        if gain_x_tokens is None:
-            messages.append("effect[gain_x_tokens] unsupported(no_callback)")
+    if effect.code == "inventive":
+        if inventive is None:
+            messages.append("effect[inventive] unsupported(no_callback)")
             return messages
-        gained = gain_x_tokens(max(0, effect.value))
-        messages.append(f"effect[gain_x_tokens] gained={gained}")
+        gained = inventive(max(0, effect.value))
+        messages.append(f"effect[inventive] gained={gained}")
         return messages
 
-    if effect.code == "gain_x_tokens_from_icon":
-        if gain_x_tokens is None or count_icon is None:
-            messages.append("effect[gain_x_tokens_from_icon] unsupported(no_callback)")
+    if effect.code == "inventive_bear":
+        if inventive is None or count_icon is None:
+            messages.append("effect[inventive_bear] unsupported(no_callback)")
             return messages
         amount = max(0, count_icon(effect.target))
-        gained = gain_x_tokens(amount)
-        messages.append(f"effect[gain_x_tokens_from_icon] icon={effect.target} amount={amount} gained={gained}")
+        gained = inventive(amount)
+        messages.append(f"effect[inventive_bear] icon={effect.target} amount={amount} gained={gained}")
         return messages
 
-    if effect.code == "gain_x_tokens_from_primary":
-        if gain_x_tokens is None or count_primary_icons is None:
-            messages.append("effect[gain_x_tokens_from_primary] unsupported(no_callback)")
+    if effect.code == "inventive_primary":
+        if inventive is None or count_primary_icons is None:
+            messages.append("effect[inventive_primary] unsupported(no_callback)")
             return messages
         amount = min(max(0, effect.value), max(0, count_primary_icons()))
-        gained = gain_x_tokens(amount)
-        messages.append(f"effect[gain_x_tokens_from_primary] amount={amount} gained={gained}")
+        gained = inventive(amount)
+        messages.append(f"effect[inventive_primary] amount={amount} gained={gained}")
         return messages
 
-    if effect.code == "flock_optional":
-        messages.append(f"effect[flock_optional] size={max(0, effect.value)}")
+    if effect.code == "flock_animal":
+        messages.append(f"effect[flock_animal] size={max(0, effect.value)}")
         return messages
 
-    if effect.code == "symbiosis_copy":
-        if symbiosis_copy is None:
-            messages.append("effect[symbiosis_copy] unsupported(no_callback)")
+    if effect.code == "symbiosis":
+        if symbiosis is None:
+            messages.append("effect[symbiosis] unsupported(no_callback)")
             return messages
-        nested = symbiosis_copy()
-        messages.append(f"effect[symbiosis_copy] nested={len(nested)}")
+        nested = symbiosis()
+        messages.append(f"effect[symbiosis] nested={len(nested)}")
         messages.extend(nested)
         return messages
 
-    if effect.code == "camouflage_grant":
-        if grant_camouflage_ignore is None:
-            messages.append("effect[camouflage_grant] unsupported(no_callback)")
+    if effect.code == "camouflage":
+        if camouflage is None:
+            messages.append("effect[camouflage] unsupported(no_callback)")
             return messages
-        grant_camouflage_ignore(max(0, effect.value))
-        messages.append(f"effect[camouflage_grant] granted={max(0, effect.value)}")
+        camouflage(max(0, effect.value))
+        messages.append(f"effect[camouflage] granted={max(0, effect.value)}")
         return messages
 
     if effect.code == "scuba_dive_x":
+        if reveal_keep_by_card_type is None:
+            raise ValueError("scuba_dive_x requires reveal_keep_by_card_type callback.")
         if count_icon is None:
-            messages.append("effect[scuba_dive_x] unsupported(no_icon_counter)")
-            return messages
+            raise ValueError("scuba_dive_x requires count_icon callback.")
         x = max(0, count_icon(effect.target))
-        revealed = list(draw_from_deck(x))
-        if not revealed:
-            messages.append("effect[scuba_dive_x] reveal=0")
-            return messages
-        picked = None
-        for candidate in revealed:
-            if str(getattr(candidate, "card_type", "")).lower() == "sponsor":
-                picked = candidate
-                break
-        leftovers = [card_obj for card_obj in revealed if card_obj is not picked]
-        if leftovers:
-            push_to_discard(leftovers)
-        kept = 1 if picked is not None else 0
-        messages.append(f"effect[scuba_dive_x] x={x} revealed={len(revealed)} kept={kept} discarded={len(leftovers)}")
+        drew, kept = reveal_keep_by_card_type(x, "sponsor")
+        messages.append(
+            f"effect[scuba_dive_x] x={x} revealed={drew} kept={kept} discarded={max(0, drew - kept)}"
+        )
         return messages
 
-    if effect.code == "reveal_until_badge":
+    if effect.code == "monkey_gang":
         max_reveal = 20
         revealed: List[Any] = []
         kept = 0
@@ -675,55 +668,55 @@ def apply_animal_effect(
             leftovers = revealed[:-1] if kept == 1 else list(revealed)
             if leftovers:
                 push_to_discard(leftovers)
-        messages.append(f"effect[reveal_until_badge] revealed={len(revealed)} kept={kept}")
+        messages.append(f"effect[monkey_gang] revealed={len(revealed)} kept={kept}")
         return messages
 
-    if effect.code == "adapt_final_scoring":
-        if adapt_final_scoring is None:
-            messages.append("effect[adapt_final_scoring] unsupported(no_callback)")
+    if effect.code == "adapt":
+        if adapt is None:
+            messages.append("effect[adapt] unsupported(no_callback)")
             return messages
-        drew, discarded = adapt_final_scoring(max(0, effect.value))
-        messages.append(f"effect[adapt_final_scoring] drew={drew} discarded={discarded}")
+        drew, discarded = adapt(max(0, effect.value))
+        messages.append(f"effect[adapt] drew={drew} discarded={discarded}")
         return messages
 
-    if effect.code == "remove_empty_enclosure_refund":
-        if remove_empty_enclosure_refund is None:
-            messages.append("effect[remove_empty_enclosure_refund] unsupported(no_callback)")
+    if effect.code == "cut_down":
+        if cut_down is None:
+            messages.append("effect[cut_down] unsupported(no_callback)")
             return messages
-        removed, refunded = remove_empty_enclosure_refund(max(0, effect.value))
-        messages.append(f"effect[remove_empty_enclosure_refund] removed={removed} refunded={refunded}")
+        removed, refunded = cut_down(max(0, effect.value))
+        messages.append(f"effect[cut_down] removed={removed} refunded={refunded}")
         return messages
 
-    if effect.code == "return_association_worker":
-        if return_association_worker is None:
-            messages.append("effect[return_association_worker] unsupported(no_callback)")
+    if effect.code == "extra_shift":
+        if extra_shift is None:
+            messages.append("effect[extra_shift] unsupported(no_callback)")
             return messages
-        returned = return_association_worker(max(0, effect.value))
-        messages.append(f"effect[return_association_worker] returned={returned}")
+        returned = extra_shift(max(0, effect.value))
+        messages.append(f"effect[extra_shift] returned={returned}")
         return messages
 
-    if effect.code == "mark_display_animal":
-        if mark_display_animal is None:
-            messages.append("effect[mark_display_animal] unsupported(no_callback)")
+    if effect.code == "mark":
+        if mark is None:
+            messages.append("effect[mark] unsupported(no_callback)")
             return messages
-        marked = mark_display_animal(max(0, effect.value))
-        messages.append(f"effect[mark_display_animal] marked={marked}")
+        marked = mark(max(0, effect.value))
+        messages.append(f"effect[mark] marked={marked}")
         return messages
 
-    if effect.code == "place_free_large_bird_aviary":
-        if place_free_large_bird_aviary is None:
-            messages.append("effect[place_free_large_bird_aviary] unsupported(no_callback)")
+    if effect.code == "peacocking":
+        if peacocking is None:
+            messages.append("effect[peacocking] unsupported(no_callback)")
             return messages
-        placed = place_free_large_bird_aviary(max(0, effect.value))
-        messages.append(f"effect[place_free_large_bird_aviary] placed={placed}")
+        placed = peacocking(max(0, effect.value))
+        messages.append(f"effect[peacocking] placed={placed}")
         return messages
 
-    if effect.code == "take_display_by_badge":
+    if effect.code == "sea_animal_magnet":
         if take_display_cards is None:
-            messages.append("effect[take_display_by_badge] unsupported(no_callback)")
+            messages.append("effect[sea_animal_magnet] unsupported(no_callback)")
             return messages
         taken = take_display_cards(max(0, effect.value), f"badge:{effect.target}", False)
-        messages.append(f"effect[take_display_by_badge] badge={effect.target} taken={taken}")
+        messages.append(f"effect[sea_animal_magnet] badge={effect.target} taken={taken}")
         return messages
 
     if effect.code == "shark_attack":
@@ -734,20 +727,20 @@ def apply_animal_effect(
         messages.append(f"effect[shark_attack] discarded={discarded} money=+{money}")
         return messages
 
-    if effect.code == "trade_hand_with_display":
-        if trade_hand_with_display is None:
-            messages.append("effect[trade_hand_with_display] unsupported(no_callback)")
+    if effect.code == "trade":
+        if trade is None:
+            messages.append("effect[trade] unsupported(no_callback)")
             return messages
-        traded = trade_hand_with_display(max(0, effect.value))
-        messages.append(f"effect[trade_hand_with_display] traded={traded}")
+        traded = trade(max(0, effect.value))
+        messages.append(f"effect[trade] traded={traded}")
         return messages
 
-    if effect.code == "take_specific_base_project":
-        if take_specific_base_project is None:
-            messages.append("effect[take_specific_base_project] unsupported(no_callback)")
+    if effect.code == "dominance":
+        if dominance is None:
+            messages.append("effect[dominance] unsupported(no_callback)")
             return messages
-        taken = take_specific_base_project(effect.target, max(0, effect.value))
-        messages.append(f"effect[take_specific_base_project] target={effect.target} taken={taken}")
+        taken = dominance(effect.target, max(0, effect.value))
+        messages.append(f"effect[dominance] target={effect.target} taken={taken}")
         return messages
 
     messages.append(f"effect[{effect.code}] unsupported title='{effect.raw_title}'")
@@ -756,8 +749,8 @@ def apply_animal_effect(
 
 def build_effect_coverage(cards: Sequence[Any]) -> Dict[str, int]:
     total = 0
-    supported = 0
-    unsupported = 0
+    mapped = 0
+    unmapped = 0
     no_effect = 0
     for card in cards:
         if str(getattr(card, "card_type", "")).lower() not in {"animal", "sponsor"}:
@@ -767,12 +760,14 @@ def build_effect_coverage(cards: Sequence[Any]) -> Dict[str, int]:
         if resolved.code == "none":
             no_effect += 1
         elif resolved.supported:
-            supported += 1
+            mapped += 1
         else:
-            unsupported += 1
+            unmapped += 1
     return {
         "total": total,
-        "supported": supported,
-        "unsupported": unsupported,
+        "mapped": mapped,
+        "unmapped": unmapped,
+        "supported": mapped,
+        "unsupported": unmapped,
         "no_effect": no_effect,
     }

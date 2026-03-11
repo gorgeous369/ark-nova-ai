@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from arknova_engine.card_effects import apply_animal_effect, build_effect_coverage, resolve_card_effect
 
 
@@ -25,7 +27,7 @@ def test_resolve_card_effect_for_sprint_and_hunter():
     sprint_effect = resolve_card_effect(sprint)
     hunter_effect = resolve_card_effect(hunter)
 
-    assert sprint_effect.code == "draw_from_deck"
+    assert sprint_effect.code == "sprint"
     assert sprint_effect.value == 3
     assert hunter_effect.code == "hunter"
     assert hunter_effect.value == 2
@@ -42,15 +44,15 @@ def test_resolve_card_effect_for_snapping_and_sun_bathing_pouch_and_multiplier()
     p = resolve_card_effect(pouch)
     m = resolve_card_effect(multiplier)
 
-    assert s.code == "take_display_cards"
+    assert s.code == "snapping"
     assert s.value == 2
     assert s.target == "replenish_each"
-    assert b.code == "sell_hand_cards"
+    assert b.code == "sun_bathing"
     assert b.value == 3
-    assert p.code == "pouch_hand_for_appeal"
+    assert p.code == "pouch"
     assert p.value == 1
     assert p.target == "2"
-    assert m.code == "multiplier_token"
+    assert m.code == "multiplier"
     assert m.target == "sponsors"
 
 
@@ -71,10 +73,10 @@ def test_resolve_card_effect_for_inventive_and_resistance_and_assertion():
     r = resolve_card_effect(resistance)
     a = resolve_card_effect(assertion)
 
-    assert i.code == "gain_x_tokens"
-    assert ip.code == "gain_x_tokens_from_primary"
-    assert r.code == "draw_final_scoring_keep"
-    assert a.code == "take_unused_base_project"
+    assert i.code == "inventive"
+    assert ip.code == "inventive_primary"
+    assert r.code == "resistance"
+    assert a.code == "assertion"
 
 
 def test_resolve_card_effect_for_hypnosis_and_pilfering():
@@ -92,41 +94,19 @@ def test_resolve_card_effect_for_hypnosis_and_pilfering():
 
 def test_apply_hunter_effect_keeps_first_animal_and_discards_rest():
     played_card = _make_card(ability_title="Hunter 3")
-    hand = []
-    discard = []
-    deck = [
-        _make_card(card_type="sponsor"),
-        _make_card(card_type="animal"),
-        _make_card(card_type="animal"),
-    ]
-
-    def draw_from_deck(count: int):
-        drawn = deck[:count]
-        del deck[:count]
-        hand.extend(drawn)
-        return drawn
-
-    def push_to_discard(cards):
-        for card in cards:
-            if card in hand:
-                hand.remove(card)
-            discard.append(card)
+    seen = []
 
     messages = apply_animal_effect(
         card=played_card,
         move_action_to_slot_1=lambda _: None,
         advance_break=lambda _: False,
-        draw_from_deck=draw_from_deck,
-        push_to_discard=push_to_discard,
-        choose_action_for_clever=lambda: "cards",
-        increase_workers=lambda _: None,
-        increase_appeal=lambda _: None,
+        draw_from_deck=lambda _: [],
+        push_to_discard=lambda _: None,
+        reveal_keep_by_card_type=lambda draw_count, card_type: seen.append((draw_count, card_type)) or (3, 1),
     )
 
-    assert len(hand) == 1
-    assert hand[0].card_type == "animal"
-    assert len(discard) == 2
-    assert any("effect[hunter]" in msg for msg in messages)
+    assert seen == [(3, "animal")]
+    assert any("effect[hunter] revealed=3 kept=1 discarded=2" == msg for msg in messages)
 
 
 def test_apply_snapping_effect_takes_cards_from_display():
@@ -143,7 +123,7 @@ def test_apply_snapping_effect_takes_cards_from_display():
     )
 
     assert taken == [1]
-    assert any("effect[take_display_cards]" in msg for msg in messages)
+    assert any("effect[snapping]" in msg for msg in messages)
 
 
 def test_apply_boost_action_card_effect_uses_callback():
@@ -159,11 +139,11 @@ def test_apply_boost_action_card_effect_uses_callback():
         advance_break=lambda _: False,
         draw_from_deck=lambda _: [],
         push_to_discard=lambda _: None,
-        boost_action_card=lambda target: boosted.append(target) or "slot=5",
+        boost=lambda target: boosted.append(target) or "slot=5",
     )
 
     assert boosted == ["association"]
-    assert any("effect[boost_action_card] target=association slot=5" == msg for msg in messages)
+    assert any("effect[boost] target=association slot=5" == msg for msg in messages)
 
 
 def test_apply_resistance_and_assertion_and_inventive_callbacks():
@@ -177,7 +157,7 @@ def test_apply_resistance_and_assertion_and_inventive_callbacks():
         advance_break=lambda _: False,
         draw_from_deck=lambda _: [],
         push_to_discard=lambda _: None,
-        draw_final_scoring_keep=lambda draw_n, keep_n: (draw_n, keep_n),
+        resistance=lambda draw_n, keep_n: (draw_n, keep_n),
     )
     assertion = apply_animal_effect(
         card=card_assertion,
@@ -185,7 +165,7 @@ def test_apply_resistance_and_assertion_and_inventive_callbacks():
         advance_break=lambda _: False,
         draw_from_deck=lambda _: [],
         push_to_discard=lambda _: None,
-        take_unused_base_project=lambda count: count,
+        assertion=lambda count: count,
     )
     inventive = apply_animal_effect(
         card=card_inventive,
@@ -193,12 +173,12 @@ def test_apply_resistance_and_assertion_and_inventive_callbacks():
         advance_break=lambda _: False,
         draw_from_deck=lambda _: [],
         push_to_discard=lambda _: None,
-        gain_x_tokens=lambda n: n,
+        inventive=lambda n: n,
     )
 
-    assert any("effect[draw_final_scoring_keep]" in msg for msg in resistance)
-    assert any("effect[take_unused_base_project]" in msg for msg in assertion)
-    assert any("effect[gain_x_tokens]" in msg for msg in inventive)
+    assert any("effect[resistance]" in msg for msg in resistance)
+    assert any("effect[assertion]" in msg for msg in assertion)
+    assert any("effect[inventive]" in msg for msg in inventive)
 
 
 def test_apply_hypnosis_and_pilfering_callbacks():
@@ -226,6 +206,101 @@ def test_apply_hypnosis_and_pilfering_callbacks():
     assert any("effect[pilfering] targets=1" == msg for msg in pilfering)
 
 
+def test_apply_digging_uses_required_callback():
+    digging_card = _make_card(ability_title="Digging 2")
+    seen = []
+
+    messages = apply_animal_effect(
+        card=digging_card,
+        move_action_to_slot_1=lambda _: None,
+        advance_break=lambda _: False,
+        draw_from_deck=lambda _: [],
+        push_to_discard=lambda _: None,
+        digging=lambda value: seen.append(value) or value,
+    )
+
+    assert seen == [2]
+    assert any("effect[digging] loops=2" == msg for msg in messages)
+
+
+def test_apply_digging_requires_callback():
+    digging_card = _make_card(ability_title="Digging 1")
+
+    with pytest.raises(ValueError, match="digging requires digging callback"):
+        apply_animal_effect(
+            card=digging_card,
+            move_action_to_slot_1=lambda _: None,
+            advance_break=lambda _: False,
+            draw_from_deck=lambda _: [],
+            push_to_discard=lambda _: None,
+        )
+
+
+@pytest.mark.parametrize(
+    ("card", "extra_kwargs", "error_pattern"),
+    [
+        (
+            _make_card(ability_title="Hunter 1"),
+            {},
+            "hunter requires reveal_keep_by_card_type callback",
+        ),
+        (
+            _make_card(ability_title="Perception 2", ability_text="Add 1 to your hand."),
+            {},
+            "perception requires perception callback",
+        ),
+        (
+            _make_card(ability_title="Clever"),
+            {},
+            "clever requires clever callback",
+        ),
+        (
+            _make_card(ability_title="Full-throated"),
+            {},
+            "full_throated requires full_throated callback",
+        ),
+        (
+            _make_card(ability_title="Pack", ability_text="Gain 2"),
+            {},
+            "pack requires increase_appeal callback",
+        ),
+        (
+            _make_card(ability_title="Jumping 2", ability_text="Gain 4"),
+            {},
+            "jumping requires gain_money callback",
+        ),
+        (
+            _make_card(
+                ability_title="Boost: Association",
+                ability_text="After finishing this action, you may place your Association Action card",
+            ),
+            {},
+            "boost requires boost callback",
+        ),
+        (
+            _make_card(ability_title="Scuba Dive X"),
+            {"count_icon": lambda _: 2},
+            "scuba_dive_x requires reveal_keep_by_card_type callback",
+        ),
+        (
+            _make_card(ability_title="Scuba Dive X"),
+            {"reveal_keep_by_card_type": lambda draw_count, card_type: (draw_count, 1)},
+            "scuba_dive_x requires count_icon callback",
+        ),
+    ],
+)
+def test_apply_effect_callbacks_are_required(card, extra_kwargs, error_pattern):
+    with pytest.raises(ValueError, match=error_pattern):
+        apply_animal_effect(
+            card=card,
+            move_action_to_slot_1=lambda _: None,
+            advance_break=lambda _: False,
+            draw_from_deck=lambda _: [],
+            push_to_discard=lambda _: None,
+            **extra_kwargs,
+        )
+
+
 def test_build_effect_coverage_counts_supported_and_unsupported():
     cards = [
         _make_card(card_type="animal"),
@@ -237,6 +312,8 @@ def test_build_effect_coverage_counts_supported_and_unsupported():
     coverage = build_effect_coverage(cards)
 
     assert coverage["total"] == 4
+    assert coverage["mapped"] == 2
+    assert coverage["unmapped"] == 1
     assert coverage["supported"] == 2
     assert coverage["unsupported"] == 1
     assert coverage["no_effect"] == 1

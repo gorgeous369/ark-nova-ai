@@ -22,9 +22,9 @@ class PPOTrainConfig:
     entropy_coef: float = 0.01
     max_grad_norm: float = 0.5
 
-    hidden_size: int = 256
-    lstm_size: int = 128
-    action_hidden_size: int = 128
+    hidden_size: int = 512
+    lstm_size: int = 512
+    action_hidden_size: int = 256
     use_lstm: bool = True
     use_centralized_value: bool = False
 
