@@ -80,7 +80,7 @@ def test_sponsorship_cards_231_to_235_have_matching_icon_prerequisites_in_datase
         assert card["required_icons"] == required_icons
 
 
-def test_science_sponsors_203_204_206_207_208_209_210_214_215_216_218_220_221_227_228_229_236_241_242_245_246_249_251_253_255_and_256_include_their_effect_texts_and_constraints():
+def test_science_sponsors_203_204_206_207_208_209_210_214_215_216_218_220_221_227_228_229_236_241_242_245_246_249_251_253_255_256_258_259_260_and_264_include_their_effect_texts_and_constraints():
     cards = json.loads(Path("data/cards/cards.base.json").read_text(encoding="utf-8"))["cards"]
     card_203 = next(card for card in cards if card.get("number") == 203)
     card_204 = next(card for card in cards if card.get("number") == 204)
@@ -108,6 +108,10 @@ def test_science_sponsors_203_204_206_207_208_209_210_214_215_216_218_220_221_22
     card_253 = next(card for card in cards if card.get("number") == 253)
     card_255 = next(card for card in cards if card.get("number") == 255)
     card_256 = next(card for card in cards if card.get("number") == 256)
+    card_258 = next(card for card in cards if card.get("number") == 258)
+    card_259 = next(card for card in cards if card.get("number") == 259)
+    card_260 = next(card for card in cards if card.get("number") == 260)
+    card_264 = next(card for card in cards if card.get("number") == 264)
 
     assert any(
         effect == {
@@ -377,4 +381,59 @@ def test_science_sponsors_203_204_206_207_208_209_210_214_215_216_218_220_221_22
             "text": "Place next to at least 1 water space."
         }
         for effect in card_256["effects"]
+    )
+    assert card_258["max_appeal"] == 25
+    assert card_258["badges"] == ["Bird"]
+    assert any(
+        effect == {
+            "kind": "immediate",
+            "text": "Gain {Appeal-1} for each water space adjacent to your buildings."
+        }
+        for effect in card_258["effects"]
+    )
+    assert any(
+        effect == {
+            "kind": "endgame",
+            "text": "Gain {ConservationPoint-1} for each 2 unconnected water spaces."
+        }
+        for effect in card_258["effects"]
+    )
+    assert card_259["max_appeal"] == 25
+    assert card_259["badges"] == ["Reptile"]
+    assert any(
+        effect == {
+            "kind": "immediate",
+            "text": "Gain {Appeal-1} for each rock space adjacent to your buildings."
+        }
+        for effect in card_259["effects"]
+    )
+    assert any(
+        effect == {
+            "kind": "endgame",
+            "text": "Gain {ConservationPoint-1} for each 2 unconnected rock spaces."
+        }
+        for effect in card_259["effects"]
+    )
+    assert any(
+        effect == {
+            "kind": "endgame",
+            "text": "Gain {ConservationPoint-1} for each connected group of 6 spaces without buildings that are not water or rock spaces."
+        }
+        for effect in card_260["effects"]
+    )
+    assert card_264["max_appeal"] == 25
+    assert card_264["badges"] == ["Primate"]
+    assert any(
+        effect == {
+            "kind": "immediate",
+            "text": "Gain {Appeal-1} for each placement bonus space adjacent to your buildings."
+        }
+        for effect in card_264["effects"]
+    )
+    assert any(
+        effect == {
+            "kind": "endgame",
+            "text": "Gain {ConservationPoint-1} for each 2 isolated spaces with a placement bonus."
+        }
+        for effect in card_264["effects"]
     )

@@ -323,7 +323,7 @@ SPONSOR_MIN_REPUTATION_OVERRIDES: Dict[int, int] = {
     245: 3,
     263: 6,
 }
-SPONSOR_MAX_APPEAL_25_OVERRIDES: Set[int] = {222, 258, 259, 260, 264}
+SPONSOR_MAX_APPEAL_25_OVERRIDES: Set[int] = {222, 258, 259, 260}
 SPONSOR_REQUIRED_ICON_OVERRIDES: Dict[int, Tuple[Tuple[str, int], ...]] = {
 }
 SPONSOR_GLOBAL_ICON_MONEY_TRIGGERS: Dict[int, str] = {
@@ -387,7 +387,6 @@ SPONSOR_BADGE_OVERRIDES: Dict[int, Tuple[str, ...]] = {
     258: ("Bird",),
     259: ("Reptile",),
     260: ("Herbivore",),
-    264: ("Primate",),
 }
 SPONSOR_UNIQUE_BUILDING_CARDS: Set[int] = {
     243,
@@ -6122,15 +6121,15 @@ def _sponsor_endgame_bonus(state: GameState, player: PlayerState) -> Tuple[int, 
     if 257 in sponsor_numbers and _is_map_completely_covered(player):
         bonus_appeal += 5
     if 258 in sponsor_numbers:
-        bonus_conservation += _count_terrain_spaces_not_adjacent_to_buildings(player, Terrain.WATER) // 2
+        bonus_conservation += _count_unconnected_terrain_spaces(player, Terrain.WATER) // 2
     if 259 in sponsor_numbers:
-        bonus_conservation += _count_terrain_spaces_not_adjacent_to_buildings(player, Terrain.ROCK) // 2
+        bonus_conservation += _count_unconnected_terrain_spaces(player, Terrain.ROCK) // 2
     if 260 in sponsor_numbers:
-        bonus_conservation += _count_empty_fillable_spaces(player) // 6
+        bonus_conservation += sum(size // 6 for size in _fillable_connected_component_sizes(player))
     if 261 in sponsor_numbers and len(snapshot["categories"]) >= 5:
         bonus_conservation += 1
     if 264 in sponsor_numbers:
-        bonus_conservation += _count_placement_bonus_spaces_not_adjacent_to_buildings(state, player) // 2
+        bonus_conservation += _count_isolated_placement_bonus_spaces(state, player) // 2
 
     return bonus_appeal, bonus_conservation
 
@@ -6877,6 +6876,11 @@ def _count_placement_bonus_spaces_not_adjacent_to_buildings(
     return total
 
 
+def _remaining_placement_bonus_spaces(state: GameState, player: PlayerState) -> Set[Tuple[int, int]]:
+    covered = _player_all_covered_cells(player)
+    return {pair for pair in state.map_tile_bonuses if pair not in covered}
+
+
 def _remaining_terrain_cells(player: PlayerState, terrain: Terrain) -> Set[Tuple[int, int]]:
     if player.zoo_map is None:
         return set()
@@ -6899,23 +6903,61 @@ def _all_terrain_spaces_adjacent_to_buildings(player: PlayerState, terrain: Terr
     return terrain_cells.issubset(adjacent)
 
 
+def _connected_component_sizes(cells: Set[Tuple[int, int]]) -> Tuple[int, ...]:
+    if not cells:
+        return tuple()
+    remaining = set(cells)
+    sizes: List[int] = []
+    while remaining:
+        frontier = [remaining.pop()]
+        size = 0
+        while frontier:
+            cell = frontier.pop()
+            size += 1
+            for neighbor in _xy_neighbors(cell):
+                if neighbor not in remaining:
+                    continue
+                remaining.remove(neighbor)
+                frontier.append(neighbor)
+        sizes.append(size)
+    return tuple(sorted(sizes, reverse=True))
+
+
+def _terrain_connected_component_sizes(player: PlayerState, terrain: Terrain) -> Tuple[int, ...]:
+    return _connected_component_sizes(_remaining_terrain_cells(player, terrain))
+
+
 def _all_terrain_spaces_connected(player: PlayerState, terrain: Terrain) -> bool:
-    terrain_cells = _remaining_terrain_cells(player, terrain)
-    if not terrain_cells:
-        return False
-    connected: Set[Tuple[int, int]] = set()
-    frontier = [next(iter(terrain_cells))]
-    while frontier:
-        cell = frontier.pop()
-        if cell in connected:
+    sizes = _terrain_connected_component_sizes(player, terrain)
+    return bool(sizes) and len(sizes) == 1
+
+
+def _count_unconnected_terrain_spaces(player: PlayerState, terrain: Terrain) -> int:
+    return sum(size for size in _terrain_connected_component_sizes(player, terrain) if size == 1)
+
+
+def _remaining_fillable_cells(player: PlayerState) -> Set[Tuple[int, int]]:
+    if player.zoo_map is None:
+        return set()
+    covered = _player_all_covered_cells(player)
+    fillable: Set[Tuple[int, int]] = set()
+    for tile in player.zoo_map.grid:
+        pair = (tile.x, tile.y)
+        if pair in covered:
             continue
-        connected.add(cell)
-        frontier.extend(
-            neighbor
-            for neighbor in _xy_neighbors(cell)
-            if neighbor in terrain_cells and neighbor not in connected
-        )
-    return connected == terrain_cells
+        terrain = player.zoo_map.map_data.terrain.get(tile)
+        if terrain in {Terrain.ROCK, Terrain.WATER}:
+            continue
+        fillable.add(pair)
+    return fillable
+
+
+def _fillable_connected_component_sizes(player: PlayerState) -> Tuple[int, ...]:
+    return _connected_component_sizes(_remaining_fillable_cells(player))
+
+
+def _count_isolated_placement_bonus_spaces(state: GameState, player: PlayerState) -> int:
+    return sum(size for size in _connected_component_sizes(_remaining_placement_bonus_spaces(state, player)) if size == 1)
 
 
 def _apply_cover_money_from_sponsors_241_242(player: PlayerState, building: Building) -> None:
@@ -14384,11 +14426,6 @@ def _apply_sponsor_immediate_effects(
         player.appeal += gain
         messages.append(f"immediate(rock_pairs_to_appeal_x3)={gain}")
 
-    if number == 261:
-        player.conservation += 1
-        player.appeal += 1
-        messages.append("immediate(+1_conservation,+1_appeal)")
-
     if number == 262:
         distinct_types = len(_distinct_continent_and_category_types_from_cards(player.zoo_cards))
         gain = distinct_types * 2
@@ -14428,6 +14465,12 @@ def _apply_sponsor_immediate_effects(
                 card_instance_id=card.instance_id,
             )
             if build_details is None:
+                build_details = _pop_matching_detail_entry(
+                    details,
+                    "sponsor_263_build_details",
+                    card_instance_id=card.instance_id,
+                )
+            if build_details is None:
                 if len(options) > 1:
                     raise ValueError(
                         "Sponsor #263 requires explicit sponsor_263_build_details when multiple size-5 placements exist."
@@ -14441,17 +14484,22 @@ def _apply_sponsor_immediate_effects(
                     ],
                     "bonus_action_to_slot_1_targets": [],
                 }
-            before_money = player.money
-            _perform_build_action_effect(
+            selections = list(build_details.get("selections") or [])
+            if len(selections) != 1:
+                raise ValueError("Sponsor #263 build details must contain exactly one size-5 selection.")
+            selected = _find_serialized_build_option(options, selections[0])
+            if selected is None:
+                raise ValueError("Illegal build selection for sponsor #263.")
+            placement_details = dict(build_details)
+            placement_details["selection"] = selections[0]
+            placed = _place_free_building_of_type_if_possible(
                 state=state,
                 player=player,
-                strength=5,
+                building_type=BuildingType.SIZE_5,
                 player_id=player_id,
-                details=build_details,
+                details=placement_details,
             )
-            spent = max(0, before_money - player.money)
-            player.money += spent
-            messages.append("immediate(free_size_5_enclosure_placed=1)")
+            messages.append(f"immediate(free_size_5_enclosure_placed)={1 if placed else 0}")
         else:
             messages.append("immediate(free_size_5_enclosure_placed=0)")
 

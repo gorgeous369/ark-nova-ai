@@ -258,6 +258,36 @@ def test_sponsor_207_uses_data_max_appeal_requirement():
         )
 
 
+def test_sponsor_264_uses_data_max_appeal_requirement():
+    state = make_state(701081)
+    player = state.players[0]
+    state.current_player = 0
+    player.action_upgraded["sponsors"] = True
+    set_action_strength(player, "sponsors", 5)
+    player.appeal = 26
+    sponsor_264 = take_card_by_number(state, 264)
+    player.hand = [sponsor_264]
+
+    with pytest.raises(ValueError, match="appeal_must_be_at_most_25"):
+        apply_action(
+            state,
+            Action(
+                ActionType.MAIN_ACTION,
+                card_name="sponsors",
+                details={
+                    "use_break_ability": False,
+                    "sponsor_selections": [
+                        {
+                            "source": "hand",
+                            "source_index": 0,
+                            "card_instance_id": sponsor_264.instance_id,
+                        }
+                    ],
+                },
+            ),
+        )
+
+
 def test_sponsor_207_counts_bear_as_distinct_animal_category():
     state = make_state(70109)
     player = state.players[0]
@@ -394,6 +424,40 @@ def test_sponsor_254_reputation_and_conservation_from_data_apply_only_once():
     assert player.reputation == reputation_before + 1
     assert player.conservation == conservation_before + 1
     assert any(card.number == 254 for card in player.zoo_cards)
+
+
+def test_sponsor_261_appeal_and_conservation_from_data_apply_only_once():
+    state = make_state(701097)
+    player = state.players[0]
+    state.current_player = 0
+    player.money = 20
+    set_action_strength(player, "sponsors", 3)
+    sponsor_261 = take_card_by_number(state, 261)
+    player.hand = [sponsor_261]
+    appeal_before = player.appeal
+    conservation_before = player.conservation
+
+    apply_action(
+        state,
+        Action(
+            ActionType.MAIN_ACTION,
+            card_name="sponsors",
+            details={
+                "use_break_ability": False,
+                "sponsor_selections": [
+                    {
+                        "source": "hand",
+                        "source_index": 0,
+                        "card_instance_id": sponsor_261.instance_id,
+                    }
+                ],
+            },
+        ),
+    )
+
+    assert player.appeal == appeal_before + 1
+    assert player.conservation == conservation_before + 1
+    assert any(card.number == 261 for card in player.zoo_cards)
 
 
 def test_sponsor_262_immediate_counts_bear_as_distinct_animal_category():
@@ -833,6 +897,34 @@ def test_sponsor_263_allows_large_animal_to_ignore_one_condition():
     player.zoo_cards.append(sponsor_263)
     options_with = list_legal_animals_options(state=state, player_id=0, strength=2)
     assert len(options_with) == 1
+
+
+def test_sponsor_263_places_free_size_5_enclosure_without_money():
+    state = make_state(7051)
+    player = state.players[0]
+    state.current_player = 0
+    player.money = 0
+    player.reputation = 6
+    player.action_upgraded["sponsors"] = True
+    set_action_strength(player, "sponsors", 5)
+    sponsor_263 = take_card_by_number(state, 263)
+    player.hand = [sponsor_263]
+
+    sponsor_actions = [
+        action
+        for action in legal_actions(player, state=state, player_id=0)
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "sponsors"
+        and not bool((action.details or {}).get("use_break_ability"))
+    ]
+    assert sponsor_actions
+
+    apply_action(state, sponsor_actions[0])
+
+    assert player.money == 0
+    assert any(building.type == BuildingType.SIZE_5 for building in player.zoo_map.buildings.values())
+    assert any(enclosure.size == 5 for enclosure in player.enclosures)
+    assert any(card.number == 263 for card in player.zoo_cards)
 
 
 def test_sponsor_210_places_free_kiosk_when_playing_america_icon():
@@ -2297,6 +2389,102 @@ def test_sponsor_242_endgame_requires_connected_rock_spaces():
             HexTile(0, 1): Terrain.ROCK,
         }
     )
+
+    assert _sponsor_endgame_bonus(state, player) == (0, 1)
+
+
+@pytest.mark.parametrize(("sponsor_number", "terrain", "seed"), [(258, Terrain.WATER, 7113), (259, Terrain.ROCK, 7114)])
+def test_sponsor_258_and_259_endgame_counts_only_unconnected_terrain_spaces(sponsor_number, terrain, seed):
+    state = make_state(seed)
+    player = state.players[0]
+    player.zoo_map = copy.deepcopy(player.zoo_map)
+    player.zoo_cards = [
+        AnimalCard(
+            name=f"Sponsor{sponsor_number}",
+            cost=5,
+            size=0,
+            appeal=0,
+            conservation=0,
+            card_type="sponsor",
+            number=sponsor_number,
+            instance_id=f"s{sponsor_number}",
+        )
+    ]
+    player.zoo_map.map_data.terrain.clear()
+    player.zoo_map.map_data.terrain.update(
+        {
+            HexTile(0, 0): terrain,
+            HexTile(1, 0): terrain,
+            HexTile(5, 1): terrain,
+        }
+    )
+
+    assert _sponsor_endgame_bonus(state, player) == (0, 0)
+
+    player.zoo_map.map_data.terrain[HexTile(8, 0)] = terrain
+
+    assert _sponsor_endgame_bonus(state, player) == (0, 1)
+
+
+def test_sponsor_260_endgame_counts_only_connected_groups_of_6_fillable_spaces():
+    state = make_state(7115)
+    player = state.players[0]
+    player.zoo_map = copy.deepcopy(player.zoo_map)
+    player.zoo_cards = [
+        AnimalCard(
+            name="NativeFarmAnimals",
+            cost=5,
+            size=0,
+            appeal=0,
+            conservation=0,
+            card_type="sponsor",
+            number=260,
+            instance_id="s260",
+        )
+    ]
+    player.zoo_map.grid = [
+        HexTile(0, 0),
+        HexTile(1, 0),
+        HexTile(0, 1),
+        HexTile(1, 1),
+        HexTile(10, 0),
+        HexTile(11, 0),
+        HexTile(10, 1),
+        HexTile(11, 1),
+    ]
+    player.zoo_map.map_data.terrain.clear()
+
+    assert _sponsor_endgame_bonus(state, player) == (0, 0)
+
+    player.zoo_map.grid.extend([HexTile(2, 0), HexTile(2, 1)])
+
+    assert _sponsor_endgame_bonus(state, player) == (0, 1)
+
+
+def test_sponsor_264_endgame_counts_only_isolated_placement_bonus_spaces():
+    state = make_state(7116)
+    player = state.players[0]
+    player.zoo_cards = [
+        AnimalCard(
+            name="FreeRangeNewWorldMonkeys",
+            cost=5,
+            size=0,
+            appeal=0,
+            conservation=0,
+            card_type="sponsor",
+            number=264,
+            instance_id="s264",
+        )
+    ]
+    state.map_tile_bonuses = {
+        (0, 0): "card",
+        (1, 0): "card",
+        (5, 1): "card",
+    }
+
+    assert _sponsor_endgame_bonus(state, player) == (0, 0)
+
+    state.map_tile_bonuses[(8, 0)] = "card"
 
     assert _sponsor_endgame_bonus(state, player) == (0, 1)
 

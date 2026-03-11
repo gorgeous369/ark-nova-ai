@@ -4426,13 +4426,14 @@
       "number": 258,
       "title": "NATIVE SEABIRDS",
       "level": 5,
-      "required_icons": {
-        "appeal": 1
-      },
+      "max_appeal": 25,
+      "badges": [
+        "Bird"
+      ],
       "effects": [
         {
           "kind": "immediate",
-          "text": "Gain {Appeal-1} for each connected water space."
+          "text": "Gain {Appeal-1} for each water space adjacent to your buildings."
         },
         {
           "kind": "endgame",
@@ -4449,13 +4450,14 @@
       "number": 259,
       "title": "NATIVE LIZARDS",
       "level": 5,
-      "required_icons": {
-        "appeal": 1
-      },
+      "max_appeal": 25,
+      "badges": [
+        "Reptile"
+      ],
       "effects": [
         {
           "kind": "immediate",
-          "text": "Gain {Appeal-1} for each connected rock space."
+          "text": "Gain {Appeal-1} for each rock space adjacent to your buildings."
         },
         {
           "kind": "endgame",
@@ -4482,7 +4484,7 @@
         },
         {
           "kind": "endgame",
-          "text": "Gain {ConservationPoint-1} for each group of 6 spaces without buildings."
+          "text": "Gain {ConservationPoint-1} for each connected group of 6 spaces without buildings that are not water or rock spaces."
         }
       ],
       "data_id": "S260_NativeFarmAnimals",
@@ -4495,6 +4497,8 @@
       "number": 261,
       "title": "GUIDED SCHOOL TOURS",
       "level": 3,
+      "appeal": 1,
+      "conservation": 1,
       "effects": [
         {
           "kind": "endgame",
@@ -4521,7 +4525,7 @@
         },
         {
           "kind": "immediate",
-          "text": "{Money-2} for each different continent or animal category icon in your zoo."
+          "text": "Gain {Money-2} for each different continent or animal category icon in your zoo."
         }
       ],
       "data_id": "S262_Explorer",
@@ -4535,7 +4539,7 @@
       "title": "WAZA LARGE ANIMAL PROGRAM",
       "level": 5,
       "required_icons": {
-        "reputation": 1,
+        "reputation": 6,
         "sponsorsii": 1
       },
       "effects": [
@@ -4545,7 +4549,7 @@
         },
         {
           "kind": "immediate",
-          "text": "You may place 1 5-space enclosure for free."
+          "text": "Place 1 5-space enclosure for free."
         }
       ],
       "data_id": "S263_WazaLargeAnimalProgram",
@@ -4558,17 +4562,18 @@
       "number": 264,
       "title": "FREE-RANGE NEW WORLD MONKEYS",
       "level": 5,
-      "required_icons": {
-        "appeal": 1
-      },
+      "max_appeal": 25,
+      "badges": [
+        "Primate"
+      ],
       "effects": [
         {
           "kind": "immediate",
-          "text": "Gain {Appeal-1} for each connected space with a placement bonus."
+          "text": "Gain {Appeal-1} for each placement bonus space adjacent to your buildings."
         },
         {
           "kind": "endgame",
-          "text": "Gain {ConservationPoint-1} for each 2 unconnected spaces with a placement bonus."
+          "text": "Gain {ConservationPoint-1} for each 2 isolated spaces with a placement bonus."
         }
       ],
       "data_id": "S264_FreerangeNewWorldMonkeys",
