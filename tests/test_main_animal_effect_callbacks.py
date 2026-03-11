@@ -785,6 +785,120 @@ def test_digging_effect_uses_pending_choices_after_each_replenish():
     assert state.pending_decision_kind == ""
 
 
+def test_digging_pending_actions_expand_followup_clever_targets_and_resume_cleanly():
+    state, player = _prepare_basic_animals_play_state(seed=619)
+    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    player.hand = [
+        AnimalCard(
+            name="Digger",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            ability_title="Digging 1",
+            card_type="animal",
+            number=9309,
+            instance_id="digger-followup",
+        ),
+        AnimalCard(
+            name="Clever Animal",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            ability_title="Clever",
+            card_type="animal",
+            number=9310,
+            instance_id="clever-followup",
+        ),
+    ]
+    player.enclosures = [
+        Enclosure(size=1, occupied=False, origin=(0, 0), rotation="ROT_0"),
+        Enclosure(size=1, occupied=False, origin=(1, 0), rotation="ROT_0"),
+    ]
+    player.enclosure_objects = [
+        EnclosureObject(
+            size=1,
+            enclosure_type="enclosure_1",
+            adjacent_rock=0,
+            adjacent_water=0,
+            animals_inside=0,
+            origin=(0, 0),
+            rotation="ROT_0",
+        ),
+        EnclosureObject(
+            size=1,
+            enclosure_type="enclosure_1",
+            adjacent_rock=0,
+            adjacent_water=0,
+            animals_inside=0,
+            origin=(1, 0),
+            rotation="ROT_0",
+        ),
+    ]
+    state.zoo_display = [
+        AnimalCard(
+            name="Display Digging",
+            cost=2,
+            size=1,
+            appeal=1,
+            conservation=0,
+            card_type="animal",
+            number=9311,
+            instance_id="disp-digging-followup",
+        ),
+    ]
+    state.zoo_deck = [
+        AnimalCard(
+            name="Refill Digging",
+            cost=2,
+            size=1,
+            appeal=1,
+            conservation=0,
+            card_type="animal",
+            number=9312,
+            instance_id="deck-digging-followup",
+        ),
+    ]
+
+    _perform_animals_action_effect(
+        state=state,
+        player=player,
+        strength=2,
+        details={
+            "_selected_plays_override": [
+                {"card_instance_id": "digger-followup", "enclosure_index": 0, "card_cost": 0},
+                {"card_instance_id": "clever-followup", "enclosure_index": 1, "card_cost": 0},
+            ]
+        },
+        player_id=0,
+    )
+
+    assert state.pending_decision_kind == "digging_choice"
+
+    pending_actions = legal_actions(state.players[state.pending_decision_player_id], state=state, player_id=0)
+    assert any(
+        (action.details or {}).get("digging_choice_mode") == "display"
+        and (action.details or {}).get("display_index") == 0
+        and (action.details or {}).get("clever_targets") == ["sponsors"]
+        for action in pending_actions
+    )
+
+    chosen = next(
+        action
+        for action in pending_actions
+        if (action.details or {}).get("digging_choice_mode") == "display"
+        and (action.details or {}).get("display_index") == 0
+        and (action.details or {}).get("clever_targets") == ["sponsors"]
+    )
+    apply_action(state, chosen)
+
+    assert state.pending_decision_kind == ""
+    assert player.action_order[0] == "sponsors"
+    assert any(card.instance_id == "clever-followup" for card in player.zoo_cards)
+    assert all(card.instance_id != "clever-followup" for card in player.hand)
+
+
 def test_resume_animals_followup_rebinds_stale_enclosure_choice():
     state = make_state(9308)
     player = state.players[0]

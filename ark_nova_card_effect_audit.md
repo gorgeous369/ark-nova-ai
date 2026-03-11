@@ -1,11 +1,11 @@
 # Ark Nova Card Effect Audit
 
-Generated from `data/cards/cards.json` against current runtime code.
+Generated from `data/cards/cards.base.json` + `data/cards/cards.marine_world.json` against current runtime code.
 
 ## Summary
 
 - Animals: 161 cards. 149 have executable effects, 12 have no effect, 0 parsed animal effects are currently unimplemented.
-- Sponsors: 82 cards. 63 look implemented in code, 17 have dataset effect text but no current code branch (`265-276, 278-282`), 2 have no explicit effect data (`223, 277`).
+- Sponsors: 82 cards. 64 look implemented in code, 17 have dataset effect text but no current code branch (`265-276, 278-282`), 1 has no explicit effect data (`223`).
 - Final scoring: 17 cards, all 17 are hardcoded in `main.py:5914 _final_scoring_conservation_bonus_for_card`.
 - Conservation projects: 32 cards. 22 have explicit requirement logic, 10 (`P113-P122`) currently fall through default requirement value `0` and should be treated as not wired.
 
@@ -112,38 +112,38 @@ Runtime pipeline: `main.py:12587 _finalize_sponsor_card_play -> main.py:13362 _a
 
 - #201 SCIENCE LAB | dataset kinds: endgame,immediate,income | code: immediate,income,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:7896 _apply_sponsor_break_income_effects_for_player | main.py:5737 _sponsor_endgame_bonus
 - #202 SPOKESPERSON | dataset kinds: passive | code: passive | refs: main.py:12727 _apply_sponsor_passive_triggers_on_card_play
-- #203 VETERINARIAN | dataset kinds: passive | code: immediate,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus
-- #204 SCIENCE MUSEUM | dataset kinds: passive | code: immediate,passive | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
+- #203 VETERINARIAN | dataset kinds: immediate,passive | code: immediate,endgame,rule_hook | refs: main.py:14282 _apply_sponsor_immediate_effects | main.py:6057 _sponsor_endgame_bonus | main.py:1510 _association_task_strength_cost
+- #204 SCIENCE MUSEUM | dataset kinds: immediate,passive | code: immediate,passive | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
 - #205 GORILLA FIELD RESEARCH | dataset kinds: - | code: immediate | refs: main.py:13362 _apply_sponsor_immediate_effects
-- #206 MEDICAL BREAKTHROUGH | dataset kinds: income | code: immediate,income | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:7874 _apply_sponsor_break_income_effects_for_player_after_card_draw
+- #206 MEDICAL BREAKTHROUGH | dataset kinds: immediate,income | code: immediate,income | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:7874 _apply_sponsor_break_income_effects_for_player_after_card_draw
 - #207 BASIC RESEARCH | dataset kinds: immediate | code: immediate | refs: main.py:13362 _apply_sponsor_immediate_effects
 - #208 SCIENCE LIBRARY | dataset kinds: endgame,immediate,passive | code: immediate,passive,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
-- #209 TECHNOLOGY INSTITUTE | dataset kinds: income | code: immediate,income,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:7874 _apply_sponsor_break_income_effects_for_player_after_card_draw | main.py:5737 _sponsor_endgame_bonus
-- #210 EXPERT ON THE AMERICAS | dataset kinds: passive | code: immediate,passive,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
-- #211 EXPERT ON EUROPE | dataset kinds: passive | code: immediate,passive,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
-- #212 EXPERT ON AUSTRALIA | dataset kinds: passive | code: immediate,passive | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
-- #213 EXPERT ON ASIA | dataset kinds: passive | code: immediate,passive | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
-- #214 EXPERT ON AFRICA | dataset kinds: passive | code: immediate,passive,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
+- #209 TECHNOLOGY INSTITUTE | dataset kinds: endgame,immediate,income | code: immediate,income,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:7874 _apply_sponsor_break_income_effects_for_player_after_card_draw | main.py:5737 _sponsor_endgame_bonus
+- #210 EXPERT ON THE AMERICAS | dataset kinds: endgame,immediate,passive | code: immediate,passive,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
+- #211 EXPERT ON EUROPE | dataset kinds: endgame,immediate,passive | code: immediate,passive,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
+- #212 EXPERT ON AUSTRALIA | dataset kinds: immediate,passive | code: immediate,passive | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
+- #213 EXPERT ON ASIA | dataset kinds: immediate,passive | code: immediate,passive | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
+- #214 EXPERT ON AFRICA | dataset kinds: endgame,immediate,passive | code: immediate,passive,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
 - #215 BREEDING COOPERATION | dataset kinds: endgame,passive | code: endgame,rule_hook | refs: main.py:5737 _sponsor_endgame_bonus | main.py:12587 _finalize_sponsor_card_play | main.py:8725 _available_breeding_icon_reduction | main.py:8732 _consume_breeding_icon_reduction
-- #216 TALENTED COMMUNICATOR | dataset kinds: immediate | code: immediate,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus
-- #217 ENGINEER | dataset kinds: passive | code: endgame,rule_hook | refs: main.py:5737 _sponsor_endgame_bonus | main.py:8238 _perform_build_action_effect
+- #216 TALENTED COMMUNICATOR | dataset kinds: endgame,immediate | code: immediate,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus
+- #217 ENGINEER | dataset kinds: endgame,passive | code: endgame,rule_hook | refs: main.py:5737 _sponsor_endgame_bonus | main.py:8238 _perform_build_action_effect
 - #218 BREEDING PROGRAM | dataset kinds: endgame,passive | code: endgame,rule_hook | refs: main.py:5737 _sponsor_endgame_bonus | main.py:12587 _finalize_sponsor_card_play | main.py:8725 _available_breeding_icon_reduction | main.py:8732 _consume_breeding_icon_reduction
-- #219 DIVERSITY RESEARCHER | dataset kinds: immediate,passive | code: immediate,passive,endgame,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus | main.py:8238 _perform_build_action_effect | main.py:8983 _perform_animals_action_effect
-- #220 FEDERAL GRANTS | dataset kinds: income | code: immediate,income,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:7874 _apply_sponsor_break_income_effects_for_player_after_card_draw | main.py:5737 _sponsor_endgame_bonus
-- #221 ARCHEOLOGIST | dataset kinds: passive | code: endgame,rule_hook | refs: main.py:5737 _sponsor_endgame_bonus | main.py:6859 _apply_build_placement_bonus
+- #219 DIVERSITY RESEARCHER | dataset kinds: endgame,immediate,passive | code: immediate,passive,endgame,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus | main.py:8238 _perform_build_action_effect | main.py:8983 _perform_animals_action_effect
+- #220 FEDERAL GRANTS | dataset kinds: endgame,immediate,income | code: immediate,income,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:7874 _apply_sponsor_break_income_effects_for_player_after_card_draw | main.py:5737 _sponsor_endgame_bonus
+- #221 ARCHEOLOGIST | dataset kinds: endgame,passive | code: endgame,rule_hook | refs: main.py:5737 _sponsor_endgame_bonus | main.py:6859 _apply_build_placement_bonus
 - #222 RELEASE OF PATENTS | dataset kinds: immediate | code: immediate | refs: main.py:13362 _apply_sponsor_immediate_effects
-- #224 MIGRATION RECORDING | dataset kinds: passive | code: immediate,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:11697 list_legal_association_options | main.py:12060 _apply_association_selected_option
-- #225 QUARANTINE LAB | dataset kinds: endgame,passive | code: immediate,endgame,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus | main.py:8983 _perform_animals_action_effect | main.py:1945 _eligible_highest_track_target_ids
+- #224 MIGRATION RECORDING | dataset kinds: immediate,passive | code: immediate,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:11697 list_legal_association_options | main.py:12060 _apply_association_selected_option
+- #225 QUARANTINE LAB | dataset kinds: endgame,immediate,passive | code: immediate,endgame,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus | main.py:8983 _perform_animals_action_effect | main.py:1945 _eligible_highest_track_target_ids
 - #226 FOREIGN INSTITUTE | dataset kinds: endgame | code: immediate,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus
 - #227 WAZA SPECIAL ASSIGNMENT | dataset kinds: immediate,passive | code: immediate,passive,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:13291 _validate_sponsor_effect_details
-- #228 WAZA SMALL ANIMAL PROGRAM | dataset kinds: passive | code: immediate,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:8983 _perform_animals_action_effect
-- #229 EXPERT IN SMALL ANIMALS | dataset kinds: passive | code: immediate,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:8792 _animal_size_sponsor_discount
-- #230 EXPERT IN LARGE ANIMALS | dataset kinds: passive | code: immediate,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:8792 _animal_size_sponsor_discount
-- #231 SPONSORSHIP: PRIMATES | dataset kinds: immediate,income,passive | code: immediate,income | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
-- #232 SPONSORSHIP: REPTILES | dataset kinds: income | code: immediate,income | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
-- #233 SPONSORSHIP: VULTURES | dataset kinds: income | code: immediate,income | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
-- #234 SPONSORSHIP: LIONS | dataset kinds: income | code: immediate,income | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
-- #235 SPONSORSHIP: ELEPHANTS | dataset kinds: income | code: immediate,income | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
+- #228 WAZA SMALL ANIMAL PROGRAM | dataset kinds: immediate,passive | code: immediate,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:8983 _perform_animals_action_effect
+- #229 EXPERT IN SMALL ANIMALS | dataset kinds: immediate,passive | code: immediate,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:8792 _animal_size_sponsor_discount
+- #230 EXPERT IN LARGE ANIMALS | dataset kinds: immediate,passive | code: immediate,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:8792 _animal_size_sponsor_discount
+- #231 SPONSORSHIP: PRIMATES | dataset kinds: immediate,income | code: immediate,income | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
+- #232 SPONSORSHIP: REPTILES | dataset kinds: immediate,income | code: immediate,income | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
+- #233 SPONSORSHIP: VULTURES | dataset kinds: immediate,income | code: immediate,income | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
+- #234 SPONSORSHIP: LIONS | dataset kinds: immediate,income | code: immediate,income | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
+- #235 SPONSORSHIP: ELEPHANTS | dataset kinds: immediate,income | code: immediate,income | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
 - #236 PRIMATOLOGIST | dataset kinds: passive | code: passive | refs: main.py:324 SPONSOR_GLOBAL_ICON_MONEY_TRIGGERS
 - #237 HERPETOLOGIST | dataset kinds: passive | code: passive | refs: main.py:324 SPONSOR_GLOBAL_ICON_MONEY_TRIGGERS
 - #238 ORNITHOLOGIST | dataset kinds: passive | code: passive | refs: main.py:324 SPONSOR_GLOBAL_ICON_MONEY_TRIGGERS
@@ -159,7 +159,7 @@ Runtime pipeline: `main.py:12587 _finalize_sponsor_card_play -> main.py:13362 _a
 - #248 RHESUS MONKEY PARK | dataset kinds: immediate,passive | code: immediate,passive | refs: main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
 - #249 BARRED OWL HUT | dataset kinds: immediate,passive | code: immediate,passive | refs: main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
 - #250 SEA TURTLE TANK | dataset kinds: immediate,passive | code: immediate,passive | refs: main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
-- #251 POLAR BEAR EXHIBIT | dataset kinds: immediate,passive | code: immediate,passive,endgame | refs: main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
+- #251 POLAR BEAR EXHIBIT | dataset kinds: endgame,immediate,passive | code: immediate,passive,endgame | refs: main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
 - #252 SPOTTED HYENA COMPOUND | dataset kinds: immediate,passive | code: immediate,passive | refs: main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
 - #253 OKAPI STABLE | dataset kinds: immediate,passive | code: immediate,passive,rule_hook | refs: main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:12479 _play_sponsor_from_hand_via_253 | main.py:12587 _finalize_sponsor_card_play | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
 - #254 ZOO SCHOOL | dataset kinds: immediate | code: immediate | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
@@ -173,6 +173,7 @@ Runtime pipeline: `main.py:12587 _finalize_sponsor_card_play -> main.py:13362 _a
 - #262 EXPLORER | dataset kinds: immediate,passive | code: immediate,passive | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
 - #263 WAZA LARGE ANIMAL PROGRAM | dataset kinds: immediate,passive | code: immediate,rule_hook | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:8755 _animal_condition_ignore_capacity | main.py:13291 _validate_sponsor_effect_details
 - #264 FREE-RANGE NEW WORLD MONKEYS | dataset kinds: endgame,immediate | code: immediate,endgame | refs: main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus
+- #277 FIELD RESEARCH TYPE D ORCAS | dataset kinds: - | code: immediate | refs: main.py:13430 _finalize_sponsor_card_play
 
 ### Sponsor cards with dataset effect text but no current code branch
 
@@ -197,7 +198,6 @@ Runtime pipeline: `main.py:12587 _finalize_sponsor_card_play -> main.py:13362 _a
 ### Sponsor cards with no explicit effect data in the dataset
 
 - #223 SCIENCE INSTITUTE
-- #277 FIELD RESEARCH TYPE D ORCAS
 
 ## Final Scoring Cards
 

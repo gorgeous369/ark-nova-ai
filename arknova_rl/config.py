@@ -12,7 +12,7 @@ class PPOTrainConfig:
     device: str = "cpu"
 
     total_updates: int = 200
-    episodes_per_update: int = 8
+    episodes_per_update: int = 16
     learning_rate: float = 3e-4
     gamma: float = 0.99
     gae_lambda: float = 0.95
@@ -29,14 +29,14 @@ class PPOTrainConfig:
 
     step_reward_scale: float = 0.2
     terminal_reward_scale: float = 1.0
-    endgame_trigger_reward: float = 2.0
-    endgame_speed_bonus: float = 2.0
+    endgame_trigger_reward: float = 1.0
+    endgame_speed_bonus: float = 8.0
     terminal_win_bonus: float = 3.0
     terminal_loss_penalty: float = 3.0
 
-    checkpoint_interval: int = 20
+    checkpoint_interval: int = 5
     log_interval: int = 1
-    rollout_workers: int = 1
+    rollout_workers: int = 6
     fixed_eval_interval: int = 20
     fixed_eval_episodes: int = 8
     fixed_eval_deterministic: bool = True

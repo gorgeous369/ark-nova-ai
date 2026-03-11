@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+from typing import Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -21,106 +22,107 @@ if str(REPO_ROOT) not in sys.path:
 from arknova_rl.config import PPOTrainConfig
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    defaults = PPOTrainConfig()
     parser = argparse.ArgumentParser(description="Ark Nova self-play RL trainer")
     parser.add_argument(
         "--algo",
         type=str,
-        default="masked_ppo",
+        default=defaults.algo,
         choices=["masked_ppo", "recurrent_ppo"],
         help="Training variant",
     )
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--seed", type=int, default=defaults.seed, help="Random seed")
     parser.add_argument(
         "--device",
         type=str,
-        default="cpu",
+        default=defaults.device,
         help="Training device for model updates: cpu | cuda[:index] (mps requests fall back to cpu)",
     )
     parser.add_argument(
         "--rollout-workers",
         type=int,
-        default=1,
+        default=defaults.rollout_workers,
         help="Parallel worker processes used to collect rollout episodes",
     )
-    parser.add_argument("--updates", type=int, default=200, help="PPO update iterations")
+    parser.add_argument("--updates", type=int, default=defaults.total_updates, help="PPO update iterations")
     parser.add_argument(
         "--episodes-per-update",
         type=int,
-        default=8,
+        default=defaults.episodes_per_update,
         help="Episodes collected per PPO update",
     )
-    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
-    parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
-    parser.add_argument("--gae-lambda", type=float, default=0.95, help="GAE lambda")
-    parser.add_argument("--clip-eps", type=float, default=0.2, help="PPO clip epsilon")
-    parser.add_argument("--epochs", type=int, default=3, help="PPO epochs per update")
-    parser.add_argument("--hidden-size", type=int, default=256, help="MLP hidden width")
-    parser.add_argument("--lstm-size", type=int, default=128, help="LSTM hidden size")
+    parser.add_argument("--lr", type=float, default=defaults.learning_rate, help="Learning rate")
+    parser.add_argument("--gamma", type=float, default=defaults.gamma, help="Discount factor")
+    parser.add_argument("--gae-lambda", type=float, default=defaults.gae_lambda, help="GAE lambda")
+    parser.add_argument("--clip-eps", type=float, default=defaults.clip_epsilon, help="PPO clip epsilon")
+    parser.add_argument("--epochs", type=int, default=defaults.update_epochs, help="PPO epochs per update")
+    parser.add_argument("--hidden-size", type=int, default=defaults.hidden_size, help="MLP hidden width")
+    parser.add_argument("--lstm-size", type=int, default=defaults.lstm_size, help="LSTM hidden size")
     parser.add_argument(
         "--action-hidden-size",
         type=int,
-        default=128,
+        default=defaults.action_hidden_size,
         help="Action encoder hidden size",
     )
     parser.add_argument(
         "--step-reward-scale",
         type=float,
-        default=0.2,
+        default=defaults.step_reward_scale,
         help="Scale for per-step progress-delta reward",
     )
     parser.add_argument(
         "--terminal-reward-scale",
         type=float,
-        default=0.2,
+        default=defaults.terminal_reward_scale,
         help="Scale for terminal score-diff reward",
     )
     parser.add_argument(
         "--endgame-trigger-reward",
         type=float,
-        default=1.0,
+        default=defaults.endgame_trigger_reward,
         help="Reward added when the acting player triggers endgame (reaches score threshold)",
     )
     parser.add_argument(
         "--endgame-speed-bonus",
         type=float,
-        default=6.0,
+        default=defaults.endgame_speed_bonus,
         help="Additional bonus scaled by how early endgame is triggered",
     )
     parser.add_argument(
         "--terminal-win-bonus",
         type=float,
-        default=2.0,
+        default=defaults.terminal_win_bonus,
         help="Extra terminal reward for finishing above all opponents",
     )
     parser.add_argument(
         "--terminal-loss-penalty",
         type=float,
-        default=2.0,
+        default=defaults.terminal_loss_penalty,
         help="Extra terminal penalty for finishing below the top opponent score",
     )
     parser.add_argument(
         "--checkpoint-interval",
         type=int,
-        default=20,
+        default=defaults.checkpoint_interval,
         help="Checkpoint save frequency (updates)",
     )
     parser.add_argument(
         "--fixed-eval-interval",
         type=int,
-        default=20,
+        default=defaults.fixed_eval_interval,
         help="Run fixed-checkpoint evaluation every N updates (0 disables)",
     )
     parser.add_argument(
         "--fixed-eval-episodes",
         type=int,
-        default=8,
+        default=defaults.fixed_eval_episodes,
         help="Episodes per fixed evaluation run",
     )
     parser.add_argument(
         "--fixed-eval-opponent",
         type=str,
-        default="",
+        default=defaults.fixed_eval_opponent,
         help="Optional fixed opponent checkpoint path; defaults to checkpoint_0000.pt or earliest checkpoint in output dir",
     )
     parser.add_argument(
@@ -135,7 +137,7 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Checkpoint path to resume from",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main_cli() -> None:

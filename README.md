@@ -1,11 +1,5 @@
 # ark-nova-ai
 
-Ark Nova prototype focused on:
-
-- rules-faithful 2-player game flow in Python
-- explicit action-detail payloads (for agent integration)
-- RL self-play training baseline (masked PPO / recurrent PPO / MAPPO)
-
 ## Project status
 
 - Playable local 2-player loop exists (`main.py`).
@@ -22,6 +16,20 @@ Ark Nova prototype focused on:
 - `tools/`: dataset and utility scripts (cards/maps fetch, map tile tools, effect coverage report).
 - `tests/`: pytest-based coverage.
 - `docs/`: rule extracts, implementation checklists, and workflows.
+
+## Card data and audits
+
+- `data/cards/cards.base.json`: base-game zoo card dataset used by the runtime.
+- `data/cards/cards.marine_world.json`: Marine World card data, loaded when `--marine-world` is enabled.
+- `data/cards/cards.promo.json`: promo card data, loaded by the dataset loader when present.
+- `data/cards/card_effect_coverage.tsv`: generated effect-coverage report for zoo cards.
+- `ark_nova_card_effect_audit.md`: review-oriented audit notes for dataset/runtime mismatches and missing branches.
+
+When editing sponsor or animal card data, keep in mind that some cards are partly data-driven and partly runtime-driven:
+
+- top-level card fields such as `appeal`, `conservation`, `reputation`, `required_icons`, and `max_appeal` are applied generically during play
+- effect text in `effects` is descriptive data, but some cards also rely on hardcoded runtime hooks in `main.py`
+- sponsor badges can come either from the dataset itself or from runtime overrides in `main.py`
 
 ## Quick start
 
@@ -53,6 +61,22 @@ Run a focused file:
 
 ```bash
 .venv/bin/pytest -q tests/test_main_association_action.py
+```
+
+Common maintenance commands:
+
+```bash
+# validate edited card JSON
+python3 -c 'import json; json.load(open("data/cards/cards.base.json")); print("JSON OK")'
+
+# dataset-focused regression checks
+.venv/bin/python -m pytest -q tests/test_site_cards_dataset.py
+
+# sponsor-rule regressions
+.venv/bin/python -m pytest -q tests/test_main_sponsors_rules.py
+
+# regenerate zoo-card effect coverage TSV
+.venv/bin/python tools/report_card_effect_coverage.py
 ```
 
 ## RL self-play training

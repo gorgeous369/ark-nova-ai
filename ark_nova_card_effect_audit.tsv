@@ -162,39 +162,39 @@ animal	animal	559	COQUERELS SIFAKA	Monkey Gang	implemented	monkey_gang	arknova_e
 animal	animal	560	BRAHMINY KITE	Hunter 2	implemented	hunter	arknova_engine/card_effects.py:76 resolve_card_effect | arknova_engine/card_effects.py:316 apply_animal_effect | main.py:8983 _perform_animals_action_effect
 sponsor	sponsor	201	SCIENCE LAB	endgame,immediate,income	implemented	immediate,income,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:7896 _apply_sponsor_break_income_effects_for_player | main.py:5737 _sponsor_endgame_bonus
 sponsor	sponsor	202	SPOKESPERSON	passive	implemented	passive	main.py:12727 _apply_sponsor_passive_triggers_on_card_play
-sponsor	sponsor	203	VETERINARIAN	passive	implemented	immediate,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus
-sponsor	sponsor	204	SCIENCE MUSEUM	passive	implemented	immediate,passive	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
+sponsor	sponsor	203	VETERINARIAN	immediate,passive	implemented	immediate,endgame,rule_hook	main.py:14282 _apply_sponsor_immediate_effects | main.py:6057 _sponsor_endgame_bonus | main.py:1510 _association_task_strength_cost
+sponsor	sponsor	204	SCIENCE MUSEUM	immediate,passive	implemented	immediate,passive	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
 sponsor	sponsor	205	GORILLA FIELD RESEARCH	-	implemented	immediate	main.py:13362 _apply_sponsor_immediate_effects
-sponsor	sponsor	206	MEDICAL BREAKTHROUGH	income	implemented	immediate,income	main.py:13362 _apply_sponsor_immediate_effects | main.py:7874 _apply_sponsor_break_income_effects_for_player_after_card_draw
+sponsor	sponsor	206	MEDICAL BREAKTHROUGH	immediate,income	implemented	immediate,income	main.py:13362 _apply_sponsor_immediate_effects | main.py:7874 _apply_sponsor_break_income_effects_for_player_after_card_draw
 sponsor	sponsor	207	BASIC RESEARCH	immediate	implemented	immediate	main.py:13362 _apply_sponsor_immediate_effects
 sponsor	sponsor	208	SCIENCE LIBRARY	endgame,immediate,passive	implemented	immediate,passive,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
-sponsor	sponsor	209	TECHNOLOGY INSTITUTE	income	implemented	immediate,income,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:7874 _apply_sponsor_break_income_effects_for_player_after_card_draw | main.py:5737 _sponsor_endgame_bonus
-sponsor	sponsor	210	EXPERT ON THE AMERICAS	passive	implemented	immediate,passive,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
-sponsor	sponsor	211	EXPERT ON EUROPE	passive	implemented	immediate,passive,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
-sponsor	sponsor	212	EXPERT ON AUSTRALIA	passive	implemented	immediate,passive	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
-sponsor	sponsor	213	EXPERT ON ASIA	passive	implemented	immediate,passive	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
-sponsor	sponsor	214	EXPERT ON AFRICA	passive	implemented	immediate,passive,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
+sponsor	sponsor	209	TECHNOLOGY INSTITUTE	endgame,immediate,income	implemented	immediate,income,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:7874 _apply_sponsor_break_income_effects_for_player_after_card_draw | main.py:5737 _sponsor_endgame_bonus
+sponsor	sponsor	210	EXPERT ON THE AMERICAS	endgame,immediate,passive	implemented	immediate,passive,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
+sponsor	sponsor	211	EXPERT ON EUROPE	endgame,immediate,passive	implemented	immediate,passive,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
+sponsor	sponsor	212	EXPERT ON AUSTRALIA	immediate,passive	implemented	immediate,passive	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
+sponsor	sponsor	213	EXPERT ON ASIA	immediate,passive	implemented	immediate,passive	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play
+sponsor	sponsor	214	EXPERT ON AFRICA	endgame,immediate,passive	implemented	immediate,passive,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus
 sponsor	sponsor	215	BREEDING COOPERATION	endgame,passive	implemented	endgame,rule_hook	main.py:5737 _sponsor_endgame_bonus | main.py:12587 _finalize_sponsor_card_play | main.py:8725 _available_breeding_icon_reduction | main.py:8732 _consume_breeding_icon_reduction
-sponsor	sponsor	216	TALENTED COMMUNICATOR	immediate	implemented	immediate,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus
-sponsor	sponsor	217	ENGINEER	passive	implemented	endgame,rule_hook	main.py:5737 _sponsor_endgame_bonus | main.py:8238 _perform_build_action_effect
+sponsor	sponsor	216	TALENTED COMMUNICATOR	endgame,immediate	implemented	immediate,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus
+sponsor	sponsor	217	ENGINEER	endgame,passive	implemented	endgame,rule_hook	main.py:5737 _sponsor_endgame_bonus | main.py:8238 _perform_build_action_effect
 sponsor	sponsor	218	BREEDING PROGRAM	endgame,passive	implemented	endgame,rule_hook	main.py:5737 _sponsor_endgame_bonus | main.py:12587 _finalize_sponsor_card_play | main.py:8725 _available_breeding_icon_reduction | main.py:8732 _consume_breeding_icon_reduction
-sponsor	sponsor	219	DIVERSITY RESEARCHER	immediate,passive	implemented	immediate,passive,endgame,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus | main.py:8238 _perform_build_action_effect | main.py:8983 _perform_animals_action_effect
-sponsor	sponsor	220	FEDERAL GRANTS	income	implemented	immediate,income,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:7874 _apply_sponsor_break_income_effects_for_player_after_card_draw | main.py:5737 _sponsor_endgame_bonus
-sponsor	sponsor	221	ARCHEOLOGIST	passive	implemented	endgame,rule_hook	main.py:5737 _sponsor_endgame_bonus | main.py:6859 _apply_build_placement_bonus
+sponsor	sponsor	219	DIVERSITY RESEARCHER	endgame,immediate,passive	implemented	immediate,passive,endgame,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus | main.py:8238 _perform_build_action_effect | main.py:8983 _perform_animals_action_effect
+sponsor	sponsor	220	FEDERAL GRANTS	endgame,immediate,income	implemented	immediate,income,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:7874 _apply_sponsor_break_income_effects_for_player_after_card_draw | main.py:5737 _sponsor_endgame_bonus
+sponsor	sponsor	221	ARCHEOLOGIST	endgame,passive	implemented	endgame,rule_hook	main.py:5737 _sponsor_endgame_bonus | main.py:6859 _apply_build_placement_bonus
 sponsor	sponsor	222	RELEASE OF PATENTS	immediate	implemented	immediate	main.py:13362 _apply_sponsor_immediate_effects
 sponsor	sponsor	223	SCIENCE INSTITUTE	-	no_effect	-	-
-sponsor	sponsor	224	MIGRATION RECORDING	passive	implemented	immediate,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:11697 list_legal_association_options | main.py:12060 _apply_association_selected_option
-sponsor	sponsor	225	QUARANTINE LAB	endgame,passive	implemented	immediate,endgame,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus | main.py:8983 _perform_animals_action_effect | main.py:1945 _eligible_highest_track_target_ids
+sponsor	sponsor	224	MIGRATION RECORDING	immediate,passive	implemented	immediate,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:11697 list_legal_association_options | main.py:12060 _apply_association_selected_option
+sponsor	sponsor	225	QUARANTINE LAB	endgame,immediate,passive	implemented	immediate,endgame,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus | main.py:8983 _perform_animals_action_effect | main.py:1945 _eligible_highest_track_target_ids
 sponsor	sponsor	226	FOREIGN INSTITUTE	endgame	implemented	immediate,endgame	main.py:13362 _apply_sponsor_immediate_effects | main.py:5737 _sponsor_endgame_bonus
 sponsor	sponsor	227	WAZA SPECIAL ASSIGNMENT	immediate,passive	implemented	immediate,passive,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:13291 _validate_sponsor_effect_details
-sponsor	sponsor	228	WAZA SMALL ANIMAL PROGRAM	passive	implemented	immediate,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:8983 _perform_animals_action_effect
-sponsor	sponsor	229	EXPERT IN SMALL ANIMALS	passive	implemented	immediate,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:8792 _animal_size_sponsor_discount
-sponsor	sponsor	230	EXPERT IN LARGE ANIMALS	passive	implemented	immediate,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:8792 _animal_size_sponsor_discount
-sponsor	sponsor	231	SPONSORSHIP: PRIMATES	immediate,income,passive	implemented	immediate,income	main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
-sponsor	sponsor	232	SPONSORSHIP: REPTILES	income	implemented	immediate,income	main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
-sponsor	sponsor	233	SPONSORSHIP: VULTURES	income	implemented	immediate,income	main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
-sponsor	sponsor	234	SPONSORSHIP: LIONS	income	implemented	immediate,income	main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
-sponsor	sponsor	235	SPONSORSHIP: ELEPHANTS	income	implemented	immediate,income	main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
+sponsor	sponsor	228	WAZA SMALL ANIMAL PROGRAM	immediate,passive	implemented	immediate,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:8983 _perform_animals_action_effect
+sponsor	sponsor	229	EXPERT IN SMALL ANIMALS	immediate,passive	implemented	immediate,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:8792 _animal_size_sponsor_discount
+sponsor	sponsor	230	EXPERT IN LARGE ANIMALS	immediate,passive	implemented	immediate,rule_hook	main.py:13362 _apply_sponsor_immediate_effects | main.py:8792 _animal_size_sponsor_discount
+sponsor	sponsor	231	SPONSORSHIP: PRIMATES	immediate,income	implemented	immediate,income	main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
+sponsor	sponsor	232	SPONSORSHIP: REPTILES	immediate,income	implemented	immediate,income	main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
+sponsor	sponsor	233	SPONSORSHIP: VULTURES	immediate,income	implemented	immediate,income	main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
+sponsor	sponsor	234	SPONSORSHIP: LIONS	immediate,income	implemented	immediate,income	main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
+sponsor	sponsor	235	SPONSORSHIP: ELEPHANTS	immediate,income	implemented	immediate,income	main.py:13362 _apply_sponsor_immediate_effects | main.py:338 SPONSOR_ICON_INCOME_THRESHOLDS
 sponsor	sponsor	236	PRIMATOLOGIST	passive	implemented	passive	main.py:324 SPONSOR_GLOBAL_ICON_MONEY_TRIGGERS
 sponsor	sponsor	237	HERPETOLOGIST	passive	implemented	passive	main.py:324 SPONSOR_GLOBAL_ICON_MONEY_TRIGGERS
 sponsor	sponsor	238	ORNITHOLOGIST	passive	implemented	passive	main.py:324 SPONSOR_GLOBAL_ICON_MONEY_TRIGGERS
@@ -210,7 +210,7 @@ sponsor	sponsor	247	BABOON ROCK	endgame,immediate,passive	implemented	immediate,
 sponsor	sponsor	248	RHESUS MONKEY PARK	immediate,passive	implemented	immediate,passive	main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
 sponsor	sponsor	249	BARRED OWL HUT	immediate,passive	implemented	immediate,passive	main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
 sponsor	sponsor	250	SEA TURTLE TANK	immediate,passive	implemented	immediate,passive	main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
-sponsor	sponsor	251	POLAR BEAR EXHIBIT	immediate,passive	implemented	immediate,passive,endgame	main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
+sponsor	sponsor	251	POLAR BEAR EXHIBIT	endgame,immediate,passive	implemented	immediate,passive,endgame	main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:5737 _sponsor_endgame_bonus | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
 sponsor	sponsor	252	SPOTTED HYENA COMPOUND	immediate,passive	implemented	immediate,passive	main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
 sponsor	sponsor	253	OKAPI STABLE	immediate,passive	implemented	immediate,passive,rule_hook	main.py:12727 _apply_sponsor_passive_triggers_on_card_play | main.py:12479 _play_sponsor_from_hand_via_253 | main.py:12587 _finalize_sponsor_card_play | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
 sponsor	sponsor	254	ZOO SCHOOL	immediate	implemented	immediate	main.py:13362 _apply_sponsor_immediate_effects | main.py:387 SPONSOR_UNIQUE_BUILDING_CARDS
@@ -236,7 +236,7 @@ sponsor	sponsor	273	PUBLICATIONS	immediate,passive	unimplemented	-	-
 sponsor	sponsor	274	MASCOT STATUE	endgame,income	unimplemented	-	-
 sponsor	sponsor	275	HORSE WHISPERER	immediate,passive	unimplemented	-	-
 sponsor	sponsor	276	LANDSCAPE GARDENER	passive	unimplemented	-	-
-sponsor	sponsor	277	FIELD RESEARCH TYPE D ORCAS	-	no_effect	-	-
+sponsor	sponsor	277	FIELD RESEARCH TYPE D ORCAS	-	implemented	immediate	main.py:13430 _finalize_sponsor_card_play
 sponsor	sponsor	278	AMAZON HOUSE	immediate	unimplemented	-	-
 sponsor	sponsor	279	UNDERWATER TUNNEL	endgame,immediate,passive	unimplemented	-	-
 sponsor	sponsor	280	RECONSTRUCTION	immediate,passive	unimplemented	-	-

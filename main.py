@@ -4387,7 +4387,7 @@ def _enumerate_pending_digging_actions(
     if remaining_loops <= 0:
         return []
 
-    actions: List[Action] = [
+    base_actions: List[Action] = [
         Action(
             ActionType.PENDING_DECISION,
             details={
@@ -4399,7 +4399,7 @@ def _enumerate_pending_digging_actions(
         )
     ]
     for display_idx, display_card in enumerate(list(state.zoo_display)):
-        actions.append(
+        base_actions.append(
             Action(
                 ActionType.PENDING_DECISION,
                 details={
@@ -4416,7 +4416,7 @@ def _enumerate_pending_digging_actions(
         card_instance_id = str(hand_card.instance_id or "").strip()
         if not card_instance_id:
             continue
-        actions.append(
+        base_actions.append(
             Action(
                 ActionType.PENDING_DECISION,
                 details={
@@ -4429,7 +4429,29 @@ def _enumerate_pending_digging_actions(
                 },
             )
         )
-    return actions
+    actions: List[Action] = []
+    for base_action in base_actions:
+        base_details = copy.deepcopy(base_action.details or {})
+        base_label = str(base_details.get("action_label") or "").strip()
+        resolved_variants = _resolve_pending_action_variants_by_simulation(
+            state=state,
+            base_action=base_action,
+        )
+        for resolved_details, resolved_label in resolved_variants:
+            final_label = base_label if not resolved_label else f"{base_label} ; {resolved_label}"
+            final_action_details = copy.deepcopy(resolved_details)
+            final_action_details["action_label"] = final_label
+            actions.append(Action(ActionType.PENDING_DECISION, details=final_action_details))
+
+    deduped: List[Action] = []
+    seen_keys: Set[str] = set()
+    for action in actions:
+        key = json.dumps(action.details or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(action)
+    return deduped
 
 
 def _begin_animals_followup_pending(
@@ -15923,6 +15945,11 @@ def _resolve_digging_pending_action(
     choice_mode = str(details.get("digging_choice_mode") or "").strip().lower()
     if choice_mode not in {"skip", "display", "hand"}:
         raise ValueError("digging_choice_mode must be 'skip', 'display', or 'hand'.")
+    payload = _merge_pending_followup_details_into_payload(
+        payload,
+        pending_kind="digging_choice",
+        action_details=details,
+    )
 
     _clear_pending_decision(state)
     if choice_mode == "display":
