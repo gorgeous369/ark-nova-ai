@@ -1,3 +1,4 @@
+import main
 import pytest
 
 from arknova_engine.map_model import Building, BuildingType, HexTile, Rotation
@@ -11,38 +12,22 @@ from main import (
     _ensure_player_map_initialized,
     _perform_animals_action_effect,
     _resume_animals_followup_from_pending_payload,
-    apply_action,
-    legal_actions,
 )
-from tests.helpers import make_state
-
-
-def _prepare_basic_animals_play_state(seed: int = 610):
-    state = make_state(seed)
-    player = state.players[0]
-    player.money = 25
-    player.reputation = 6
-    player.hand = []
-    player.zoo_cards = []
-    player.enclosures = [
-        Enclosure(size=2, occupied=False, origin=(0, 0), rotation="ROT_0"),
-    ]
-    player.enclosure_objects = [
-        EnclosureObject(
-            size=2,
-            enclosure_type="enclosure_2",
-            adjacent_rock=0,
-            adjacent_water=0,
-            animals_inside=0,
-            origin=(0, 0),
-            rotation="ROT_0",
-        )
-    ]
-    return state, player
+from tests.helpers import (
+    configure_player,
+    configure_standard_enclosures,
+    legal_actions_for_player,
+    make_basic_animals_play_state,
+    make_state,
+    pending_actions,
+    play_legal_main_action,
+    play_pending_action,
+    set_pending_decision,
+)
 
 
 def _prepare_glide_effect_state(seed: int = 614):
-    state, player = _prepare_basic_animals_play_state(seed=seed)
+    state, player = make_basic_animals_play_state(seed=seed)
     player.hand = [
         AnimalCard(
             name="Glider",
@@ -149,7 +134,7 @@ def test_glide_effect_expands_only_sea_animal_discard_choices():
 
 
 def test_mark_effect_marks_first_display_animal_in_range():
-    state, player = _prepare_basic_animals_play_state(seed=611)
+    state, player = make_basic_animals_play_state(seed=611)
     player.hand = [
         AnimalCard(
             name="Marker",
@@ -199,7 +184,7 @@ def test_mark_effect_marks_first_display_animal_in_range():
 
 
 def test_dominance_effect_takes_specific_unused_base_project():
-    state, player = _prepare_basic_animals_play_state(seed=612)
+    state, player = make_basic_animals_play_state(seed=612)
     state.unused_base_conservation_projects = [
         SetupCardRef(data_id="P108_Primates", title="PRIMATES"),
         SetupCardRef(data_id="P103_Africa", title="AFRICA"),
@@ -232,9 +217,11 @@ def test_dominance_effect_takes_specific_unused_base_project():
 
 
 def test_assertion_effect_legal_actions_expand_skip_and_selected_project_choice():
-    state, player = _prepare_basic_animals_play_state(seed=6121)
-    state.current_player = 0
-    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    state, player = make_basic_animals_play_state(seed=6121)
+    configure_player(
+        state,
+        action_order=("cards", "animals", "build", "association", "sponsors"),
+    )
     state.unused_base_conservation_projects = [
         SetupCardRef(data_id="P108_Primates", title="PRIMATES"),
         SetupCardRef(data_id="P103_Africa", title="AFRICA"),
@@ -253,7 +240,7 @@ def test_assertion_effect_legal_actions_expand_skip_and_selected_project_choice(
         )
     ]
 
-    actions = legal_actions(player, state=state, player_id=0)
+    actions = legal_actions_for_player(state, player_id=0)
     animal_actions = [
         action
         for action in actions
@@ -262,36 +249,27 @@ def test_assertion_effect_legal_actions_expand_skip_and_selected_project_choice(
 
     assert any((action.details or {}).get("unused_base_project_choices") == [{"skip": True}] for action in animal_actions)
 
-    africa_action = next(
-        action
-        for action in animal_actions
-        if (action.details or {}).get("unused_base_project_choices") == [{"project_data_id": "P103_Africa"}]
+    play_legal_main_action(
+        state,
+        player_id=0,
+        card_name="animals",
+        predicate=lambda action: (
+            int(action.value or 0) == 0
+            and (action.details or {}).get("unused_base_project_choices") == [{"project_data_id": "P103_Africa"}]
+        ),
     )
-
-    apply_action(state, africa_action)
 
     assert all(project.data_id != "P103_Africa" for project in state.unused_base_conservation_projects)
     assert any(card.card_type == "conservation_project" and "AFRICA" in card.name for card in player.hand)
 
 
 def test_cut_down_effect_removes_one_empty_standard_enclosure_and_refunds():
-    state, player = _prepare_basic_animals_play_state(seed=613)
+    state, player = make_basic_animals_play_state(seed=613)
     _ensure_player_map_initialized(state, player)
     assert player.zoo_map is not None
+    configure_standard_enclosures(player, sizes=(2, 1), origins=((0, 0), (2, 0)))
     player.zoo_map.add_building(Building(BuildingType.SIZE_2, HexTile(0, 0), Rotation.ROT_0))
     player.zoo_map.add_building(Building(BuildingType.SIZE_1, HexTile(2, 0), Rotation.ROT_0))
-    player.enclosures.append(Enclosure(size=1, occupied=False, origin=(2, 0), rotation="ROT_0"))
-    player.enclosure_objects.append(
-        EnclosureObject(
-            size=1,
-            enclosure_type="enclosure_1",
-            adjacent_rock=0,
-            adjacent_water=0,
-            animals_inside=0,
-            origin=(2, 0),
-            rotation="ROT_0",
-        )
-    )
     player.money = 10
     player.hand = [
         AnimalCard(
@@ -321,7 +299,7 @@ def test_cut_down_effect_removes_one_empty_standard_enclosure_and_refunds():
 
 
 def test_trade_effect_requires_explicit_choice_when_multiple_pairs_exist():
-    state, player = _prepare_basic_animals_play_state(seed=6131)
+    state, player = make_basic_animals_play_state(seed=6131)
     player.reputation = 5
     player.hand = [
         AnimalCard(
@@ -372,7 +350,7 @@ def test_trade_effect_requires_explicit_choice_when_multiple_pairs_exist():
 
 
 def test_shark_attack_effect_discards_animals_from_display_and_gains_money():
-    state, player = _prepare_basic_animals_play_state(seed=614)
+    state, player = make_basic_animals_play_state(seed=614)
     player.reputation = 15
     player.money = 5
     player.hand = [
@@ -458,7 +436,7 @@ def test_shark_attack_effect_discards_animals_from_display_and_gains_money():
 
 
 def test_extra_shift_requires_explicit_choice_when_multiple_tasks_can_recall_workers():
-    state, player = _prepare_basic_animals_play_state(seed=6141)
+    state, player = make_basic_animals_play_state(seed=6141)
     player.workers = 0
     player.workers_on_association_board = 2
     player.association_workers_by_task["reputation"] = 1
@@ -488,10 +466,12 @@ def test_extra_shift_requires_explicit_choice_when_multiple_tasks_can_recall_wor
 
 
 def test_hypnosis_legal_actions_expand_distinct_x_spend_choices():
-    state, player = _prepare_basic_animals_play_state(seed=6142)
+    state, player = make_basic_animals_play_state(seed=6142)
     target = state.players[1]
-    state.current_player = 0
-    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    configure_player(
+        state,
+        action_order=("cards", "animals", "build", "association", "sponsors"),
+    )
     player.x_tokens = 1
     player.hand = [
         AnimalCard(
@@ -509,7 +489,7 @@ def test_hypnosis_legal_actions_expand_distinct_x_spend_choices():
     target.appeal = 5
     target.action_order = ["cards", "build", "animals", "association", "sponsors"]
 
-    actions = legal_actions(player, state=state, player_id=0)
+    actions = legal_actions_for_player(state, player_id=0)
     animal_actions = [
         action
         for action in actions
@@ -526,10 +506,12 @@ def test_hypnosis_legal_actions_expand_distinct_x_spend_choices():
 
 
 def test_hypnosis_ignores_stale_x_spend_queue_values_that_are_no_longer_legal():
-    state, player = _prepare_basic_animals_play_state(seed=61421)
+    state, player = make_basic_animals_play_state(seed=61421)
     target = state.players[1]
-    state.current_player = 0
-    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    configure_player(
+        state,
+        action_order=("cards", "animals", "build", "association", "sponsors"),
+    )
     player.x_tokens = 0
     player.reputation = 0
     player.hand = [
@@ -580,7 +562,7 @@ def test_hypnosis_ignores_stale_x_spend_queue_values_that_are_no_longer_legal():
 
 
 def test_resistance_effect_interactive_prompts_for_final_scoring_choice(monkeypatch):
-    state, player = _prepare_basic_animals_play_state(seed=615)
+    state, player = make_basic_animals_play_state(seed=615)
     player.hand = [
         AnimalCard(
             name="Resister",
@@ -618,8 +600,11 @@ def test_resistance_effect_interactive_prompts_for_final_scoring_choice(monkeypa
 
 
 def test_resistance_effect_reveals_final_scoring_then_uses_pending_choice():
-    state, player = _prepare_basic_animals_play_state(seed=616)
-    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    state, player = make_basic_animals_play_state(seed=616)
+    configure_player(
+        state,
+        action_order=("cards", "animals", "build", "association", "sponsors"),
+    )
     player.hand = [
         AnimalCard(
             name="Resister",
@@ -641,7 +626,7 @@ def test_resistance_effect_reveals_final_scoring_then_uses_pending_choice():
         SetupCardRef(data_id="F003", title="THIRD"),
     ]
 
-    actions = legal_actions(player, state=state, player_id=0)
+    actions = legal_actions_for_player(state, player_id=0)
     animal_actions = [
         action
         for action in actions
@@ -651,18 +636,12 @@ def test_resistance_effect_reveals_final_scoring_then_uses_pending_choice():
     assert animal_actions
     assert all(not list((action.details or {}).get("final_scoring_keep_choices") or []) for action in animal_actions)
 
-    apply_action(state, animal_actions[0])
+    play_legal_main_action(state, player_id=0, card_name="animals")
 
     assert state.pending_decision_kind == "revealed_final_scoring_keep"
-    pending_actions = legal_actions(state.players[state.pending_decision_player_id], state=state, player_id=0)
-    assert len(pending_actions) == 2
+    assert len(pending_actions(state)) == 2
 
-    chosen = next(
-        action
-        for action in pending_actions
-        if (action.details or {}).get("keep_final_scoring_refs") == ["F002"]
-    )
-    apply_action(state, chosen)
+    play_pending_action(state, keep_final_scoring_refs=["F002"])
 
     assert [card.data_id for card in player.final_scoring_cards] == ["F002"]
     assert [card.data_id for card in state.final_scoring_discard] == ["F001"]
@@ -670,9 +649,32 @@ def test_resistance_effect_reveals_final_scoring_then_uses_pending_choice():
     assert state.pending_decision_kind == ""
 
 
+def test_final_scoring_discard_pending_action_discards_selected_ref():
+    state, player = make_basic_animals_play_state(seed=6161)
+    player.final_scoring_cards = [
+        SetupCardRef(data_id="F001", title="FIRST"),
+        SetupCardRef(data_id="F002", title="SECOND"),
+    ]
+    set_pending_decision(
+        state,
+        player_id=0,
+        kind="final_scoring_discard",
+        payload={"discard_target": 1},
+    )
+
+    play_pending_action(state, discard_final_scoring_refs=["F002"])
+
+    assert [card.data_id for card in player.final_scoring_cards] == ["F001"]
+    assert [card.data_id for card in state.final_scoring_discard] == ["F002"]
+    assert state.pending_decision_kind == ""
+
+
 def test_hunter_effect_uses_pending_revealed_animal_choice():
-    state, player = _prepare_basic_animals_play_state(seed=617)
-    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    state, player = make_basic_animals_play_state(seed=617)
+    configure_player(
+        state,
+        action_order=("cards", "animals", "build", "association", "sponsors"),
+    )
     player.hand = [
         AnimalCard(
             name="Hunter",
@@ -719,23 +721,17 @@ def test_hunter_effect_uses_pending_revealed_animal_choice():
         ),
     ]
 
-    actions = legal_actions(player, state=state, player_id=0)
+    actions = legal_actions_for_player(state, player_id=0)
     animal_actions = [action for action in actions if action.type == ActionType.MAIN_ACTION and action.card_name == "animals"]
     assert animal_actions
     assert all(not list((action.details or {}).get("deck_keep_card_choices") or []) for action in animal_actions)
 
-    apply_action(state, animal_actions[0])
+    play_legal_main_action(state, player_id=0, card_name="animals")
 
     assert state.pending_decision_kind == "revealed_cards_keep"
-    pending_actions = legal_actions(state.players[state.pending_decision_player_id], state=state, player_id=0)
-    assert len(pending_actions) == 2
+    assert len(pending_actions(state)) == 2
 
-    chosen = next(
-        action
-        for action in pending_actions
-        if (action.details or {}).get("keep_card_instance_ids") == ["deck-hunter-a2"]
-    )
-    apply_action(state, chosen)
+    play_pending_action(state, keep_card_instance_ids=["deck-hunter-a2"])
 
     assert any(card.instance_id == "deck-hunter-a2" for card in player.hand)
     assert all(card.instance_id != "deck-hunter-a1" for card in player.hand)
@@ -744,8 +740,11 @@ def test_hunter_effect_uses_pending_revealed_animal_choice():
 
 
 def test_digging_effect_uses_pending_choices_after_each_replenish():
-    state, player = _prepare_basic_animals_play_state(seed=618)
-    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    state, player = make_basic_animals_play_state(seed=618)
+    configure_player(
+        state,
+        action_order=("cards", "animals", "build", "association", "sponsors"),
+    )
     player.hand = [
         AnimalCard(
             name="Digger",
@@ -804,44 +803,35 @@ def test_digging_effect_uses_pending_choices_after_each_replenish():
         ),
     ]
 
-    actions = legal_actions(player, state=state, player_id=0)
+    actions = legal_actions_for_player(state, player_id=0)
     animal_actions = [action for action in actions if action.type == ActionType.MAIN_ACTION and action.card_name == "animals"]
     assert animal_actions
     assert all(not list((action.details or {}).get("digging_choices") or []) for action in animal_actions)
 
-    apply_action(state, animal_actions[0])
+    play_legal_main_action(state, player_id=0, card_name="animals")
 
     assert state.pending_decision_kind == "digging_choice"
-    pending_actions = legal_actions(state.players[state.pending_decision_player_id], state=state, player_id=0)
-    first_pick = next(
-        action
-        for action in pending_actions
-        if (action.details or {}).get("digging_choice_mode") == "display"
-        and (action.details or {}).get("display_index") == 0
-    )
-    apply_action(state, first_pick)
+    play_pending_action(state, digging_choice_mode="display", display_index=0)
 
     assert state.pending_decision_kind == "digging_choice"
     assert state.zoo_display[0].instance_id == "deck-digging-1"
-    next_pending_actions = legal_actions(state.players[state.pending_decision_player_id], state=state, player_id=0)
+    next_pending_actions = pending_actions(state)
     assert any(
         (action.details or {}).get("digging_choice_mode") == "display"
         and (action.details or {}).get("display_index") == 0
         and (action.details or {}).get("display_card_number") == 9305
         for action in next_pending_actions
     )
-    stop_action = next(
-        action
-        for action in next_pending_actions
-        if (action.details or {}).get("digging_choice_mode") == "skip"
-    )
-    apply_action(state, stop_action)
+    play_pending_action(state, digging_choice_mode="skip")
     assert state.pending_decision_kind == ""
 
 
 def test_digging_pending_actions_expand_followup_clever_targets_and_resume_cleanly():
-    state, player = _prepare_basic_animals_play_state(seed=619)
-    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    state, player = make_basic_animals_play_state(seed=619)
+    configure_player(
+        state,
+        action_order=("cards", "animals", "build", "association", "sponsors"),
+    )
     player.hand = [
         AnimalCard(
             name="Digger",
@@ -866,30 +856,7 @@ def test_digging_pending_actions_expand_followup_clever_targets_and_resume_clean
             instance_id="clever-followup",
         ),
     ]
-    player.enclosures = [
-        Enclosure(size=1, occupied=False, origin=(0, 0), rotation="ROT_0"),
-        Enclosure(size=1, occupied=False, origin=(1, 0), rotation="ROT_0"),
-    ]
-    player.enclosure_objects = [
-        EnclosureObject(
-            size=1,
-            enclosure_type="enclosure_1",
-            adjacent_rock=0,
-            adjacent_water=0,
-            animals_inside=0,
-            origin=(0, 0),
-            rotation="ROT_0",
-        ),
-        EnclosureObject(
-            size=1,
-            enclosure_type="enclosure_1",
-            adjacent_rock=0,
-            adjacent_water=0,
-            animals_inside=0,
-            origin=(1, 0),
-            rotation="ROT_0",
-        ),
-    ]
+    configure_standard_enclosures(player, sizes=(1, 1), origins=((0, 0), (1, 0)))
     state.zoo_display = [
         AnimalCard(
             name="Display Digging",
@@ -930,22 +897,20 @@ def test_digging_pending_actions_expand_followup_clever_targets_and_resume_clean
 
     assert state.pending_decision_kind == "digging_choice"
 
-    pending_actions = legal_actions(state.players[state.pending_decision_player_id], state=state, player_id=0)
+    current_pending_actions = pending_actions(state)
     assert any(
         (action.details or {}).get("digging_choice_mode") == "display"
         and (action.details or {}).get("display_index") == 0
         and (action.details or {}).get("clever_targets") == ["sponsors"]
-        for action in pending_actions
+        for action in current_pending_actions
     )
 
-    chosen = next(
-        action
-        for action in pending_actions
-        if (action.details or {}).get("digging_choice_mode") == "display"
-        and (action.details or {}).get("display_index") == 0
-        and (action.details or {}).get("clever_targets") == ["sponsors"]
+    play_pending_action(
+        state,
+        digging_choice_mode="display",
+        display_index=0,
+        clever_targets=["sponsors"],
     )
-    apply_action(state, chosen)
 
     assert state.pending_decision_kind == ""
     assert player.action_order[0] == "sponsors"
@@ -953,22 +918,211 @@ def test_digging_pending_actions_expand_followup_clever_targets_and_resume_clean
     assert all(card.instance_id != "clever-followup" for card in player.hand)
 
 
-def test_resume_animals_followup_rebinds_stale_enclosure_choice():
-    state = make_state(9308)
-    player = state.players[0]
-    player.money = 10
+def test_posturing_effect_uses_pending_free_build_choices_after_each_placement():
+    state, player = make_basic_animals_play_state(seed=6191)
+    configure_player(
+        state,
+        action_order=("cards", "animals", "build", "association", "sponsors"),
+    )
+    _ensure_player_map_initialized(state, player)
     player.hand = [
         AnimalCard(
-            name="Resume Mammal",
+            name="Posturer",
             cost=0,
-            size=2,
-            appeal=2,
+            size=1,
+            appeal=0,
             conservation=0,
+            ability_title="Posturing 2",
             card_type="animal",
-            number=9308,
-            instance_id="resume-animal",
+            number=9313,
+            instance_id="posturing-animal",
         )
     ]
+
+    actions = legal_actions_for_player(state, player_id=0)
+    animal_actions = [action for action in actions if action.type == ActionType.MAIN_ACTION and action.card_name == "animals"]
+    assert animal_actions
+    assert all(not list((action.details or {}).get("free_building_placement_choices") or []) for action in animal_actions)
+
+    play_legal_main_action(state, player_id=0, card_name="animals")
+
+    assert state.pending_decision_kind == "animals_free_building_placement_choice"
+    play_pending_action(
+        state,
+        predicate=lambda action: (action.details or {}).get("animals_free_build_selection") is not None,
+    )
+
+    assert state.pending_decision_kind == "animals_free_building_placement_choice"
+    next_pending_actions = pending_actions(state)
+    assert any(bool((action.details or {}).get("animals_free_build_skip")) for action in next_pending_actions)
+    play_pending_action(state, animals_free_build_skip=True)
+
+    assert state.pending_decision_kind == ""
+
+
+def test_posturing_pending_actions_expand_followup_clever_targets_and_resume_cleanly():
+    state, player = make_basic_animals_play_state(seed=6192)
+    configure_player(
+        state,
+        action_order=("cards", "animals", "build", "association", "sponsors"),
+    )
+    configure_standard_enclosures(player, sizes=(1, 1), origins=((0, 0), (1, 0)))
+    _ensure_player_map_initialized(state, player)
+    player.hand = [
+        AnimalCard(
+            name="Posturer",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            ability_title="Posturing 2",
+            card_type="animal",
+            number=9314,
+            instance_id="posturing-followup",
+        ),
+        AnimalCard(
+            name="Clever Animal",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            ability_title="Clever",
+            card_type="animal",
+            number=9315,
+            instance_id="clever-posturing-followup",
+        ),
+    ]
+
+    _perform_animals_action_effect(
+        state=state,
+        player=player,
+        strength=2,
+        details={
+            "_selected_plays_override": [
+                {"card_instance_id": "posturing-followup", "enclosure_index": 0, "card_cost": 0},
+                {"card_instance_id": "clever-posturing-followup", "enclosure_index": 1, "card_cost": 0},
+            ]
+        },
+        player_id=0,
+    )
+
+    assert state.pending_decision_kind == "animals_free_building_placement_choice"
+
+    play_pending_action(
+        state,
+        predicate=lambda action: (action.details or {}).get("animals_free_build_selection") is not None,
+    )
+
+    assert state.pending_decision_kind == "animals_free_building_placement_choice"
+    second_pending_actions = pending_actions(state)
+    assert any(
+        (action.details or {}).get("animals_free_build_selection") is not None
+        and (action.details or {}).get("clever_targets") == ["sponsors"]
+        for action in second_pending_actions
+    )
+
+    play_pending_action(
+        state,
+        predicate=lambda action: (
+            (action.details or {}).get("animals_free_build_selection") is not None
+            and (action.details or {}).get("clever_targets") == ["sponsors"]
+        ),
+    )
+
+    assert state.pending_decision_kind == ""
+    assert player.action_order[0] == "sponsors"
+    assert any(card.instance_id == "clever-posturing-followup" for card in player.zoo_cards)
+    assert all(card.instance_id != "clever-posturing-followup" for card in player.hand)
+
+
+def test_digging_pending_actions_fall_back_to_base_choices_when_followup_simulation_fails(monkeypatch):
+    state, player = make_basic_animals_play_state(seed=6193)
+    set_pending_decision(
+        state,
+        player_id=0,
+        kind="digging_choice",
+        payload={"remaining_loops": 1},
+    )
+    state.zoo_display = [
+        AnimalCard(
+            name="Dig Display",
+            cost=0,
+            size=0,
+            appeal=0,
+            conservation=0,
+            card_type="sponsor",
+            number=9316,
+            instance_id="dig-display",
+        )
+    ]
+    hand_card = AnimalCard(
+        name="Dig Hand",
+        cost=0,
+        size=0,
+        appeal=0,
+        conservation=0,
+        card_type="sponsor",
+        number=9317,
+        instance_id="dig-hand",
+    )
+    player.hand = [hand_card]
+
+    monkeypatch.setattr(main, "_resolve_pending_action_variants_by_simulation", lambda **kwargs: [])
+
+    current_pending_actions = pending_actions(state)
+
+    assert any((action.details or {}).get("digging_choice_mode") == "skip" for action in current_pending_actions)
+    assert any(
+        (action.details or {}).get("digging_choice_mode") == "display"
+        and (action.details or {}).get("display_index") == 0
+        for action in current_pending_actions
+    )
+    assert any(
+        (action.details or {}).get("digging_choice_mode") == "hand"
+        and (action.details or {}).get("hand_card_instance_id") == hand_card.instance_id
+        for action in current_pending_actions
+    )
+
+
+def test_animals_free_build_pending_actions_fall_back_to_base_choices_when_followup_simulation_fails(monkeypatch):
+    state, player = make_basic_animals_play_state(seed=6194)
+    _ensure_player_map_initialized(state, player)
+    set_pending_decision(
+        state,
+        player_id=0,
+        kind="animals_free_building_placement_choice",
+        payload={
+            "remaining_loops": 1,
+            "animals_free_build_effect": "posturing",
+        },
+    )
+
+    monkeypatch.setattr(main, "_resolve_pending_action_variants_by_simulation", lambda **kwargs: [])
+
+    current_pending_actions = pending_actions(state)
+
+    assert any(bool((action.details or {}).get("animals_free_build_skip")) for action in current_pending_actions)
+    assert any((action.details or {}).get("animals_free_build_selection") is not None for action in current_pending_actions)
+
+
+def test_resume_animals_followup_rebinds_stale_enclosure_choice():
+    state = make_state(9308)
+    player = configure_player(
+        state,
+        money=10,
+        hand=[
+            AnimalCard(
+                name="Resume Mammal",
+                cost=0,
+                size=2,
+                appeal=2,
+                conservation=0,
+                card_type="animal",
+                number=9308,
+                instance_id="resume-animal",
+            )
+        ],
+    )
     player.enclosures = [
         Enclosure(size=2, origin=(0, 0), enclosure_type="reptile_house", animal_capacity=2),
         Enclosure(size=2, origin=(1, 0), enclosure_type="standard", animal_capacity=1),

@@ -21,7 +21,7 @@ from main import (
     legal_actions,
     list_legal_association_options,
 )
-from tests.helpers import make_state
+from tests.helpers import configure_player, make_state, play_main_action
 
 
 def _seed_project_icons(player, project_id: str, count: int) -> None:
@@ -133,16 +133,17 @@ def test_setup_initializes_association_market():
 def test_association_partner_zoo_is_shared_until_break_refresh(monkeypatch):
     state = make_state(602)
     p0, p1 = state.players
-    state.current_player = 0
-    p0.action_order = ["cards", "animals", "association", "build", "sponsors"]  # association strength=3
-
-    apply_action(
+    configure_player(
         state,
-        Action(
-            ActionType.MAIN_ACTION,
-            card_name="association",
-            details={"task_kind": "partner_zoo", "partner_zoo": "asia"},
-        ),
+        player_id=0,
+        action_order=("cards", "animals", "association", "build", "sponsors"),
+    )
+
+    play_main_action(
+        state,
+        player_id=0,
+        card_name="association",
+        details={"task_kind": "partner_zoo", "partner_zoo": "asia"},
     )
     assert "asia" in p0.partner_zoos
     assert "asia" not in state.available_partner_zoos
@@ -165,19 +166,19 @@ def test_association_partner_zoo_is_shared_until_break_refresh(monkeypatch):
 
 def test_association_university_reputation_type_applies_bonus():
     state = make_state(603)
-    p0 = state.players[0]
-    state.current_player = 0
-    p0.action_order = ["cards", "animals", "build", "association", "sponsors"]  # association strength=4
+    p0 = configure_player(
+        state,
+        player_id=0,
+        action_order=("cards", "animals", "build", "association", "sponsors"),
+    )
     rep_before = p0.reputation
     hand_limit_before = p0.hand_limit
 
-    apply_action(
+    play_main_action(
         state,
-        Action(
-            ActionType.MAIN_ACTION,
-            card_name="association",
-            details={"task_kind": "university", "university": "reputation_1_hand_limit_5"},
-        ),
+        player_id=0,
+        card_name="association",
+        details={"task_kind": "university", "university": "reputation_1_hand_limit_5"},
     )
 
     assert "reputation_1_hand_limit_5" in p0.universities

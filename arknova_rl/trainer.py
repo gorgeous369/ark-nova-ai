@@ -1527,20 +1527,6 @@ def train_self_play(
                     f"{key}:{value}"
                     for key, value in sorted(metrics.terminal_reason_counts.items())
                 ) or "-"
-                slowest_episodes = sorted(
-                    list(rollout_stats.get("episode_summaries") or []),
-                    key=lambda item: float(item.get("elapsed_seconds", 0.0)),
-                    reverse=True,
-                )[:3]
-                slowest_text = ", ".join(
-                    (
-                        f"seed={int(item.get('episode_seed', 0))}:"
-                        f"{float(item.get('elapsed_seconds', 0.0)):.2f}s/"
-                        f"steps={int(item.get('step_count', 0))}/"
-                        f"reason={str(item.get('terminal_reason', ''))}"
-                    )
-                    for item in slowest_episodes
-                ) or "-"
                 print(
                     f"[update {update_idx:04d}] "
                     f"steps={metrics.step_count} episodes={metrics.episode_count} "
@@ -1553,7 +1539,7 @@ def train_self_play(
                     f"model_update_time={metrics.model_update_time_sec:.2f}s "
                     f"policy={metrics.policy_loss:.4f} value={metrics.value_loss:.4f} "
                     f"entropy={metrics.entropy:.4f} total={metrics.total_loss:.4f} "
-                    f"reasons={reason_text} slowest={slowest_text}"
+                    f"reasons={reason_text}"
                 )
 
             should_run_fixed_eval = (

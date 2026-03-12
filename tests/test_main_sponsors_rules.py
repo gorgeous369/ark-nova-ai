@@ -1,8 +1,19 @@
 import copy
 
+import main
 import pytest
 
-from tests.helpers import make_state, set_action_strength, take_card_by_number
+from tests.helpers import (
+    apply_sponsors_from_hand,
+    configure_player,
+    find_action,
+    make_card,
+    make_state,
+    play_animals_sequence,
+    set_action_strength,
+    set_pending_decision,
+    take_card_by_number,
+)
 
 from main import (
     _apply_build_placement_bonus,
@@ -976,74 +987,50 @@ def test_sponsor_210_places_free_kiosk_when_playing_america_icon():
 
 def test_sponsor_212_defers_pouch_choices_to_pending_instead_of_animals_legal_action_expansion():
     state = make_state(7065)
-    player = state.players[0]
-    state.current_player = 0
-    set_action_strength(player, "animals", 5)
-    player.money = 20
-    player.zoo_cards.append(take_card_by_number(state, 212))
-
-    australia_a = AnimalCard(
-        name="AustraliaA",
-        cost=0,
-        size=1,
-        appeal=0,
-        conservation=0,
-        card_type="animal",
-        badges=("Australia",),
+    australia_a = make_card(
+        "AustraliaA",
         number=9821201,
         instance_id="aus-a",
-    )
-    australia_b = AnimalCard(
-        name="AustraliaB",
-        cost=0,
-        size=1,
-        appeal=0,
-        conservation=0,
-        card_type="animal",
         badges=("Australia",),
+    )
+    australia_b = make_card(
+        "AustraliaB",
         number=9821202,
         instance_id="aus-b",
+        badges=("Australia",),
     )
-    pouch_card_a = AnimalCard(
-        name="PouchA",
-        cost=1,
-        size=0,
-        appeal=0,
-        conservation=0,
-        card_type="sponsor",
+    pouch_card_a = make_card(
+        "PouchA",
         number=9821203,
         instance_id="pouch-a",
-    )
-    pouch_card_b = AnimalCard(
-        name="PouchB",
+        card_type="sponsor",
         cost=1,
         size=0,
-        appeal=0,
-        conservation=0,
-        card_type="sponsor",
+    )
+    pouch_card_b = make_card(
+        "PouchB",
         number=9821204,
         instance_id="pouch-b",
+        card_type="sponsor",
+        cost=1,
+        size=0,
     )
-    player.hand = [australia_a, australia_b, pouch_card_a, pouch_card_b]
-    player.enclosures = [Enclosure(size=1, occupied=False), Enclosure(size=1, occupied=False)]
-
-    sequence_index = next(
-        int(option["index"]) - 1
-        for option in list_legal_animals_options(state=state, player_id=0, strength=5)
-        if [str(play.get("card_instance_id") or "") for play in list(option.get("plays") or [])]
-        == [australia_a.instance_id, australia_b.instance_id]
+    player = configure_player(
+        state,
+        action_name="animals",
+        strength=5,
+        money=20,
+        zoo_card_numbers=(212,),
+        hand=(australia_a, australia_b, pouch_card_a, pouch_card_b),
+        enclosure_sizes=(1, 1),
     )
 
-    matching_actions = [
-        action
-        for action in legal_actions(player, state=state, player_id=0)
-        if action.type == ActionType.MAIN_ACTION
-        and action.card_name == "animals"
-        and int((action.details or {}).get("animals_sequence_index", -1)) == sequence_index
-    ]
-    assert len(matching_actions) == 1
-
-    apply_action(state, matching_actions[0])
+    play_animals_sequence(
+        state,
+        player_id=0,
+        strength=5,
+        card_instance_ids=(australia_a.instance_id, australia_b.instance_id),
+    )
 
     assert state.pending_decision_kind == "sponsor_212_pouch_choice"
     pending_actions = legal_actions(player, state=state, player_id=0)
@@ -1054,11 +1041,9 @@ def test_sponsor_212_defers_pouch_choices_to_pending_instead_of_animals_legal_ac
         for action in pending_actions
     )
 
-    first_choice = next(
-        action
-        for action in pending_actions
-        if list((action.details or {}).get("sponsor_pouch_hand_card_choices") or [])
-        == [{"card_instance_ids": [pouch_card_a.instance_id]}]
+    first_choice = find_action(
+        pending_actions,
+        sponsor_pouch_hand_card_choices=[{"card_instance_ids": [pouch_card_a.instance_id]}],
     )
     apply_action(state, first_choice)
 
@@ -1066,11 +1051,9 @@ def test_sponsor_212_defers_pouch_choices_to_pending_instead_of_animals_legal_ac
     pending_actions = legal_actions(player, state=state, player_id=0)
     assert len(pending_actions) == 2
 
-    second_choice = next(
-        action
-        for action in pending_actions
-        if list((action.details or {}).get("sponsor_pouch_hand_card_choices") or [])
-        == [{"card_instance_ids": [pouch_card_b.instance_id]}]
+    second_choice = find_action(
+        pending_actions,
+        sponsor_pouch_hand_card_choices=[{"card_instance_ids": [pouch_card_b.instance_id]}],
     )
     apply_action(state, second_choice)
 
@@ -1085,53 +1068,33 @@ def test_sponsor_212_defers_pouch_choices_to_pending_instead_of_animals_legal_ac
 
 def test_sponsor_214_defers_slot_1_choice_until_after_animals_action():
     state = make_state(7066)
-    player = state.players[0]
-    state.current_player = 0
-    set_action_strength(player, "animals", 5)
-    player.money = 20
-    player.zoo_cards.append(take_card_by_number(state, 214))
-
-    africa_animal = AnimalCard(
-        name="AfricaA",
-        cost=0,
-        size=1,
-        appeal=0,
-        conservation=0,
-        card_type="animal",
-        badges=("Africa",),
+    africa_animal = make_card(
+        "AfricaA",
         number=9821401,
         instance_id="africa-a",
+        badges=("Africa",),
     )
-    plain_animal = AnimalCard(
-        name="PlainA",
-        cost=0,
-        size=1,
-        appeal=0,
-        conservation=0,
-        card_type="animal",
+    plain_animal = make_card(
+        "PlainA",
         number=9821402,
         instance_id="plain-a",
     )
-    player.hand = [africa_animal, plain_animal]
-    player.enclosures = [Enclosure(size=1, occupied=False), Enclosure(size=1, occupied=False)]
-
-    sequence_index = next(
-        int(option["index"]) - 1
-        for option in list_legal_animals_options(state=state, player_id=0, strength=5)
-        if [str(play.get("card_instance_id") or "") for play in list(option.get("plays") or [])]
-        == [africa_animal.instance_id, plain_animal.instance_id]
+    player = configure_player(
+        state,
+        action_name="animals",
+        strength=5,
+        money=20,
+        zoo_card_numbers=(214,),
+        hand=(africa_animal, plain_animal),
+        enclosure_sizes=(1, 1),
     )
 
-    matching_actions = [
-        action
-        for action in legal_actions(player, state=state, player_id=0)
-        if action.type == ActionType.MAIN_ACTION
-        and action.card_name == "animals"
-        and int((action.details or {}).get("animals_sequence_index", -1)) == sequence_index
-    ]
-    assert len(matching_actions) == 1
-
-    apply_action(state, matching_actions[0])
+    play_animals_sequence(
+        state,
+        player_id=0,
+        strength=5,
+        card_instance_ids=(africa_animal.instance_id, plain_animal.instance_id),
+    )
 
     assert state.pending_decision_kind == "sponsor_214_action_to_slot_1_choice"
     pending_actions = legal_actions(player, state=state, player_id=0)
@@ -1139,11 +1102,9 @@ def test_sponsor_214_defers_slot_1_choice_until_after_animals_action():
         f"sponsor214({action_name})" for action_name in player.action_order
     }
 
-    chosen_action = next(
-        action
-        for action in pending_actions
-        if list((action.details or {}).get("sponsor_action_to_slot_1_choices") or [])
-        == [{"action_name": "cards"}]
+    chosen_action = find_action(
+        pending_actions,
+        sponsor_action_to_slot_1_choices=[{"action_name": "cards"}],
     )
     apply_action(state, chosen_action)
 
@@ -1154,62 +1115,42 @@ def test_sponsor_214_defers_slot_1_choice_until_after_animals_action():
 
 def test_sponsor_214_pending_actions_preserve_followup_clever_choices():
     state = make_state(70661)
-    player = state.players[0]
-    state.current_player = 0
-    player.money = 20
-    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
-    set_action_strength(player, "animals", 5)
-    player.zoo_cards.append(take_card_by_number(state, 214))
-
-    africa_animal = AnimalCard(
-        name="AfricaCleverTrigger",
-        cost=0,
-        size=1,
-        appeal=0,
-        conservation=0,
-        card_type="animal",
-        badges=("Africa",),
+    africa_animal = make_card(
+        "AfricaCleverTrigger",
         number=9821411,
         instance_id="africa-clever-trigger",
+        badges=("Africa",),
     )
-    clever_animal = AnimalCard(
-        name="CleverFollower",
-        cost=0,
-        size=1,
-        appeal=0,
-        conservation=0,
-        ability_title="Clever",
-        card_type="animal",
+    clever_animal = make_card(
+        "CleverFollower",
         number=9821412,
         instance_id="clever-follower",
+        ability_title="Clever",
     )
-    player.hand = [africa_animal, clever_animal]
-    player.enclosures = [Enclosure(size=1, occupied=False), Enclosure(size=1, occupied=False)]
-
-    sequence_index = next(
-        int(option["index"]) - 1
-        for option in list_legal_animals_options(state=state, player_id=0, strength=5)
-        if [str(play.get("card_instance_id") or "") for play in list(option.get("plays") or [])]
-        == [africa_animal.instance_id, clever_animal.instance_id]
-    )
-
-    apply_action(
+    player = configure_player(
         state,
-        Action(
-            ActionType.MAIN_ACTION,
-            card_name="animals",
-            details={"animals_sequence_index": sequence_index},
-        ),
+        action_order=("cards", "animals", "build", "association", "sponsors"),
+        action_name="animals",
+        strength=5,
+        money=20,
+        zoo_card_numbers=(214,),
+        hand=(africa_animal, clever_animal),
+        enclosure_sizes=(1, 1),
+    )
+
+    play_animals_sequence(
+        state,
+        player_id=0,
+        strength=5,
+        card_instance_ids=(africa_animal.instance_id, clever_animal.instance_id),
     )
 
     assert state.pending_decision_kind == "sponsor_214_action_to_slot_1_choice"
     pending_actions = legal_actions(player, state=state, player_id=0)
-    chosen = next(
-        action
-        for action in pending_actions
-        if list((action.details or {}).get("sponsor_action_to_slot_1_choices") or [])
-        == [{"action_name": "cards"}]
-        and (action.details or {}).get("clever_targets") == ["sponsors"]
+    chosen = find_action(
+        pending_actions,
+        predicate=lambda action: (action.details or {}).get("clever_targets") == ["sponsors"],
+        sponsor_action_to_slot_1_choices=[{"action_name": "cards"}],
     )
 
     apply_action(state, chosen)
@@ -1221,84 +1162,58 @@ def test_sponsor_214_pending_actions_preserve_followup_clever_choices():
 
 def test_sponsor_250_defers_sell_choices_until_after_animals_action():
     state = make_state(7067)
-    player = state.players[0]
-    state.current_player = 0
-    set_action_strength(player, "animals", 5)
-    player.money = 20
-    player.zoo_cards.append(take_card_by_number(state, 250))
-
-    reptile_animal = AnimalCard(
-        name="ReptileA",
-        cost=0,
-        size=1,
-        appeal=0,
-        conservation=0,
-        card_type="animal",
-        badges=("Reptile",),
+    reptile_animal = make_card(
+        "ReptileA",
         number=9821501,
         instance_id="reptile-a",
+        badges=("Reptile",),
     )
-    plain_animal = AnimalCard(
-        name="PlainB",
-        cost=0,
-        size=1,
-        appeal=0,
-        conservation=0,
-        card_type="animal",
+    plain_animal = make_card(
+        "PlainB",
         number=9821502,
         instance_id="plain-b",
     )
-    sell_card_a = AnimalCard(
-        name="SellA",
-        cost=1,
-        size=0,
-        appeal=0,
-        conservation=0,
-        card_type="sponsor",
+    sell_card_a = make_card(
+        "SellA",
         number=9821503,
         instance_id="sell-a",
-    )
-    sell_card_b = AnimalCard(
-        name="SellB",
+        card_type="sponsor",
         cost=1,
         size=0,
-        appeal=0,
-        conservation=0,
-        card_type="sponsor",
+    )
+    sell_card_b = make_card(
+        "SellB",
         number=9821504,
         instance_id="sell-b",
+        card_type="sponsor",
+        cost=1,
+        size=0,
     )
-    player.hand = [reptile_animal, plain_animal, sell_card_a, sell_card_b]
-    player.enclosures = [Enclosure(size=1, occupied=False), Enclosure(size=1, occupied=False)]
-
-    sequence_index = next(
-        int(option["index"]) - 1
-        for option in list_legal_animals_options(state=state, player_id=0, strength=5)
-        if [str(play.get("card_instance_id") or "") for play in list(option.get("plays") or [])]
-        == [reptile_animal.instance_id, plain_animal.instance_id]
+    player = configure_player(
+        state,
+        action_name="animals",
+        strength=5,
+        money=20,
+        zoo_card_numbers=(250,),
+        hand=(reptile_animal, plain_animal, sell_card_a, sell_card_b),
+        enclosure_sizes=(1, 1),
     )
-
-    matching_actions = [
-        action
-        for action in legal_actions(player, state=state, player_id=0)
-        if action.type == ActionType.MAIN_ACTION
-        and action.card_name == "animals"
-        and int((action.details or {}).get("animals_sequence_index", -1)) == sequence_index
-    ]
-    assert len(matching_actions) == 1
 
     money_before = player.money
-    apply_action(state, matching_actions[0])
+    play_animals_sequence(
+        state,
+        player_id=0,
+        strength=5,
+        card_instance_ids=(reptile_animal.instance_id, plain_animal.instance_id),
+    )
 
     assert state.pending_decision_kind == "sponsor_250_sell_hand_cards_choice"
     pending_actions = legal_actions(player, state=state, player_id=0)
     assert len(pending_actions) == 7
 
-    chosen_action = next(
-        action
-        for action in pending_actions
-        if list((action.details or {}).get("sponsor_sell_hand_card_choices") or [])
-        == [{"card_instance_ids": [sell_card_a.instance_id, sell_card_b.instance_id]}]
+    chosen_action = find_action(
+        pending_actions,
+        sponsor_sell_hand_card_choices=[{"card_instance_ids": [sell_card_a.instance_id, sell_card_b.instance_id]}],
     )
     apply_action(state, chosen_action)
 
@@ -1320,6 +1235,153 @@ def test_legal_actions_short_circuits_when_round_limit_already_exceeded():
     assert actions == []
     assert state.forced_game_over is True
     assert state.forced_game_over_reason == f"round_limit_exceeded(completed={round_limit + 1},limit={round_limit})"
+
+
+def test_pending_sponsor_214_actions_still_enumerate_after_round_limit_is_exceeded():
+    state = make_state(70681)
+    africa_animal = make_card(
+        "AfricaA",
+        number=9821481,
+        instance_id="africa-a-round-limit",
+        badges=("Africa",),
+    )
+    plain_animal = make_card(
+        "PlainA",
+        number=9821482,
+        instance_id="plain-a-round-limit",
+    )
+    player = configure_player(
+        state,
+        action_name="animals",
+        strength=5,
+        money=20,
+        zoo_card_numbers=(214,),
+        hand=(africa_animal, plain_animal),
+        enclosure_sizes=(1, 1),
+    )
+
+    play_animals_sequence(
+        state,
+        player_id=0,
+        strength=5,
+        card_instance_ids=(africa_animal.instance_id, plain_animal.instance_id),
+    )
+    assert state.pending_decision_kind == "sponsor_214_action_to_slot_1_choice"
+
+    round_limit = int(getattr(state, "max_rounds", 0) or 0)
+    state.turn_index = len(state.players) * (round_limit + 1)
+
+    pending_actions = legal_actions(player, state=state, player_id=0)
+
+    assert {
+        str(((action.details or {}).get("sponsor_action_to_slot_1_choices") or [{}])[0].get("action_name") or "")
+        for action in pending_actions
+        if (action.details or {}).get("sponsor_action_to_slot_1_choices")
+    } == set(player.action_order)
+    assert state.forced_game_over is False
+
+
+def test_pending_sponsor_214_actions_fall_back_to_base_choices_when_followup_simulation_fails():
+    state = make_state(70682)
+    player = configure_player(
+        state,
+        action_order=("cards", "animals", "build", "association", "sponsors"),
+    )
+    set_pending_decision(
+        state,
+        player_id=0,
+        kind="sponsor_214_action_to_slot_1_choice",
+    )
+
+    pending_actions = legal_actions(player, state=state, player_id=0)
+
+    assert {
+        str(((action.details or {}).get("sponsor_action_to_slot_1_choices") or [{}])[0].get("action_name") or "")
+        for action in pending_actions
+        if (action.details or {}).get("sponsor_action_to_slot_1_choices")
+    } == set(player.action_order)
+
+
+def test_pending_sponsor_214_actions_dedupe_duplicate_simulation_variants(monkeypatch):
+    state = make_state(706821)
+    player = configure_player(state, action_order=("cards",))
+    set_pending_decision(
+        state,
+        player_id=0,
+        kind="sponsor_214_action_to_slot_1_choice",
+    )
+
+    def _fake_resolve(*, state, base_action, invalid_effect_log_prefixes=()):
+        del state, invalid_effect_log_prefixes
+        details = copy.deepcopy(dict(base_action.details or {}))
+        details["clever_targets"] = ["sponsors"]
+        return [
+            (copy.deepcopy(details), ""),
+            (copy.deepcopy(details), ""),
+        ]
+
+    monkeypatch.setattr(main, "_resolve_pending_action_variants_by_simulation", _fake_resolve)
+
+    pending_actions = legal_actions(player, state=state, player_id=0)
+
+    assert len(pending_actions) == 1
+    assert list((pending_actions[0].details or {}).get("sponsor_action_to_slot_1_choices") or []) == [
+        {"action_name": "cards"}
+    ]
+    assert (pending_actions[0].details or {}).get("clever_targets") == ["sponsors"]
+
+
+def test_sponsor_214_pending_resolution_resumes_remaining_sponsors_with_original_strength():
+    state = make_state(70683)
+    africa_sponsor = make_card(
+        "Africa Trigger Sponsor",
+        number=9821491,
+        instance_id="s-africa-trigger",
+        card_type="sponsor",
+        cost=1,
+        size=0,
+        badges=("Africa",),
+    )
+    followup_sponsor = make_card(
+        "Followup Sponsor",
+        number=9821492,
+        instance_id="s-followup",
+        card_type="sponsor",
+        cost=2,
+        size=0,
+    )
+    player = configure_player(
+        state,
+        action_name="sponsors",
+        strength=4,
+        money=20,
+        zoo_card_numbers=(214,),
+        hand=(africa_sponsor, followup_sponsor),
+        upgraded_actions=("sponsors",),
+    )
+
+    apply_sponsors_from_hand(
+        state,
+        player_id=0,
+        cards=(africa_sponsor, followup_sponsor),
+    )
+
+    assert state.pending_decision_kind == "sponsor_214_action_to_slot_1_choice"
+    assert int(state.pending_decision_payload.get("resume_sponsor_strength", 0)) == 4
+
+    pending_actions = legal_actions(player, state=state, player_id=0)
+    chosen = find_action(
+        pending_actions,
+        sponsor_action_to_slot_1_choices=[{"action_name": "cards"}],
+    )
+    apply_action(state, chosen)
+
+    assert state.pending_decision_kind == ""
+    assert all(
+        any(card.instance_id == target_id for card in player.zoo_cards)
+        for target_id in (africa_sponsor.instance_id, followup_sponsor.instance_id)
+    )
+    assert all(card.instance_id not in {africa_sponsor.instance_id, followup_sponsor.instance_id} for card in player.hand)
 
 
 def test_sponsor_228_allows_extra_small_animal_and_take_small_from_display():

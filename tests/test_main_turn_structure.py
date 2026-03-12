@@ -4,7 +4,7 @@ import pytest
 
 import main
 
-from tests.helpers import find_action, has_action, make_state, materialize_first_action
+from tests.helpers import find_action, has_action, make_card, make_state, materialize_first_action, set_pending_decision
 
 from main import (
     Action,
@@ -1142,12 +1142,15 @@ def test_break_discard_pending_actions_use_index_combo_labels():
     state = setup_game(seed=79, player_names=["P1", "P2"])
     player = state.players[0]
     player.hand = [
-        AnimalCard(f"Card {idx}", idx, 1, 0, 0, number=600 + idx, instance_id=f"break-{idx}")
+        make_card(f"Card {idx}", cost=idx, number=600 + idx, instance_id=f"break-{idx}")
         for idx in range(5)
     ]
-    state.pending_decision_kind = "break_discard"
-    state.pending_decision_player_id = 0
-    state.pending_decision_payload = {"discard_target": 2}
+    set_pending_decision(
+        state,
+        player_id=0,
+        kind="break_discard",
+        payload={"discard_target": 2},
+    )
 
     actions = legal_actions(player, state=state, player_id=0)
 
