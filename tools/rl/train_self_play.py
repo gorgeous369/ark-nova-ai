@@ -108,6 +108,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Checkpoint save frequency (updates)",
     )
     parser.add_argument(
+        "--slow-episode-trace-start-seconds",
+        type=float,
+        default=defaults.slow_episode_trace_start_seconds,
+        help="Start writing a live trace once an episode exceeds this wall-clock time in seconds (<=0 disables tracing)",
+    )
+    parser.add_argument(
+        "--slow-episode-trace-stop-seconds",
+        type=float,
+        default=defaults.slow_episode_trace_stop_seconds,
+        help="Stop writing the live trace after this wall-clock time in seconds (<=0 records until episode end)",
+    )
+    parser.add_argument(
+        "--slow-episode-trace-seconds",
+        dest="slow_episode_trace_start_seconds",
+        type=float,
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--fixed-eval-interval",
         type=int,
         default=defaults.fixed_eval_interval,
@@ -173,6 +192,8 @@ def main_cli() -> None:
         terminal_win_bonus=args.terminal_win_bonus,
         terminal_loss_penalty=args.terminal_loss_penalty,
         checkpoint_interval=args.checkpoint_interval,
+        slow_episode_trace_start_seconds=args.slow_episode_trace_start_seconds,
+        slow_episode_trace_stop_seconds=args.slow_episode_trace_stop_seconds,
         fixed_eval_interval=args.fixed_eval_interval,
         fixed_eval_episodes=args.fixed_eval_episodes,
         fixed_eval_opponent=args.fixed_eval_opponent,

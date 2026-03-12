@@ -36,7 +36,9 @@ class PPOTrainConfig:
 
     checkpoint_interval: int = 5
     log_interval: int = 1
-    rollout_workers: int = 6
+    rollout_workers: int = 8
+    slow_episode_trace_start_seconds: float = 300.0
+    slow_episode_trace_stop_seconds: float = 480.0
     fixed_eval_interval: int = 20
     fixed_eval_episodes: int = 8
     fixed_eval_deterministic: bool = True
@@ -48,3 +50,20 @@ class PPOTrainConfig:
             raise ValueError(f"Unsupported algo: {self.algo}")
         self.algo = algo_name
         self.use_lstm = True
+        self.slow_episode_trace_start_seconds = max(
+            0.0,
+            float(getattr(self, "slow_episode_trace_start_seconds", 0.0) or 0.0),
+        )
+        self.slow_episode_trace_stop_seconds = float(
+            getattr(self, "slow_episode_trace_stop_seconds", 0.0) or 0.0
+        )
+        if self.slow_episode_trace_stop_seconds < 0.0:
+            self.slow_episode_trace_stop_seconds = 0.0
+        if (
+            self.slow_episode_trace_start_seconds > 0.0
+            and self.slow_episode_trace_stop_seconds > 0.0
+            and self.slow_episode_trace_stop_seconds < self.slow_episode_trace_start_seconds
+        ):
+            raise ValueError(
+                "slow_episode_trace_stop_seconds must be >= slow_episode_trace_start_seconds."
+            )

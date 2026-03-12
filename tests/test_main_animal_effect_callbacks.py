@@ -525,6 +525,60 @@ def test_hypnosis_legal_actions_expand_distinct_x_spend_choices():
     assert x_choices == {(0,), (1,)}
 
 
+def test_hypnosis_ignores_stale_x_spend_queue_values_that_are_no_longer_legal():
+    state, player = _prepare_basic_animals_play_state(seed=61421)
+    target = state.players[1]
+    state.current_player = 0
+    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    player.x_tokens = 0
+    player.reputation = 0
+    player.hand = [
+        AnimalCard(
+            name="Hypnosis Animal",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            ability_title="Hypnosis 1",
+            card_type="animal",
+            number=90142,
+            instance_id="hypnosis-stale-x",
+        )
+    ]
+    target.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    state.zoo_display = []
+    state.zoo_deck = [
+        AnimalCard(
+            name="DeckDraw",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            card_type="animal",
+            number=90143,
+            instance_id="deck-draw",
+        )
+    ]
+
+    _perform_animals_action_effect(
+        state=state,
+        player=player,
+        strength=2,
+        details={
+            "animals_sequence_index": 0,
+            "hypnosis_target_players": [1],
+            "hypnosis_targets": ["cards"],
+            "hypnosis_x_spent_choices": [1],
+        },
+        player_id=0,
+    )
+
+    assert any(
+        "effect[hypnosis] target=P2 action=cards x=0" in str(entry)
+        for entry in state.effect_log
+    )
+
+
 def test_resistance_effect_interactive_prompts_for_final_scoring_choice(monkeypatch):
     state, player = _prepare_basic_animals_play_state(seed=615)
     player.hand = [

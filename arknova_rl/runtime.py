@@ -25,6 +25,13 @@ def restore_config(raw_config: Any) -> PPOTrainConfig:
     config = PPOTrainConfig()
     if isinstance(raw_config, dict):
         known_fields = {field.name for field in fields(PPOTrainConfig)}
+        if (
+            "slow_episode_trace_start_seconds" not in raw_config
+            and "slow_episode_trace_seconds" in raw_config
+        ):
+            config.slow_episode_trace_start_seconds = float(
+                raw_config.get("slow_episode_trace_seconds") or 0.0
+            )
         for key, value in raw_config.items():
             key_text = str(key)
             if key_text in known_fields:

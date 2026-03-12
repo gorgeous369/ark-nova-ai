@@ -2171,6 +2171,18 @@ def _pop_queued_action_name(
     raise ValueError(f"{effect_name} requires an explicit legal action choice.")
 
 
+def _pop_queued_int_choice(
+    queue: List[int],
+    legal_values: Sequence[int],
+) -> Optional[int]:
+    legal_set = {int(value) for value in legal_values}
+    while queue:
+        candidate = int(queue.pop(0))
+        if candidate in legal_set:
+            return candidate
+    return None
+
+
 def _resolve_pilfering_choice_from_details(
     *,
     target_player: PlayerState,
@@ -4454,6 +4466,209 @@ def _enumerate_pending_digging_actions(
     return deduped
 
 
+def _enumerate_pending_sponsor_212_pouch_actions(
+    state: GameState,
+    player: PlayerState,
+    player_id: int,
+) -> List[Action]:
+    del player_id
+    base_actions: List[Action] = [
+        Action(
+            ActionType.PENDING_DECISION,
+            details={
+                "concrete": True,
+                "pending_kind": "sponsor_212_pouch_choice",
+                "sponsor_pouch_hand_card_choices": [{"card_instance_ids": []}],
+                "action_label": "sponsor212(skip)",
+            },
+        )
+    ]
+    for hand_card in list(player.hand):
+        card_instance_id = str(hand_card.instance_id or "").strip()
+        if not card_instance_id:
+            continue
+        base_actions.append(
+            Action(
+                ActionType.PENDING_DECISION,
+                details={
+                    "concrete": True,
+                    "pending_kind": "sponsor_212_pouch_choice",
+                    "sponsor_pouch_hand_card_choices": [{"card_instance_ids": [card_instance_id]}],
+                    "action_label": f"sponsor212({_card_effect_card_label(hand_card)})",
+                },
+            )
+        )
+    actions: List[Action] = []
+    for base_action in base_actions:
+        base_label = str((base_action.details or {}).get("action_label") or "")
+        resolved_variants = _resolve_pending_action_variants_by_simulation(
+            state=state,
+            base_action=base_action,
+        )
+        for resolved_details, resolved_label in resolved_variants:
+            final_label = base_label if not resolved_label else f"{base_label} ; {resolved_label}"
+            final_action_details = copy.deepcopy(resolved_details)
+            final_action_details["action_label"] = final_label
+            actions.append(Action(ActionType.PENDING_DECISION, details=final_action_details))
+
+    deduped: List[Action] = []
+    seen_keys: Set[str] = set()
+    for action in actions:
+        key = json.dumps(action.details or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(action)
+    return deduped
+
+
+def _enumerate_pending_sponsor_214_slot_1_actions(
+    state: GameState,
+    player: PlayerState,
+    player_id: int,
+) -> List[Action]:
+    del player_id
+    base_actions = [
+        Action(
+            ActionType.PENDING_DECISION,
+            details={
+                "concrete": True,
+                "pending_kind": "sponsor_214_action_to_slot_1_choice",
+                "sponsor_action_to_slot_1_choices": [{"action_name": str(action_name)}],
+                "action_label": f"sponsor214({action_name})",
+            },
+        )
+        for action_name in list(player.action_order)
+    ]
+    actions: List[Action] = []
+    for base_action in base_actions:
+        base_label = str((base_action.details or {}).get("action_label") or "")
+        resolved_variants = _resolve_pending_action_variants_by_simulation(
+            state=state,
+            base_action=base_action,
+        )
+        for resolved_details, resolved_label in resolved_variants:
+            final_label = base_label if not resolved_label else f"{base_label} ; {resolved_label}"
+            final_action_details = copy.deepcopy(resolved_details)
+            final_action_details["action_label"] = final_label
+            actions.append(Action(ActionType.PENDING_DECISION, details=final_action_details))
+
+    deduped: List[Action] = []
+    seen_keys: Set[str] = set()
+    for action in actions:
+        key = json.dumps(action.details or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(action)
+    return deduped
+
+
+def _enumerate_pending_sponsor_250_sell_actions(
+    state: GameState,
+    player: PlayerState,
+    player_id: int,
+) -> List[Action]:
+    del player_id
+    legal_cards = [card for card in player.hand if str(card.instance_id or "").strip()]
+    variants = _enumerate_card_instance_choice_variants(
+        legal_cards,
+        detail_key="sponsor_sell_hand_card_choices",
+        label_prefix="sponsor250",
+        choose_count=min(2, len(legal_cards)),
+        min_choose=0,
+    )
+    base_actions = [
+        Action(
+            ActionType.PENDING_DECISION,
+            details={
+                "concrete": True,
+                "pending_kind": "sponsor_250_sell_hand_cards_choice",
+                **copy.deepcopy(fragment_details),
+                "action_label": label or "sponsor250[]",
+            },
+        )
+        for fragment_details, label in variants
+    ]
+    actions: List[Action] = []
+    for base_action in base_actions:
+        base_label = str((base_action.details or {}).get("action_label") or "")
+        resolved_variants = _resolve_pending_action_variants_by_simulation(
+            state=state,
+            base_action=base_action,
+        )
+        for resolved_details, resolved_label in resolved_variants:
+            final_label = base_label if not resolved_label else f"{base_label} ; {resolved_label}"
+            final_action_details = copy.deepcopy(resolved_details)
+            final_action_details["action_label"] = final_label
+            actions.append(Action(ActionType.PENDING_DECISION, details=final_action_details))
+
+    deduped: List[Action] = []
+    seen_keys: Set[str] = set()
+    for action in actions:
+        key = json.dumps(action.details or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(action)
+    return deduped
+
+
+def _enumerate_pending_engineer_extra_build_actions(
+    state: GameState,
+    player: PlayerState,
+    player_id: int,
+) -> List[Action]:
+    payload = dict(state.pending_decision_payload or {})
+    built_type_sequence = list(payload.get("engineer_built_type_sequence") or [])
+    legal_choices = _list_legal_engineer_extra_build_choices(
+        state,
+        player,
+        built_type_sequence=built_type_sequence,
+    )
+    if not legal_choices:
+        return []
+
+    base_variants: List[Tuple[Dict[str, Any], str]] = [
+        ({"engineer_extra_build_choices": [{"skip": True}]}, "sponsor217(skip)")
+    ]
+    base_variants.extend(
+        _enumerate_building_choice_variants(
+            legal_choices,
+            detail_key="engineer_extra_build_choices",
+            label_prefix="sponsor217",
+        )
+    )
+
+    actions: List[Action] = []
+    for fragment_details, base_label in base_variants:
+        action_details = {
+            "concrete": True,
+            "pending_kind": "engineer_extra_build_choice",
+            **copy.deepcopy(fragment_details),
+            "action_label": base_label,
+        }
+        resolved_variants = _resolve_pending_action_variants_by_simulation(
+            state=state,
+            base_action=Action(ActionType.PENDING_DECISION, details=action_details),
+        )
+        for resolved_details, resolved_label in resolved_variants:
+            final_label = base_label if not resolved_label else f"{base_label} ; {resolved_label}"
+            final_action_details = copy.deepcopy(resolved_details)
+            final_action_details["action_label"] = final_label
+            actions.append(Action(ActionType.PENDING_DECISION, details=final_action_details))
+
+    deduped: List[Action] = []
+    seen_keys: Set[str] = set()
+    for action in actions:
+        key = json.dumps(action.details or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(action)
+    return deduped
+
+
 def _begin_animals_followup_pending(
     state: GameState,
     *,
@@ -5150,6 +5365,14 @@ def _enumerate_pending_decision_actions(
         return _enumerate_pending_final_scoring_discard_actions(state, player, player_id)
     if state.pending_decision_kind == "digging_choice":
         return _enumerate_pending_digging_actions(state, player, player_id)
+    if state.pending_decision_kind == "sponsor_212_pouch_choice":
+        return _enumerate_pending_sponsor_212_pouch_actions(state, player, player_id)
+    if state.pending_decision_kind == "sponsor_214_action_to_slot_1_choice":
+        return _enumerate_pending_sponsor_214_slot_1_actions(state, player, player_id)
+    if state.pending_decision_kind == "sponsor_250_sell_hand_cards_choice":
+        return _enumerate_pending_sponsor_250_sell_actions(state, player, player_id)
+    if state.pending_decision_kind == "engineer_extra_build_choice":
+        return _enumerate_pending_engineer_extra_build_actions(state, player, player_id)
     raise ValueError(f"Unsupported pending decision kind: {state.pending_decision_kind}")
 
 
@@ -5186,7 +5409,7 @@ def _enumerate_concrete_animals_actions(
         "sun_bathing",
         "pouch",
     }
-    choice_sensitive_sponsors = {210, 211, 212, 213, 214, 228, 249, 250, 252, 253}
+    choice_sensitive_sponsors = {210, 211, 213, 228, 249, 252, 253}
 
     def _resolve_animals_details(details_payload: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str]]:
         return _resolve_action_detail_variants_by_simulation(
@@ -5410,7 +5633,6 @@ def _enumerate_concrete_build_actions(
                 resolved_variants = (
                     [(copy.deepcopy(base_details), "")]
                     if not bonus_details
-                    and not has_engineer
                     and not (_player_has_sponsor(player, 221) and bool(option.get("placement_bonuses")))
                     else _resolve_build_details(base_details)
                 )
@@ -5472,7 +5694,6 @@ def _enumerate_concrete_build_actions(
                 requires_resolution = (
                     len(next_selection_sequence) > 1
                     or bool(next_accumulated_bonus_details)
-                    or has_engineer
                     or (_player_has_sponsor(player, 221) and bool(option.get("placement_bonuses")))
                 )
                 resolved_variants = (
@@ -5778,6 +5999,8 @@ def legal_actions(
     *,
     concrete: bool = True,
 ) -> List[Action]:
+    if state is not None and _maybe_trigger_round_limit_endgame(state):
+        return []
     if state is not None and player_id is not None and str(state.pending_decision_kind or "").strip():
         return _enumerate_pending_decision_actions(state, player, player_id)
 
@@ -7450,6 +7673,11 @@ def _pop_detail_queue_entry(details: Dict[str, Any], key: str) -> Optional[Dict[
     return entry
 
 
+def _detail_queue_has_entries(details: Dict[str, Any], key: str) -> bool:
+    entries = details.get(key)
+    return isinstance(entries, list) and bool(entries)
+
+
 def _apply_build_placement_bonus(
     state: GameState,
     player: PlayerState,
@@ -8873,6 +9101,206 @@ def _perform_cards_action_effect(
     return break_triggered
 
 
+def _list_legal_engineer_extra_build_choices(
+    state: GameState,
+    player: PlayerState,
+    *,
+    built_type_sequence: Sequence[Any],
+) -> List[Building]:
+    _ensure_player_map_initialized(state, player)
+    if player.zoo_map is None:
+        return []
+
+    excluded = {
+        BuildingType.PETTING_ZOO,
+        BuildingType.REPTILE_HOUSE,
+        BuildingType.LARGE_BIRD_AVIARY,
+    }
+    has_diversity_researcher = _player_has_sponsor(player, 219)
+    legal_engineer_choices: List[Building] = []
+    seen: Set[Tuple[Any, ...]] = set()
+    for built_type_value in built_type_sequence:
+        built_type_name = str(
+            built_type_value.name if isinstance(built_type_value, BuildingType) else built_type_value
+        ).strip()
+        if not built_type_name:
+            continue
+        built_type = BuildingType[built_type_name]
+        if built_type in excluded:
+            continue
+        legal_extra = player.zoo_map.legal_building_placements(
+            is_build_upgraded=bool(player.action_upgraded["build"]),
+            has_diversity_researcher=has_diversity_researcher,
+            max_building_size=len(built_type.layout),
+            already_built_buildings=set(),
+        )
+        legal_extra = [building for building in legal_extra if building.type == built_type]
+        legal_extra.sort(
+            key=lambda b: (
+                b.type.name,
+                _building_layout_key(b),
+                b.origin_hex.x,
+                b.origin_hex.y,
+                b.rotation.value,
+            )
+        )
+        for candidate in legal_extra:
+            if player.money < len(candidate.layout) * 2:
+                continue
+            candidate_key = (
+                candidate.type.name,
+                _building_layout_key(candidate),
+                candidate.origin_hex.x,
+                candidate.origin_hex.y,
+                candidate.rotation.value,
+            )
+            if candidate_key in seen:
+                continue
+            seen.add(candidate_key)
+            legal_engineer_choices.append(candidate)
+    return legal_engineer_choices
+
+
+def _commit_engineer_extra_build(
+    state: GameState,
+    player: PlayerState,
+    *,
+    picked_building: Building,
+    player_id: int,
+    details: Dict[str, Any],
+    allow_interactive: bool,
+) -> None:
+    _ensure_player_map_initialized(state, player)
+    if player.zoo_map is None:
+        raise ValueError("Player map is not initialized.")
+    cost = len(picked_building.layout) * 2
+    if player.money < cost:
+        raise ValueError("Insufficient money for engineer extra build.")
+    player.money -= cost
+    player.zoo_map.add_building(picked_building)
+
+    if picked_building.type.subtype in {
+        BuildingSubType.ENCLOSURE_BASIC,
+        BuildingSubType.ENCLOSURE_SPECIAL,
+    }:
+        _register_enclosure_building(player, picked_building)
+    if picked_building.type == BuildingType.PAVILION:
+        player.appeal += 1
+
+    for bonus_index, (bonus_name, bonus_coord) in enumerate(_building_bonuses(state, picked_building)):
+        _apply_build_placement_bonus(
+            state=state,
+            player=player,
+            bonus=bonus_name,
+            details=details,
+            bonus_index=bonus_index,
+            bonus_coord=bonus_coord,
+            allow_interactive=allow_interactive,
+        )
+
+    if _player_has_sponsor(player, 241):
+        gain = sum(
+            1
+            for tile in picked_building.layout
+            if _adjacent_terrain_count_for_cells(player, [(tile.x, tile.y)], Terrain.WATER) > 0
+        )
+        if gain > 0:
+            player.money += gain
+    if _player_has_sponsor(player, 242):
+        gain = sum(
+            1
+            for tile in picked_building.layout
+            if _adjacent_terrain_count_for_cells(player, [(tile.x, tile.y)], Terrain.ROCK) > 0
+        )
+        if gain > 0:
+            player.money += gain
+
+    _maybe_apply_map_completion_reward(
+        state=state,
+        player=player,
+        player_id=player_id,
+    )
+    state.effect_log.append(
+        f"sponsor_217_extra_build type={picked_building.type.name} cells={_building_layout_xy(picked_building)}"
+    )
+
+
+def _resolve_engineer_extra_build_followup(
+    state: GameState,
+    player: PlayerState,
+    *,
+    player_id: int,
+    built_type_sequence: Sequence[Any],
+    details: Dict[str, Any],
+    allow_interactive: bool,
+) -> bool:
+    legal_engineer_choices = _list_legal_engineer_extra_build_choices(
+        state,
+        player,
+        built_type_sequence=built_type_sequence,
+    )
+    if not legal_engineer_choices:
+        return False
+
+    queued_choice = _pop_detail_queue_entry(details, "engineer_extra_build_choices")
+    if queued_choice is not None:
+        if bool(queued_choice.get("skip")):
+            return False
+        selection = queued_choice.get("selection") if "selection" in queued_choice else queued_choice
+        if not isinstance(selection, dict):
+            raise ValueError("engineer_extra_build_choices entries must contain a selection object.")
+        picked_extra = _find_legal_building_by_serialized_selection(legal_engineer_choices, selection)
+        if picked_extra is None:
+            raise ValueError("engineer_extra_build_choices selected placement is not legal.")
+        _commit_engineer_extra_build(
+            state,
+            player,
+            picked_building=picked_extra,
+            player_id=player_id,
+            details=details,
+            allow_interactive=allow_interactive,
+        )
+        return False
+
+    if allow_interactive:
+        print("Engineer: choose one extra building of the same kind to build, or skip.")
+        print("1. Skip")
+        for idx, candidate in enumerate(legal_engineer_choices, start=2):
+            print(f"{idx}. {candidate.type.name} {_building_cells_text(candidate)}")
+        while True:
+            raw = input(f"Select placement [1-{len(legal_engineer_choices) + 1}]: ").strip()
+            if raw.isdigit():
+                picked = int(raw)
+                if picked == 1:
+                    return False
+                if 2 <= picked <= len(legal_engineer_choices) + 1:
+                    chosen = legal_engineer_choices[picked - 2]
+                    _commit_engineer_extra_build(
+                        state,
+                        player,
+                        picked_building=chosen,
+                        player_id=player_id,
+                        details=details,
+                        allow_interactive=allow_interactive,
+                    )
+                    return False
+            print("Please enter a valid number.")
+
+    _set_pending_decision(
+        state,
+        kind="engineer_extra_build_choice",
+        player_id=player_id,
+        payload={
+            "resume_turn_player_id": int(player_id),
+            "engineer_built_type_sequence": [
+                str(item.name if isinstance(item, BuildingType) else item)
+                for item in built_type_sequence
+            ],
+        },
+    )
+    return True
+
+
 def _perform_build_action_effect(
     state: GameState,
     player: PlayerState,
@@ -9038,94 +9466,14 @@ def _perform_build_action_effect(
         return
 
     if not skip_post_build_effects and _player_has_sponsor(player, 217):
-        excluded = {
-            BuildingType.PETTING_ZOO,
-            BuildingType.REPTILE_HOUSE,
-            BuildingType.LARGE_BIRD_AVIARY,
-        }
-        legal_engineer_choices: List[Building] = []
-        for built_type in built_type_sequence:
-            if built_type in excluded:
-                continue
-            legal_extra = player.zoo_map.legal_building_placements(
-                is_build_upgraded=upgraded,
-                has_diversity_researcher=has_diversity_researcher,
-                max_building_size=len(built_type.layout),
-                already_built_buildings=set(),
-            )
-            legal_extra = [building for building in legal_extra if building.type == built_type]
-            legal_extra.sort(
-                key=lambda b: (
-                    b.type.name,
-                    _building_layout_key(b),
-                    b.origin_hex.x,
-                    b.origin_hex.y,
-                    b.rotation.value,
-                )
-            )
-            legal_engineer_choices.extend(
-                candidate
-                for candidate in legal_extra
-                if player.money >= len(candidate.layout) * 2
-            )
-
-        if legal_engineer_choices:
-            queued_choice = _pop_detail_queue_entry(details, "engineer_extra_build_choices")
-            if queued_choice is not None:
-                if bool(queued_choice.get("skip")):
-                    return
-                selection = queued_choice.get("selection") if "selection" in queued_choice else queued_choice
-                if not isinstance(selection, dict):
-                    raise ValueError("engineer_extra_build_choices entries must contain a selection object.")
-                picked_extra = _find_legal_building_by_serialized_selection(legal_engineer_choices, selection)
-                if picked_extra is None:
-                    raise ValueError("engineer_extra_build_choices selected placement is not legal.")
-                _commit_building(
-                    picked_extra,
-                    count_for_action_strength=False,
-                    mark_type_for_action=False,
-                )
-                state.effect_log.append(
-                    f"sponsor_217_extra_build type={picked_extra.type.name} cells={_building_layout_xy(picked_extra)}"
-                )
-                return
-
-            if allow_interactive:
-                print("Engineer: choose one extra building of the same kind to build, or skip.")
-                print("1. Skip")
-                for idx, candidate in enumerate(legal_engineer_choices, start=2):
-                    print(f"{idx}. {candidate.type.name} {_building_cells_text(candidate)}")
-                while True:
-                    raw = input(f"Select placement [1-{len(legal_engineer_choices) + 1}]: ").strip()
-                    if raw.isdigit():
-                        picked = int(raw)
-                        if picked == 1:
-                            return
-                        if 2 <= picked <= len(legal_engineer_choices) + 1:
-                            chosen = legal_engineer_choices[picked - 2]
-                            _commit_building(
-                                chosen,
-                                count_for_action_strength=False,
-                                mark_type_for_action=False,
-                            )
-                            state.effect_log.append(
-                                f"sponsor_217_extra_build type={chosen.type.name} cells={_building_layout_xy(chosen)}"
-                            )
-                            return
-                    print("Please enter a valid number.")
-
-            if expand_implicit_choices:
-                variants: List[Tuple[Dict[str, Any], str]] = [
-                    ({"engineer_extra_build_choices": [{"skip": True}]}, "sponsor217(skip)")
-                ]
-                variants.extend(
-                    _enumerate_building_choice_variants(
-                        legal_engineer_choices,
-                        detail_key="engineer_extra_build_choices",
-                        label_prefix="sponsor217",
-                    )
-                )
-                raise _ActionDetailExpansionRequired(variants)
+        if _resolve_engineer_extra_build_followup(
+            state,
+            player,
+            player_id=player_id if player_id is not None else state.players.index(player),
+            built_type_sequence=built_type_sequence,
+            details=details,
+            allow_interactive=allow_interactive,
+        ):
             return
 
 
@@ -10991,10 +11339,13 @@ def _perform_animals_action_effect(
             valid_x_spent_values = sorted(executable_variants_by_action[chosen_action].keys())
             if not valid_x_spent_values:
                 return f"target={target_player.name} no_action"
-            if queued_hypnosis_x_spent_choices:
-                x_spent = int(queued_hypnosis_x_spent_choices.pop(0))
-                if x_spent not in valid_x_spent_values:
-                    raise ValueError("hypnosis_x_spent_choices selected x-spend is not legal.")
+            queued_x_spent = (
+                _pop_queued_int_choice(queued_hypnosis_x_spent_choices, valid_x_spent_values)
+                if queued_hypnosis_x_spent_choices
+                else None
+            )
+            if queued_x_spent is not None:
+                x_spent = int(queued_x_spent)
             elif interactive_effect_prompts:
                 if len(valid_x_spent_values) == 1:
                     x_spent = valid_x_spent_values[0]
@@ -13610,7 +13961,10 @@ def _apply_sponsor_passive_triggers_on_card_play(
     resume_owner_id_raw = details.get("_resume_sponsor_passive_owner_id")
     resume_owner_id = int(resume_owner_id_raw) if resume_owner_id_raw is not None else None
     resume_stage = str(details.get("_resume_sponsor_passive_stage") or "").strip()
+    resume_214_remaining = int(details.get("_resume_sponsor_214_remaining_triggers", -1))
+    resume_212_remaining = int(details.get("_resume_sponsor_212_remaining_triggers", -1))
     resume_249_remaining = int(details.get("_resume_sponsor_249_remaining_triggers", -1))
+    resume_250_remaining = int(details.get("_resume_sponsor_250_remaining_triggers", -1))
     resume_252_remaining = int(details.get("_resume_sponsor_252_remaining_triggers", -1))
     played_icon_counts = _card_icon_counts(played_card)
     played_icon_keys = set(played_icon_counts.keys())
@@ -13873,17 +14227,66 @@ def _apply_sponsor_passive_triggers_on_card_play(
         if _should_run("248") and owner_is_actor and 248 in sponsor_numbers and primate_icons > 0:
             owner.x_tokens = min(MAX_X_TOKENS, owner.x_tokens + primate_icons)
 
-        africa_icons = int(played_icon_counts.get("africa", 0))
+        africa_icons = (
+            max(0, resume_214_remaining)
+            if resume_owner_id == owner_id and resume_214_remaining >= 0 and resume_stage == "214"
+            else int(played_icon_counts.get("africa", 0))
+        )
         if _should_run("214") and owner_is_actor and 214 in sponsor_numbers and africa_icons > 0 and owner.action_order:
-            for _ in range(africa_icons):
+            for trigger_index in range(africa_icons):
+                if (
+                    not allow_interactive
+                    and len(owner.action_order) > 1
+                    and not _detail_queue_has_entries(details, "sponsor_action_to_slot_1_choices")
+                ):
+                    _set_pending_decision(
+                        state,
+                        kind="sponsor_214_action_to_slot_1_choice",
+                        player_id=owner_id,
+                        payload={
+                            "resume_sponsor_passive_owner_id": int(owner_id),
+                            "resume_sponsor_passive_played_by_player_id": int(played_by_player_id),
+                            "resume_sponsor_passive_played_card": played_card,
+                            "resume_sponsor_passive_details": copy.deepcopy(details),
+                            "resume_sponsor_214_remaining_triggers": max(
+                                0,
+                                int(africa_icons) - int(trigger_index),
+                            ),
+                        },
+                    )
+                    return True
                 _rotate_action_card_to_slot_1(owner, _choose_action_to_slot_1(owner))
         if _should_run("212") and owner_is_actor and 212 in sponsor_numbers:
-            australia_icons = int(played_icon_counts.get("australia", 0))
+            australia_icons = (
+                max(0, resume_212_remaining)
+                if resume_owner_id == owner_id and resume_212_remaining >= 0 and resume_stage == "212"
+                else int(played_icon_counts.get("australia", 0))
+            )
             pouch_host = next((card for card in owner.zoo_cards if card.number == 212), None)
             pouched = 0
-            for _ in range(australia_icons):
+            for trigger_index in range(australia_icons):
                 if not owner.hand:
                     break
+                if (
+                    not allow_interactive
+                    and not _detail_queue_has_entries(details, "sponsor_pouch_hand_card_choices")
+                ):
+                    _set_pending_decision(
+                        state,
+                        kind="sponsor_212_pouch_choice",
+                        player_id=owner_id,
+                        payload={
+                            "resume_sponsor_passive_owner_id": int(owner_id),
+                            "resume_sponsor_passive_played_by_player_id": int(played_by_player_id),
+                            "resume_sponsor_passive_played_card": played_card,
+                            "resume_sponsor_passive_details": copy.deepcopy(details),
+                            "resume_sponsor_212_remaining_triggers": max(
+                                0,
+                                int(australia_icons) - int(trigger_index),
+                            ),
+                        },
+                    )
+                    return True
                 chosen_cards = _choose_optional_hand_cards(
                     owner,
                     detail_key="sponsor_pouch_hand_card_choices",
@@ -14017,8 +14420,33 @@ def _apply_sponsor_passive_triggers_on_card_play(
                     continue
 
         if _should_run("250") and owner_is_actor and 250 in sponsor_numbers:
-            reptile_icons = int(played_icon_counts.get("reptile", 0))
-            for _ in range(reptile_icons):
+            reptile_icons = (
+                max(0, resume_250_remaining)
+                if resume_owner_id == owner_id and resume_250_remaining >= 0 and resume_stage == "250"
+                else int(played_icon_counts.get("reptile", 0))
+            )
+            for trigger_index in range(reptile_icons):
+                if (
+                    not allow_interactive
+                    and owner.hand
+                    and not _detail_queue_has_entries(details, "sponsor_sell_hand_card_choices")
+                ):
+                    _set_pending_decision(
+                        state,
+                        kind="sponsor_250_sell_hand_cards_choice",
+                        player_id=owner_id,
+                        payload={
+                            "resume_sponsor_passive_owner_id": int(owner_id),
+                            "resume_sponsor_passive_played_by_player_id": int(played_by_player_id),
+                            "resume_sponsor_passive_played_card": played_card,
+                            "resume_sponsor_passive_details": copy.deepcopy(details),
+                            "resume_sponsor_250_remaining_triggers": max(
+                                0,
+                                int(reptile_icons) - int(trigger_index),
+                            ),
+                        },
+                    )
+                    return True
                 chosen_cards = _choose_optional_hand_cards(
                     owner,
                     detail_key="sponsor_sell_hand_card_choices",
@@ -15776,6 +16204,48 @@ def _merge_pending_followup_details_into_payload(
     return merged_payload
 
 
+def _merge_resume_followup_fragment_into_payload(
+    payload: Dict[str, Any],
+    *,
+    fragment: Dict[str, Any],
+) -> Dict[str, Any]:
+    merged_payload = copy.deepcopy(payload or {})
+    if not fragment:
+        return merged_payload
+    resume_kind = str(merged_payload.get("resume_kind") or "").strip()
+    if "resume_animals_details" in merged_payload or resume_kind in {"", "animals_followup"}:
+        merged_payload["resume_animals_details"] = _merge_detail_fragments(
+            dict(merged_payload.get("resume_animals_details") or {}),
+            fragment,
+        )
+    if "resume_sponsor_details" in merged_payload or resume_kind == "sponsors_followup":
+        merged_payload["resume_sponsor_details"] = _merge_detail_fragments(
+            dict(merged_payload.get("resume_sponsor_details") or {}),
+            fragment,
+        )
+    return merged_payload
+
+
+def _split_deferred_sponsor_pending_followup_fragment(
+    pending_kind: str,
+    fragment: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    sponsor_only_keys_by_kind = {
+        "sponsor_212_pouch_choice": {"sponsor_pouch_hand_card_choices"},
+        "sponsor_214_action_to_slot_1_choice": {"sponsor_action_to_slot_1_choices"},
+        "sponsor_250_sell_hand_cards_choice": {"sponsor_sell_hand_card_choices"},
+    }
+    sponsor_only_keys = sponsor_only_keys_by_kind.get(str(pending_kind or "").strip(), set())
+    sponsor_fragment: Dict[str, Any] = {}
+    general_fragment: Dict[str, Any] = {}
+    for key, value in dict(fragment or {}).items():
+        if key in sponsor_only_keys:
+            sponsor_fragment[key] = copy.deepcopy(value)
+        else:
+            general_fragment[key] = copy.deepcopy(value)
+    return general_fragment, sponsor_fragment
+
+
 def _resolve_revealed_cards_keep_pending_action(
     state: GameState,
     player: PlayerState,
@@ -15932,6 +16402,219 @@ def _resolve_final_scoring_discard_pending_action(
     )
 
 
+def _attach_resume_context_defaults_to_pending_decision(
+    state: GameState,
+    *,
+    payload: Dict[str, Any],
+) -> None:
+    state.pending_decision_payload.setdefault("resume_kind", str(payload.get("resume_kind") or ""))
+    state.pending_decision_payload.setdefault(
+        "resume_sponsors_player_id",
+        payload.get("resume_sponsors_player_id"),
+    )
+    state.pending_decision_payload.setdefault(
+        "resume_sponsor_selections",
+        copy.deepcopy(payload.get("resume_sponsor_selections") or []),
+    )
+    state.pending_decision_payload.setdefault(
+        "resume_sponsor_details",
+        copy.deepcopy(payload.get("resume_sponsor_details") or {}),
+    )
+    state.pending_decision_payload.setdefault(
+        "resume_sponsor_took_from_display",
+        bool(payload.get("resume_sponsor_took_from_display")),
+    )
+    state.pending_decision_payload.setdefault(
+        "resume_animals_player_id",
+        payload.get("resume_animals_player_id"),
+    )
+    state.pending_decision_payload.setdefault(
+        "resume_animals_plays",
+        copy.deepcopy(payload.get("resume_animals_plays") or []),
+    )
+    state.pending_decision_payload.setdefault(
+        "resume_animals_details",
+        copy.deepcopy(payload.get("resume_animals_details") or {}),
+    )
+    state.pending_decision_payload.setdefault(
+        "resume_animals_sponsor_228_postplay",
+        bool(payload.get("resume_animals_sponsor_228_postplay")),
+    )
+    state.pending_decision_payload.setdefault(
+        "break_triggered",
+        bool(payload.get("break_triggered")),
+    )
+    state.pending_decision_payload.setdefault(
+        "consumed_venom",
+        bool(payload.get("consumed_venom")),
+    )
+
+
+def _resolve_deferred_sponsor_passive_pending_action(
+    state: GameState,
+    *,
+    action: Action,
+    pending_kind: str,
+    resume_stage: str,
+    remaining_key: str,
+) -> None:
+    payload = dict(state.pending_decision_payload or {})
+    details = dict(action.details or {})
+    followup_fragment = _followup_detail_fragment_from_pending_action(
+        details,
+        pending_kind=pending_kind,
+    )
+    general_followup_fragment, sponsor_followup_fragment = _split_deferred_sponsor_pending_followup_fragment(
+        pending_kind,
+        followup_fragment,
+    )
+    payload = _merge_resume_followup_fragment_into_payload(
+        payload,
+        fragment=general_followup_fragment,
+    )
+    payload["resume_sponsor_passive_details"] = _merge_detail_fragments(
+        dict(payload.get("resume_sponsor_passive_details") or {}),
+        sponsor_followup_fragment,
+    )
+    owner_id = int(payload.get("resume_sponsor_passive_owner_id", state.current_player))
+    played_by_player_id = int(payload.get("resume_sponsor_passive_played_by_player_id", owner_id))
+    played_card = payload.get("resume_sponsor_passive_played_card")
+    if not isinstance(played_card, AnimalCard):
+        raise ValueError("Missing played card for deferred sponsor passive resumption.")
+
+    sponsor_details = copy.deepcopy(payload.get("resume_sponsor_passive_details") or {})
+    sponsor_details["_resume_sponsor_passive_owner_id"] = int(owner_id)
+    sponsor_details["_resume_sponsor_passive_stage"] = str(resume_stage)
+    sponsor_details[str(remaining_key)] = int(payload.get(remaining_key, 0))
+
+    _clear_pending_decision(state)
+    _apply_sponsor_passive_triggers_on_card_play(
+        state=state,
+        played_by_player_id=played_by_player_id,
+        played_card=played_card,
+        details=sponsor_details,
+        allow_interactive=False,
+    )
+    if str(state.pending_decision_kind or "").strip():
+        _attach_resume_context_defaults_to_pending_decision(state, payload=payload)
+        return
+
+    resume_kind = str(payload.get("resume_kind") or "").strip()
+    resume_player = state.players[owner_id]
+    if resume_kind in {"", "animals_followup"}:
+        _finalize_animals_pending_resolution(
+            state,
+            resume_player,
+            player_id=owner_id,
+            payload=payload,
+        )
+        return
+
+    if resume_kind == "sponsors_followup":
+        _resume_sponsors_followup_from_pending_payload(
+            state,
+            player_id=owner_id,
+            payload=payload,
+        )
+        if str(state.pending_decision_kind or "").strip():
+            return
+        _finalize_turn(
+            state,
+            resume_player,
+            player_id=owner_id,
+            break_triggered=bool(payload.get("break_triggered")),
+            consumed_venom=bool(payload.get("consumed_venom")),
+        )
+        return
+
+    raise ValueError(f"Unsupported deferred sponsor passive resume_kind: {resume_kind}")
+
+
+def _resolve_sponsor_212_pouch_pending_action(
+    state: GameState,
+    player: PlayerState,
+    action: Action,
+) -> None:
+    del player
+    _resolve_deferred_sponsor_passive_pending_action(
+        state,
+        action=action,
+        pending_kind="sponsor_212_pouch_choice",
+        resume_stage="212",
+        remaining_key="resume_sponsor_212_remaining_triggers",
+    )
+
+
+def _resolve_sponsor_214_slot_1_pending_action(
+    state: GameState,
+    player: PlayerState,
+    action: Action,
+) -> None:
+    del player
+    _resolve_deferred_sponsor_passive_pending_action(
+        state,
+        action=action,
+        pending_kind="sponsor_214_action_to_slot_1_choice",
+        resume_stage="214",
+        remaining_key="resume_sponsor_214_remaining_triggers",
+    )
+
+
+def _resolve_sponsor_250_sell_pending_action(
+    state: GameState,
+    player: PlayerState,
+    action: Action,
+) -> None:
+    del player
+    _resolve_deferred_sponsor_passive_pending_action(
+        state,
+        action=action,
+        pending_kind="sponsor_250_sell_hand_cards_choice",
+        resume_stage="250",
+        remaining_key="resume_sponsor_250_remaining_triggers",
+    )
+
+
+def _resolve_engineer_extra_build_pending_action(
+    state: GameState,
+    player: PlayerState,
+    action: Action,
+) -> None:
+    payload = dict(state.pending_decision_payload or {})
+    details = dict(action.details or {})
+    built_type_sequence = list(payload.get("engineer_built_type_sequence") or [])
+    _clear_pending_decision(state)
+    _resolve_engineer_extra_build_followup(
+        state,
+        player,
+        player_id=int(payload.get("resume_turn_player_id", state.current_player)),
+        built_type_sequence=built_type_sequence,
+        details=details,
+        allow_interactive=False,
+    )
+    if str(state.pending_decision_kind or "").strip():
+        state.pending_decision_payload.setdefault(
+            "resume_turn_player_id",
+            payload.get("resume_turn_player_id", state.current_player),
+        )
+        state.pending_decision_payload.setdefault(
+            "break_triggered",
+            bool(payload.get("break_triggered")),
+        )
+        state.pending_decision_payload.setdefault(
+            "consumed_venom",
+            bool(payload.get("consumed_venom")),
+        )
+        return
+    _finalize_turn(
+        state,
+        player,
+        player_id=int(payload.get("resume_turn_player_id", state.current_player)),
+        break_triggered=bool(payload.get("break_triggered")),
+        consumed_venom=bool(payload.get("consumed_venom")),
+    )
+
+
 def _resolve_digging_pending_action(
     state: GameState,
     player: PlayerState,
@@ -16006,6 +16689,9 @@ def _resolve_digging_pending_action(
 def apply_action(state: GameState, action: Action) -> None:
     _validate_card_zones(state)
     pending_kind = str(state.pending_decision_kind or "").strip()
+    if not pending_kind and _maybe_trigger_round_limit_endgame(state):
+        _validate_card_zones(state)
+        return
     if pending_kind:
         player_id = int(state.pending_decision_player_id)
         player = state.players[player_id]
@@ -16051,6 +16737,18 @@ def apply_action(state: GameState, action: Action) -> None:
             return
         if pending_kind == "final_scoring_discard":
             _resolve_final_scoring_discard_pending_action(state, player, action)
+            return
+        if pending_kind == "sponsor_212_pouch_choice":
+            _resolve_sponsor_212_pouch_pending_action(state, player, action)
+            return
+        if pending_kind == "sponsor_214_action_to_slot_1_choice":
+            _resolve_sponsor_214_slot_1_pending_action(state, player, action)
+            return
+        if pending_kind == "sponsor_250_sell_hand_cards_choice":
+            _resolve_sponsor_250_sell_pending_action(state, player, action)
+            return
+        if pending_kind == "engineer_extra_build_choice":
+            _resolve_engineer_extra_build_pending_action(state, player, action)
             return
         if pending_kind == "digging_choice":
             _resolve_digging_pending_action(state, player, action)

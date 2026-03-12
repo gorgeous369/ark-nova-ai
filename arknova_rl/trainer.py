@@ -10,7 +10,7 @@ import multiprocessing as mp
 from pathlib import Path
 import random
 import time
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, TextIO, Tuple
 
 import numpy as np
 import torch
@@ -31,6 +31,7 @@ from .runtime import (
     build_model_and_encoders as _build_model_and_encoders,
     current_actor_id as _current_actor_id,
     load_torch_checkpoint as _load_torch_checkpoint,
+    restore_config as _restore_config,
 )
 
 
@@ -155,11 +156,187 @@ class TrainUpdateMetrics:
 @dataclass
 class EpisodeRolloutResult:
     episode_index: int
+    episode_seed: int
     rollout_sequences: List[RolloutSequence]
+    step_count: int
     completed_rounds: int
     terminal_abs_diffs: List[float]
     terminal_reason: str
     elapsed_seconds: float
+    trace_path: str = ""
+
+
+def _json_safe_trace_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe_trace_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_trace_value(item) for item in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    return repr(value)
+
+
+@dataclass
+class _SlowEpisodeTraceWriter:
+    trace_dir: Optional[Path]
+    update_index: int
+    episode_index: int
+    episode_seed: int
+    start_after_seconds: float
+    stop_after_seconds: float
+    path: Optional[Path] = None
+    handle: Optional[TextIO] = None
+    stopped: bool = False
+
+    def _should_start(self, *, elapsed_seconds: float) -> bool:
+        if self.trace_dir is None:
+            return False
+        return self.start_after_seconds > 0.0 and elapsed_seconds >= self.start_after_seconds
+
+    def _should_stop(self, *, elapsed_seconds: float) -> bool:
+        return self.stop_after_seconds > 0.0 and elapsed_seconds > self.stop_after_seconds
+
+    def _write_record(self, record: Dict[str, Any]) -> None:
+        if self.handle is None:
+            return
+        self.handle.write(
+            json.dumps(_json_safe_trace_value(record), ensure_ascii=True, sort_keys=True) + "\n"
+        )
+        self.handle.flush()
+
+    def _stop(self, *, elapsed_seconds: float, action_count: int, reason: str) -> None:
+        if self.handle is None:
+            return
+        self._write_record(
+            {
+                "kind": "trace_stopped",
+                "update_index": int(self.update_index),
+                "episode_index": int(self.episode_index),
+                "episode_seed": int(self.episode_seed),
+                "elapsed_seconds": float(elapsed_seconds),
+                "action_count": int(action_count),
+                "reason": str(reason),
+            }
+        )
+        self.handle.close()
+        self.handle = None
+        self.stopped = True
+
+    def stop(self, *, elapsed_seconds: float, action_count: int, reason: str) -> None:
+        if (
+            self.handle is None
+            and not self.stopped
+            and self.trace_dir is not None
+            and self._should_start(elapsed_seconds=elapsed_seconds)
+        ):
+            self.trace_dir.mkdir(parents=True, exist_ok=True)
+            self.path = self.trace_dir / (
+                f"update_{int(self.update_index):04d}_episode_{int(self.episode_index):03d}_seed_{int(self.episode_seed)}.jsonl"
+            )
+            self.handle = self.path.open("w", encoding="utf-8")
+            self._write_record(
+                {
+                    "kind": "trace_started",
+                    "update_index": int(self.update_index),
+                    "episode_index": int(self.episode_index),
+                    "episode_seed": int(self.episode_seed),
+                    "trace_start_seconds": float(self.start_after_seconds),
+                    "trace_stop_seconds": float(self.stop_after_seconds),
+                    "trigger_elapsed_seconds": float(elapsed_seconds),
+                    "trigger_action_count": int(action_count),
+                }
+            )
+        self._stop(
+            elapsed_seconds=elapsed_seconds,
+            action_count=action_count,
+            reason=reason,
+        )
+
+    def record_timeout(
+        self,
+        record: Dict[str, Any],
+        *,
+        elapsed_seconds: float,
+        action_count: int,
+        reason: str,
+    ) -> None:
+        if self.trace_dir is None or self.stopped or not self._should_start(elapsed_seconds=elapsed_seconds):
+            return
+        if self.handle is None:
+            self.trace_dir.mkdir(parents=True, exist_ok=True)
+            self.path = self.trace_dir / (
+                f"update_{int(self.update_index):04d}_episode_{int(self.episode_index):03d}_seed_{int(self.episode_seed)}.jsonl"
+            )
+            self.handle = self.path.open("w", encoding="utf-8")
+            self._write_record(
+                {
+                    "kind": "trace_started",
+                    "update_index": int(self.update_index),
+                    "episode_index": int(self.episode_index),
+                    "episode_seed": int(self.episode_seed),
+                    "trace_start_seconds": float(self.start_after_seconds),
+                    "trace_stop_seconds": float(self.stop_after_seconds),
+                    "trigger_elapsed_seconds": float(elapsed_seconds),
+                    "trigger_action_count": int(action_count),
+                }
+            )
+        self._write_record(record)
+        self._stop(
+            elapsed_seconds=elapsed_seconds,
+            action_count=action_count,
+            reason=reason,
+        )
+
+    def append(
+        self,
+        record: Dict[str, Any],
+        *,
+        elapsed_seconds: float,
+        action_count: int,
+    ) -> None:
+        if self.trace_dir is None or self.stopped:
+            return
+        if self.handle is None:
+            if not self._should_start(elapsed_seconds=elapsed_seconds):
+                return
+            if self._should_stop(elapsed_seconds=elapsed_seconds):
+                return
+            self.trace_dir.mkdir(parents=True, exist_ok=True)
+            self.path = self.trace_dir / (
+                f"update_{int(self.update_index):04d}_episode_{int(self.episode_index):03d}_seed_{int(self.episode_seed)}.jsonl"
+            )
+            self.handle = self.path.open("w", encoding="utf-8")
+            self._write_record(
+                {
+                    "kind": "trace_started",
+                    "update_index": int(self.update_index),
+                    "episode_index": int(self.episode_index),
+                    "episode_seed": int(self.episode_seed),
+                    "trace_start_seconds": float(self.start_after_seconds),
+                    "trace_stop_seconds": float(self.stop_after_seconds),
+                    "trigger_elapsed_seconds": float(elapsed_seconds),
+                    "trigger_action_count": int(action_count),
+                }
+            )
+        if self._should_stop(elapsed_seconds=elapsed_seconds):
+            self._stop(
+                elapsed_seconds=elapsed_seconds,
+                action_count=action_count,
+                reason="elapsed_limit",
+            )
+            return
+        self._write_record(record)
+
+    def finalize(self, record: Dict[str, Any]) -> str:
+        if self.handle is not None:
+            self._write_record(record)
+            self.handle.close()
+            self.handle = None
+        return str(self.path) if self.path is not None else ""
 
 
 _FEEDFORWARD_STEP_BATCH_SIZE = 256
@@ -232,6 +409,8 @@ def _collect_episode_rollout(
     device: torch.device,
     episode_index: int,
     episode_seed: int,
+    update_index: int = 0,
+    trace_dir: Optional[Path] = None,
 ) -> EpisodeRolloutResult:
     episode_started_at = time.perf_counter()
     state = main.setup_game(seed=episode_seed, player_names=["P1", "P2"])
@@ -242,11 +421,22 @@ def _collect_episode_rollout(
 
     sequence_builders: Dict[Tuple[int, int], _RolloutSequenceBuilder] = {}
     terminal_abs_diffs: List[float] = []
+    action_count = 0
+    trace_writer = _SlowEpisodeTraceWriter(
+        trace_dir=trace_dir,
+        update_index=int(update_index),
+        episode_index=int(episode_index),
+        episode_seed=int(episode_seed),
+        start_after_seconds=float(getattr(config, "slow_episode_trace_start_seconds", 0.0) or 0.0),
+        stop_after_seconds=float(getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0),
+    )
 
     while str(state.pending_decision_kind or "").strip() or not state.game_over():
+        step_started_at = time.perf_counter()
         actor_id = _current_actor_id(state)
         actor = state.players[actor_id]
         legal = main.legal_actions(actor, state=state, player_id=actor_id)
+        after_legal_at = time.perf_counter()
         if not legal:
             raise RuntimeError(
                 f"No legal actions for actor={actor_id} pending={state.pending_decision_kind!r}."
@@ -255,6 +445,7 @@ def _collect_episode_rollout(
         state_vec = obs_encoder.encode_from_state(state, actor_id)
         action_features = action_encoder.encode_many(legal)
         action_mask = np.ones((len(legal),), dtype=np.bool_)
+        after_encode_at = time.perf_counter()
 
         state_t = _to_tensor(state_vec, device=device).unsqueeze(0)
         action_t = _to_tensor(action_features, device=device).unsqueeze(0)
@@ -272,6 +463,7 @@ def _collect_episode_rollout(
             sampled_index = int(dist.sample().item())
             logprob = float(dist.log_prob(torch.tensor(sampled_index, device=device)).item())
             predicted_value = float(value.item())
+        after_forward_at = time.perf_counter()
         if model.use_lstm:
             hidden_by_actor[actor_id] = (
                 next_hidden[0].detach(),
@@ -281,7 +473,11 @@ def _collect_episode_rollout(
         before_diff = _progress_score_diff(state, actor_id)
         endgame_was_triggered = state.endgame_trigger_player is not None
         chosen_action = legal[sampled_index]
+        effect_log_cursor = len(state.effect_log)
+        pending_before = str(state.pending_decision_kind or "")
+        turn_index_before = int(state.turn_index)
         main.apply_action(state, chosen_action)
+        after_apply_at = time.perf_counter()
         after_diff = _progress_score_diff(state, actor_id)
         reward = (after_diff - before_diff) * float(config.step_reward_scale)
         if (
@@ -309,6 +505,69 @@ def _collect_episode_rollout(
             old_value=predicted_value,
             reward=float(reward),
         )
+        action_count += 1
+        elapsed_seconds = float(after_apply_at - episode_started_at)
+        stage_timings = {
+            "legal_actions": float(after_legal_at - step_started_at),
+            "encode": float(after_encode_at - after_legal_at),
+            "forward": float(after_forward_at - after_encode_at),
+            "apply_action": float(after_apply_at - after_forward_at),
+            "step_total": float(after_apply_at - step_started_at),
+        }
+        action_trace_record = {
+            "kind": "action",
+            "episode_index": int(episode_index),
+            "episode_seed": int(episode_seed),
+            "update_index": int(update_index),
+            "action_count": int(action_count),
+            "elapsed_seconds": float(elapsed_seconds),
+            "actor_id": int(actor_id),
+            "actor_name": str(actor.name),
+            "turn_index_before": int(turn_index_before),
+            "turn_index_after": int(state.turn_index),
+            "completed_rounds": int(main._completed_rounds(state)),
+            "pending_before": pending_before,
+            "pending_after": str(state.pending_decision_kind or ""),
+            "legal_action_count": int(len(legal)),
+            "action": str(chosen_action),
+            "action_details": _json_safe_trace_value(dict(chosen_action.details or {})),
+            "timing_seconds": stage_timings,
+            "new_effect_log": [str(entry) for entry in state.effect_log[effect_log_cursor:]],
+            "players": [
+                {
+                    "player_id": int(idx),
+                    "name": str(player_state.name),
+                    "money": int(player_state.money),
+                    "appeal": int(player_state.appeal),
+                    "conservation": int(player_state.conservation),
+                    "reputation": int(player_state.reputation),
+                    "x_tokens": int(player_state.x_tokens),
+                    "progress_score": float(main._progress_score(player_state)),
+                }
+                for idx, player_state in enumerate(state.players)
+            ],
+        }
+        trace_writer.append(
+            action_trace_record,
+            elapsed_seconds=elapsed_seconds,
+            action_count=action_count,
+        )
+        trace_stop_seconds = float(getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0)
+        if trace_stop_seconds > 0.0 and elapsed_seconds > trace_stop_seconds:
+            trace_writer.record_timeout(
+                action_trace_record,
+                elapsed_seconds=elapsed_seconds,
+                action_count=action_count,
+                reason="episode_timeout",
+            )
+            raise TimeoutError(
+                "Episode rollout exceeded slow_episode_trace_stop_seconds "
+                f"({trace_stop_seconds:.2f}s) before reaching terminal state: "
+                f"update={int(update_index)} episode_index={int(episode_index)} "
+                f"episode_seed={int(episode_seed)} action_count={int(action_count)} "
+                f"pending={state.pending_decision_kind!r} completed_rounds={int(main._completed_rounds(state))} "
+                f"action={str(chosen_action)!r} timings={stage_timings}."
+            )
 
     for player_id in range(len(state.players)):
         seq_key = (episode_index, player_id)
@@ -336,14 +595,34 @@ def _collect_episode_rollout(
         for key in sorted(sequence_builders)
         if sequence_builders[key].step_count > 0
     ]
+    elapsed_seconds = float(time.perf_counter() - episode_started_at)
+    trace_path = trace_writer.finalize(
+        {
+            "kind": "terminal",
+            "episode_index": int(episode_index),
+            "episode_seed": int(episode_seed),
+            "update_index": int(update_index),
+            "action_count": int(action_count),
+            "elapsed_seconds": float(elapsed_seconds),
+            "completed_rounds": int(main._completed_rounds(state)),
+            "terminal_reason": terminal_reason,
+            "scores": {
+                str(player_state.name): int(main._final_score_points(state, player_state))
+                for player_state in state.players
+            },
+        }
+    )
 
     return EpisodeRolloutResult(
         episode_index=int(episode_index),
+        episode_seed=int(episode_seed),
         rollout_sequences=rollout_sequences,
+        step_count=int(action_count),
         completed_rounds=int(main._completed_rounds(state)),
         terminal_abs_diffs=terminal_abs_diffs,
         terminal_reason=terminal_reason,
-        elapsed_seconds=float(time.perf_counter() - episode_started_at),
+        elapsed_seconds=elapsed_seconds,
+        trace_path=trace_path,
     )
 
 
@@ -405,13 +684,15 @@ def _collect_rollout_chunk_worker(payload: Dict[str, Any]) -> List[EpisodeRollou
     np.random.seed(task_seed)
     torch.manual_seed(task_seed)
 
-    config = PPOTrainConfig(**dict(payload.get("config") or {}))
-    config.resolve_algo_flags()
+    config = _restore_config(payload.get("config"))
     config.device = "cpu"
     device = torch.device("cpu")
     model, obs_encoder, action_encoder = _build_model_and_encoders(config=config, device=device)
     model.load_state_dict(dict(payload.get("model_state_dict") or {}))
     model.eval()
+    update_index = int(payload.get("update_index", 0) or 0)
+    trace_dir_raw = str(payload.get("trace_dir") or "").strip()
+    trace_dir = Path(trace_dir_raw) if trace_dir_raw else None
 
     episode_results: List[EpisodeRolloutResult] = []
     for episode_index, episode_seed in list(payload.get("episode_specs") or []):
@@ -424,6 +705,8 @@ def _collect_rollout_chunk_worker(payload: Dict[str, Any]) -> List[EpisodeRollou
                 device=device,
                 episode_index=int(episode_index),
                 episode_seed=int(episode_seed),
+                update_index=update_index,
+                trace_dir=trace_dir,
             )
         )
     return episode_results
@@ -438,9 +721,9 @@ def _collect_rollout(
     rng: random.Random,
     device: torch.device,
     update_index: int,
+    trace_dir: Optional[Path] = None,
     rollout_executor: Optional[Executor] = None,
 ) -> Tuple[List[RolloutSequence], Dict[str, Any]]:
-    del update_index
     rollout_sequences: List[RolloutSequence] = []
     episode_rounds: List[int] = []
     episode_elapsed_seconds: List[float] = []
@@ -464,6 +747,8 @@ def _collect_rollout(
                     device=device,
                     episode_index=int(episode_idx),
                     episode_seed=int(episode_seed),
+                    update_index=int(update_index),
+                    trace_dir=trace_dir,
                 )
             )
     else:
@@ -477,6 +762,8 @@ def _collect_rollout(
                     "model_state_dict": cpu_model_state,
                     "episode_specs": chunk,
                     "task_seed": rng.randint(0, 10_000_000),
+                    "update_index": int(update_index),
+                    "trace_dir": str(trace_dir) if trace_dir is not None else "",
                 },
             )
             for chunk in chunked_specs
@@ -518,6 +805,18 @@ def _collect_rollout(
             float(np.max(episode_elapsed_seconds)) if episode_elapsed_seconds else 0.0
         ),
         "terminal_reason_counts": dict(terminal_reason_counter),
+        "episode_summaries": [
+            {
+                "episode_index": int(result.episode_index),
+                "episode_seed": int(result.episode_seed),
+                "step_count": int(result.step_count),
+                "completed_rounds": int(result.completed_rounds),
+                "terminal_reason": str(result.terminal_reason),
+                "elapsed_seconds": float(result.elapsed_seconds),
+                "trace_path": str(result.trace_path or ""),
+            }
+            for result in episode_results
+        ],
     }
     return rollout_sequences, rollout_stats
 
@@ -1014,6 +1313,7 @@ def train_self_play(
     config.resolve_algo_flags()
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    slow_trace_dir = output_path / "slow_episode_traces"
 
     rng = random.Random(config.seed)
     np.random.seed(config.seed)
@@ -1036,6 +1336,15 @@ def train_self_play(
         "resolved devices: "
         f"requested={requested_device} training={device.type} inference={inference_device.type}"
     )
+    if (
+        float(getattr(config, "slow_episode_trace_start_seconds", 0.0) or 0.0) > 0.0
+    ):
+        print(
+            "slow episode trace: "
+            f"dir={slow_trace_dir} "
+            f"start={float(getattr(config, 'slow_episode_trace_start_seconds', 0.0) or 0.0):.2f}s "
+            f"stop={float(getattr(config, 'slow_episode_trace_stop_seconds', 0.0) or 0.0):.2f}s"
+        )
     if inference_device != device:
         print(
             "inference device fallback: "
@@ -1161,6 +1470,7 @@ def train_self_play(
                 rng=rng,
                 device=rollout_device,
                 update_index=update_idx,
+                trace_dir=slow_trace_dir,
                 rollout_executor=rollout_executor,
             )
             update_time_sec = float(time.perf_counter() - rollout_started_at)
@@ -1204,6 +1514,7 @@ def train_self_play(
                             "episode_time_max_sec": float(metrics.episode_time_max_sec),
                             "update_time_sec": float(metrics.update_time_sec),
                             "model_update_time_sec": float(metrics.model_update_time_sec),
+                            "episode_summaries": list(rollout_stats.get("episode_summaries") or []),
                         },
                         ensure_ascii=True,
                         sort_keys=True,
@@ -1215,6 +1526,20 @@ def train_self_play(
                 reason_text = ", ".join(
                     f"{key}:{value}"
                     for key, value in sorted(metrics.terminal_reason_counts.items())
+                ) or "-"
+                slowest_episodes = sorted(
+                    list(rollout_stats.get("episode_summaries") or []),
+                    key=lambda item: float(item.get("elapsed_seconds", 0.0)),
+                    reverse=True,
+                )[:3]
+                slowest_text = ", ".join(
+                    (
+                        f"seed={int(item.get('episode_seed', 0))}:"
+                        f"{float(item.get('elapsed_seconds', 0.0)):.2f}s/"
+                        f"steps={int(item.get('step_count', 0))}/"
+                        f"reason={str(item.get('terminal_reason', ''))}"
+                    )
+                    for item in slowest_episodes
                 ) or "-"
                 print(
                     f"[update {update_idx:04d}] "
@@ -1228,7 +1553,7 @@ def train_self_play(
                     f"model_update_time={metrics.model_update_time_sec:.2f}s "
                     f"policy={metrics.policy_loss:.4f} value={metrics.value_loss:.4f} "
                     f"entropy={metrics.entropy:.4f} total={metrics.total_loss:.4f} "
-                    f"reasons={reason_text}"
+                    f"reasons={reason_text} slowest={slowest_text}"
                 )
 
             should_run_fixed_eval = (
