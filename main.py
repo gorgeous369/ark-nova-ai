@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 import copy
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
@@ -22,7 +24,8 @@ import json
 from pathlib import Path
 import random
 import re
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, TypeVar
+import time
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Set, Tuple, TypeVar
 
 from arknova_engine.map_model import (
     ArkNovaMap,
@@ -106,6 +109,172 @@ class ActionType(str, Enum):
     BUILD_ENCLOSURE = "build_enclosure"
     PLAY_ANIMAL = "play_animal"
     DONATION = "donation"
+
+
+_LEGAL_ACTIONS_PROFILE_CALLBACK: ContextVar[Optional[Callable[[Dict[str, Any]], None]]] = ContextVar(
+    "_LEGAL_ACTIONS_PROFILE_CALLBACK",
+    default=None,
+)
+_LEGAL_ACTIONS_PROFILE_COPY_SNAPSHOT: ContextVar[bool] = ContextVar(
+    "_LEGAL_ACTIONS_PROFILE_COPY_SNAPSHOT",
+    default=True,
+)
+_LEGAL_ACTIONS_PROFILE_STATE: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+    "_LEGAL_ACTIONS_PROFILE_STATE",
+    default=None,
+)
+
+
+@contextmanager
+def legal_actions_profiling(
+    callback: Callable[[Dict[str, Any]], None],
+    *,
+    snapshot_copy: bool = True,
+) -> Iterator[None]:
+    callback_token = _LEGAL_ACTIONS_PROFILE_CALLBACK.set(callback)
+    copy_token = _LEGAL_ACTIONS_PROFILE_COPY_SNAPSHOT.set(bool(snapshot_copy))
+    try:
+        yield
+    finally:
+        _LEGAL_ACTIONS_PROFILE_COPY_SNAPSHOT.reset(copy_token)
+        _LEGAL_ACTIONS_PROFILE_CALLBACK.reset(callback_token)
+
+
+def _legal_actions_profile_emit() -> None:
+    callback = _LEGAL_ACTIONS_PROFILE_CALLBACK.get()
+    state = _LEGAL_ACTIONS_PROFILE_STATE.get()
+    if callback is None or state is None:
+        return
+    if _LEGAL_ACTIONS_PROFILE_COPY_SNAPSHOT.get():
+        callback(copy.deepcopy(state))
+        return
+    callback(state)
+
+
+def _legal_actions_profile_update(**kwargs: Any) -> None:
+    state = _LEGAL_ACTIONS_PROFILE_STATE.get()
+    if state is None:
+        return
+    for key, value in kwargs.items():
+        state[str(key)] = copy.deepcopy(value)
+    _legal_actions_profile_emit()
+
+
+def _legal_actions_profile_update_nested(field_name: str, **kwargs: Any) -> None:
+    state = _LEGAL_ACTIONS_PROFILE_STATE.get()
+    if state is None:
+        return
+    field_key = str(field_name)
+    nested = state.get(field_key)
+    if not isinstance(nested, dict):
+        nested = {}
+        state[field_key] = nested
+    for key, value in kwargs.items():
+        nested[str(key)] = copy.deepcopy(value)
+    _legal_actions_profile_emit()
+
+
+def _legal_actions_profile_branch_metrics(branch_name: str) -> Dict[str, Any]:
+    state = _LEGAL_ACTIONS_PROFILE_STATE.get()
+    if state is None:
+        return {}
+    branch_metrics = state.setdefault("branch_metrics", {})
+    branch_key = str(branch_name or "other")
+    metrics = branch_metrics.get(branch_key)
+    if not isinstance(metrics, dict):
+        metrics = {
+            "elapsed_seconds": 0.0,
+            "template_action_count": 0,
+            "concrete_action_count": 0,
+        }
+        branch_metrics[branch_key] = metrics
+    return metrics
+
+
+def _animals_play_profile_summary(plays: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    items: List[Dict[str, Any]] = []
+    labels: List[str] = []
+    for play in plays:
+        if not isinstance(play, dict):
+            continue
+        card_name = str(play.get("card_name") or "").strip()
+        hand_index_raw = play.get("card_hand_index")
+        enclosure_index_raw = play.get("enclosure_index")
+        hand_index = int(hand_index_raw) if isinstance(hand_index_raw, int) else None
+        enclosure_index = int(enclosure_index_raw) if isinstance(enclosure_index_raw, int) else None
+        item = {
+            "card_name": card_name,
+            "hand_index": hand_index,
+            "enclosure_index": enclosure_index,
+        }
+        items.append(item)
+        if card_name:
+            if enclosure_index is None:
+                labels.append(card_name)
+            else:
+                labels.append(f"{card_name}@E{enclosure_index}")
+    summary: Dict[str, Any] = {
+        "play_count": int(len(items)),
+        "plays": items,
+        "rendered": " ; then ".join(labels),
+    }
+    if items:
+        summary["first_play"] = copy.deepcopy(items[0])
+    if len(items) >= 2:
+        summary["second_play"] = copy.deepcopy(items[1])
+    return summary
+
+
+def _build_option_profile_summary(option: Dict[str, Any]) -> Dict[str, Any]:
+    cells = [
+        [int(cell[0]), int(cell[1])]
+        for cell in list(option.get("cells") or [])
+        if isinstance(cell, (list, tuple)) and len(cell) == 2
+    ]
+    bonuses = [str(bonus).strip() for bonus in list(option.get("placement_bonuses") or []) if str(bonus).strip()]
+    return {
+        "index": int(option.get("index", 0) or 0),
+        "building_type": str(option.get("building_type") or ""),
+        "building_label": str(option.get("building_label") or ""),
+        "cells": cells,
+        "placement_bonuses": bonuses,
+        "bonus_count": int(len(bonuses)),
+        "size": int(option.get("size", 0) or 0),
+        "cost": int(option.get("cost", 0) or 0),
+        "rendered": _build_option_label(option, []),
+    }
+
+
+@contextmanager
+def _legal_actions_profile_scope(
+    subfunction: str,
+    *,
+    phase: str = "",
+    branch: str = "",
+) -> Iterator[None]:
+    state = _LEGAL_ACTIONS_PROFILE_STATE.get()
+    if state is None:
+        yield
+        return
+    started_at = time.perf_counter()
+    if phase:
+        state["phase"] = str(phase)
+    if branch:
+        state["current_branch"] = str(branch)
+        _legal_actions_profile_branch_metrics(branch)
+    state["last_subfunction"] = str(subfunction)
+    state["last_subfunction_started_at"] = float(started_at)
+    _legal_actions_profile_emit()
+    try:
+        yield
+    finally:
+        elapsed_seconds = float(time.perf_counter() - started_at)
+        if branch:
+            metrics = _legal_actions_profile_branch_metrics(branch)
+            metrics["elapsed_seconds"] = float(metrics.get("elapsed_seconds", 0.0) + elapsed_seconds)
+        state["last_completed_subfunction"] = str(subfunction)
+        state["last_subfunction_elapsed_seconds"] = elapsed_seconds
+        _legal_actions_profile_emit()
 
 
 @dataclass(frozen=True)
@@ -267,6 +436,7 @@ CONSERVATION_FIXED_MONEY_OPTION = "5coins"
 CONSERVATION_REWARD_THRESHOLDS: Tuple[int, int, int] = (2, 5, 8)
 CONSERVATION_SHARED_BONUS_THRESHOLDS: Tuple[int, int] = (5, 8)
 MAX_GAME_ROUNDS: int = 100
+MAX_EMPTY_ENCLOSURES_BEFORE_BUILD: int = 4
 
 _BUILD_ENUM_LEGAL_OPTION_CACHE: Dict[Tuple[str, str, int, Tuple[str, ...], bool, bool], List[Dict[str, Any]]] = {}
 ZOO_DECK_CARD_TYPES: Tuple[str, ...] = ("animal", "sponsor", "conservation_project")
@@ -812,6 +982,59 @@ def _serialize_animal_card_private(card: AnimalCard) -> Dict[str, Any]:
     return card_view
 
 
+def _serialize_animal_placement_private(placement: AnimalPlacement) -> Dict[str, Any]:
+    return {
+        "enclosure_origin": (
+            [int(placement.enclosure_origin[0]), int(placement.enclosure_origin[1])]
+            if placement.enclosure_origin is not None
+            else None
+        ),
+        "rotation": str(placement.rotation),
+        "enclosure_size": int(placement.enclosure_size),
+        "enclosure_type": str(placement.enclosure_type),
+        "spaces_used": int(placement.spaces_used),
+    }
+
+
+def _canonicalize_signature_value(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, float):
+        if float(value).is_integer():
+            return int(value)
+        return float(value)
+    if isinstance(value, Enum):
+        return str(value.value)
+    if isinstance(value, dict):
+        return {
+            str(key): _canonicalize_signature_value(item)
+            for key, item in sorted(value.items(), key=lambda entry: str(entry[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_canonicalize_signature_value(item) for item in value]
+    if isinstance(value, set):
+        normalized_items = [_canonicalize_signature_value(item) for item in value]
+        return sorted(
+            normalized_items,
+            key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=True),
+        )
+    if hasattr(value, "__dataclass_fields__"):
+        return {
+            str(name): _canonicalize_signature_value(getattr(value, name))
+            for name in sorted(value.__dataclass_fields__)
+        }
+    if hasattr(value, "__dict__"):
+        return {
+            "__class__": str(value.__class__.__name__),
+            **{
+                str(name): _canonicalize_signature_value(item)
+                for name, item in sorted(vars(value).items(), key=lambda entry: str(entry[0]))
+                if not str(name).startswith("_")
+            },
+        }
+    return repr(value)
+
+
 def _serialize_enclosure_public(enclosure: Enclosure) -> Dict[str, Any]:
     return {
         "size": int(enclosure.size),
@@ -1165,6 +1388,23 @@ def _build_private_player_observation(player: PlayerState) -> Dict[str, Any]:
     }
 
 
+def _build_private_player_resolution_signature(player: PlayerState) -> Dict[str, Any]:
+    signature = _build_private_player_observation(player)
+    signature["legacy_private_deck"] = [
+        _serialize_animal_card_private(card)
+        for card in list(player.deck)
+    ]
+    signature["legacy_private_discard"] = [
+        _serialize_animal_card_private(card)
+        for card in list(player.discard)
+    ]
+    signature["animal_placements"] = {
+        str(card_id): _serialize_animal_placement_private(placement)
+        for card_id, placement in sorted(player.animal_placements.items(), key=lambda item: str(item[0]))
+    }
+    return signature
+
+
 def build_public_observation(state: GameState, *, viewer_player_id: int) -> Dict[str, Any]:
     _validate_observation_viewer_id(state, viewer_player_id)
     conservation_project_slots: Dict[str, Dict[str, Optional[int]]] = {}
@@ -1279,6 +1519,41 @@ def build_player_observation(state: GameState, *, viewer_player_id: int) -> Dict
         "public": build_public_observation(state, viewer_player_id=viewer_player_id),
         "private": build_private_observation(state, viewer_player_id=viewer_player_id),
     }
+
+
+def _animals_resolution_result_signature(state: GameState, *, viewer_player_id: int) -> str:
+    public_observation = build_public_observation(state, viewer_player_id=viewer_player_id)
+    public_observation.pop("viewer_player_id", None)
+    snapshot = {
+        "public": public_observation,
+        "players_private": [
+            _build_private_player_resolution_signature(player)
+            for player in list(state.players)
+        ],
+        "zoo_deck": [
+            _serialize_animal_card_private(card)
+            for card in list(state.zoo_deck)
+        ],
+        "zoo_discard": [
+            _serialize_animal_card_private(card)
+            for card in list(state.zoo_discard)
+        ],
+        "final_scoring_deck": [
+            _serialize_setup_card_ref(card)
+            for card in list(state.final_scoring_deck)
+        ],
+        "final_scoring_discard": [
+            _serialize_setup_card_ref(card)
+            for card in list(state.final_scoring_discard)
+        ],
+        "unused_base_conservation_projects": [
+            _serialize_setup_card_ref(card)
+            for card in list(state.unused_base_conservation_projects)
+        ],
+        "marked_display_card_ids": sorted(str(item) for item in state.marked_display_card_ids),
+        "pending_decision_payload_full": _canonicalize_signature_value(state.pending_decision_payload),
+    }
+    return json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
 def build_deck() -> List[AnimalCard]:
@@ -2231,15 +2506,59 @@ def _enumerate_build_bonus_choice_variants(
     player_id: int,
     option: Dict[str, Any],
 ) -> List[Tuple[Dict[str, Any], str]]:
+    _legal_actions_profile_update(
+        phase="enumerate_build_bonus_choice_variants",
+        current_branch="build",
+        last_subfunction="_enumerate_build_bonus_choice_variants",
+    )
+    option_summary = _build_option_profile_summary(option)
     bonuses = [str(bonus).strip() for bonus in option.get("placement_bonuses") or [] if str(bonus).strip()]
+    _legal_actions_profile_update_nested(
+        "build_profile",
+        mode="enumerate_bonus_variants",
+        current_option=copy.deepcopy(option_summary),
+        current_option_label=str(option_summary.get("rendered") or ""),
+        current_bonus="",
+        bonus_index=None,
+        bonus_count=int(len(bonuses)),
+        placement_bonuses=list(bonuses),
+        variant_count_before=1,
+        variant_count_after=1,
+        deduped_variant_count=0,
+        current_sequence_length=None,
+        current_sequence_label="",
+        resolved_variant_count=0,
+        last_completed_bonus="",
+    )
     if not bonuses:
+        _legal_actions_profile_update_nested(
+            "build_profile",
+            mode="completed_bonus_variants",
+            deduped_variant_count=1,
+            current_bonus="",
+            bonus_index=None,
+        )
         return [({}, "")]
 
     player = state.players[player_id]
     variants: List[Tuple[Dict[str, Any], List[str], List[AnimalCard], List[AnimalCard], List[str], int]] = [
         ({}, [], list(state.zoo_display), list(state.zoo_deck), list(player.action_order), int(player.reputation))
     ]
-    for bonus in bonuses:
+    for bonus_index, bonus in enumerate(bonuses, start=1):
+        variants_before = int(len(variants))
+        _legal_actions_profile_update_nested(
+            "build_profile",
+            mode="expand_bonus",
+            current_option=copy.deepcopy(option_summary),
+            current_option_label=str(option_summary.get("rendered") or ""),
+            current_bonus=str(bonus),
+            bonus_index=int(bonus_index),
+            bonus_count=int(len(bonuses)),
+            placement_bonuses=list(bonuses),
+            variant_count_before=int(variants_before),
+            variant_count_after=0,
+            deduped_variant_count=0,
+        )
         next_variants: List[
             Tuple[Dict[str, Any], List[str], List[AnimalCard], List[AnimalCard], List[str], int]
         ] = []
@@ -2317,6 +2636,19 @@ def _enumerate_build_bonus_choice_variants(
                 )
             )
         variants = next_variants
+        _legal_actions_profile_update_nested(
+            "build_profile",
+            mode="expanded_bonus",
+            current_option=copy.deepcopy(option_summary),
+            current_option_label=str(option_summary.get("rendered") or ""),
+            current_bonus=str(bonus),
+            bonus_index=int(bonus_index),
+            bonus_count=int(len(bonuses)),
+            placement_bonuses=list(bonuses),
+            variant_count_before=int(variants_before),
+            variant_count_after=int(len(variants)),
+            last_completed_bonus=str(bonus),
+        )
 
     deduped: List[Tuple[Dict[str, Any], str]] = []
     seen: Set[str] = set()
@@ -2326,6 +2658,19 @@ def _enumerate_build_bonus_choice_variants(
             continue
         seen.add(key)
         deduped.append((copy.deepcopy(details), " ; ".join(label for label in labels if label)))
+    _legal_actions_profile_update_nested(
+        "build_profile",
+        mode="completed_bonus_variants",
+        current_option=copy.deepcopy(option_summary),
+        current_option_label=str(option_summary.get("rendered") or ""),
+        current_bonus="",
+        bonus_index=None,
+        bonus_count=int(len(bonuses)),
+        placement_bonuses=list(bonuses),
+        variant_count_before=int(len(variants)),
+        variant_count_after=int(len(variants)),
+        deduped_variant_count=int(len(deduped) or 1),
+    )
     return deduped or [({}, "")]
 
 
@@ -2406,6 +2751,11 @@ def _enumerate_sponsor_candidate_detail_variants(
     player_id: int,
     candidate: Dict[str, Any],
 ) -> List[Tuple[Dict[str, Any], str]]:
+    _legal_actions_profile_update(
+        phase="enumerate_sponsor_candidate_detail_variants",
+        current_branch="sponsors",
+        last_subfunction="_enumerate_sponsor_candidate_detail_variants",
+    )
     card = candidate["card"]
     variants: List[Tuple[Dict[str, Any], str]] = [({}, "")]
 
@@ -2546,9 +2896,16 @@ def _resolve_action_detail_variants_by_simulation(
     base_details: Dict[str, Any],
     executor: Callable[[GameState, PlayerState, Dict[str, Any]], None],
     invalid_effect_log_prefixes: Sequence[str] = (),
+    result_signature_builder: Optional[Callable[[GameState], str]] = None,
+    seen_result_signatures: Optional[Set[str]] = None,
 ) -> List[Tuple[Dict[str, Any], str]]:
+    _legal_actions_profile_update(
+        phase="resolve_action_detail_variants_by_simulation",
+        last_subfunction="_resolve_action_detail_variants_by_simulation",
+    )
     resolved: List[Tuple[Dict[str, Any], str]] = []
     visiting: Set[str] = set()
+    emitted_result_signatures: Set[str] = set() if seen_result_signatures is None else seen_result_signatures
 
     def _recurse(details_payload: Dict[str, Any], label_parts: List[str]) -> None:
         payload_key = json.dumps(details_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -2587,6 +2944,12 @@ def _resolve_action_detail_variants_by_simulation(
                     for entry in recent_effects
                 ):
                     return
+
+            if result_signature_builder is not None:
+                result_signature = str(result_signature_builder(sim_state))
+                if result_signature in emitted_result_signatures:
+                    return
+                emitted_result_signatures.add(result_signature)
 
             label = " ; ".join(part for part in label_parts if part)
             resolved.append((copy.deepcopy(details_payload), label))
@@ -2726,6 +3089,11 @@ def _enumerate_concrete_cards_actions(
     player: PlayerState,
     template_action: Action,
 ) -> List[Action]:
+    _legal_actions_profile_update(
+        phase="enumerate_concrete_cards_actions",
+        current_branch="cards",
+        last_subfunction="_enumerate_concrete_cards_actions",
+    )
     strength = int((template_action.details or {}).get("effective_strength", 0))
     upgraded = bool(player.action_upgraded["cards"])
     draw_target, discard_target, snap_allowed = _cards_table_values(strength, upgraded)
@@ -5790,6 +6158,11 @@ def _enumerate_concrete_animals_actions(
     player_id: int,
     template_action: Action,
 ) -> List[Action]:
+    _legal_actions_profile_update(
+        phase="enumerate_concrete_animals_actions",
+        current_branch="animals",
+        last_subfunction="_enumerate_concrete_animals_actions",
+    )
     strength = int((template_action.details or {}).get("effective_strength", 0))
     options = list_legal_animals_options(state=state, player_id=player_id, strength=strength)
     actions: List[Action] = []
@@ -5818,6 +6191,7 @@ def _enumerate_concrete_animals_actions(
         "pouch",
     }
     choice_sensitive_sponsors = {210, 211, 213, 228, 249, 252, 253}
+    seen_resolution_signatures: Set[str] = set()
 
     def _resolve_animals_details(details_payload: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str]]:
         return _resolve_action_detail_variants_by_simulation(
@@ -5832,10 +6206,27 @@ def _enumerate_concrete_animals_actions(
                 player_id=player_id,
             ),
             invalid_effect_log_prefixes=("animals_followup_skipped_missing_hand_card",),
+            result_signature_builder=lambda sim_state: _animals_resolution_result_signature(
+                sim_state,
+                viewer_player_id=player_id,
+            ),
+            seen_result_signatures=seen_resolution_signatures,
         )
 
+    _legal_actions_profile_update_nested(
+        "animals_profile",
+        mode="enumerate_concrete_animals_actions",
+        current_option=None,
+        current_option_label="",
+        current_effect_label="",
+        requires_resolution=None,
+        resolved_variant_count=0,
+        concrete_action_count=0,
+    )
     for option in options:
         base_label = " ; then ".join(_format_animals_play_step_for_human(step, player) for step in option["plays"])
+        option_summary = _animals_play_profile_summary(list(option.get("plays") or []))
+        option_summary["index"] = int(option.get("index", 0))
         effect_variants = _enumerate_animals_effect_choice_variants(player, option["plays"], state=state)
         for extra_effect_details, effect_label in effect_variants:
             label = base_label if not effect_label else f"{base_label} ; {effect_label}"
@@ -5862,7 +6253,30 @@ def _enumerate_concrete_animals_actions(
                 or any(_player_has_sponsor(player, sponsor_no) for sponsor_no in choice_sensitive_sponsors)
                 or int(player.sponsor_tokens_by_number.get(253, 0)) > 0
             )
+            if requires_resolution:
+                _legal_actions_profile_update_nested(
+                    "animals_profile",
+                    mode="resolve_option_details",
+                    current_option=copy.deepcopy(option_summary),
+                    current_option_label=str(label),
+                    current_effect_label=str(effect_label),
+                    requires_resolution=True,
+                    first_play=copy.deepcopy(option_summary.get("first_play")),
+                    second_card=copy.deepcopy(option_summary.get("second_play")),
+                )
             resolved_variants = [(copy.deepcopy(details), "")] if not requires_resolution else _resolve_animals_details(details)
+            if requires_resolution:
+                _legal_actions_profile_update_nested(
+                    "animals_profile",
+                    mode="resolved_option_details",
+                    current_option=copy.deepcopy(option_summary),
+                    current_option_label=str(label),
+                    current_effect_label=str(effect_label),
+                    requires_resolution=True,
+                    resolved_variant_count=int(len(resolved_variants)),
+                    last_resolved_option=copy.deepcopy(option_summary),
+                    last_resolved_label=str(label),
+                )
             for resolved_details, resolved_label in resolved_variants:
                 final_label = label if not resolved_label else f"{label} ; {resolved_label}"
                 actions.append(
@@ -5872,6 +6286,16 @@ def _enumerate_concrete_animals_actions(
                         extra_details=resolved_details,
                     )
                 )
+    _legal_actions_profile_update_nested(
+        "animals_profile",
+        mode="enumerate_concrete_animals_actions_completed",
+        current_option=None,
+        current_option_label="",
+        current_effect_label="",
+        requires_resolution=None,
+        resolved_variant_count=0,
+        concrete_action_count=int(len(actions)),
+    )
     return actions
 
 
@@ -5881,12 +6305,34 @@ def _enumerate_concrete_build_actions(
     player_id: int,
     template_action: Action,
 ) -> List[Action]:
+    _legal_actions_profile_update(
+        phase="enumerate_concrete_build_actions",
+        current_branch="build",
+        last_subfunction="_enumerate_concrete_build_actions",
+    )
     strength = int((template_action.details or {}).get("effective_strength", 0))
     min_total_size_exclusive = int((template_action.details or {}).get("min_total_size_exclusive", 0))
     upgraded = bool(player.action_upgraded["build"])
     has_engineer = _player_has_sponsor(player, 217)
     actions: List[Action] = []
     max_build_steps = 2 if upgraded else 1
+    _legal_actions_profile_update_nested(
+        "build_profile",
+        mode="initialize",
+        current_option=None,
+        current_option_label="",
+        current_bonus="",
+        bonus_index=None,
+        bonus_count=0,
+        placement_bonuses=[],
+        variant_count_before=0,
+        variant_count_after=0,
+        deduped_variant_count=0,
+        current_sequence_length=0,
+        current_sequence_label="",
+        resolved_variant_count=0,
+        last_completed_bonus="",
+    )
 
     def _resolve_build_details(details_payload: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str]]:
         return _resolve_action_detail_variants_by_simulation(
@@ -6033,16 +6479,46 @@ def _enumerate_concrete_build_actions(
         for option in options:
             if int(option.get("size", 0)) <= min_total_size_exclusive:
                 continue
+            option_summary = _build_option_profile_summary(option)
+            option_label = str(option_summary.get("rendered") or "")
+            _legal_actions_profile_update_nested(
+                "build_profile",
+                mode="scan_option",
+                current_option=copy.deepcopy(option_summary),
+                current_option_label=option_label,
+                current_sequence_length=1,
+                current_sequence_label=option_label,
+                resolved_variant_count=0,
+            )
             for bonus_details, bonus_label in _enumerate_build_bonus_choice_variants(state, player_id, option):
                 base_details = _merge_list_detail_fragments(
                     {"selections": [_build_selection_payload(option)]},
                     bonus_details,
+                )
+                final_step_label = _build_step_action_label(option, bonus_label)
+                _legal_actions_profile_update_nested(
+                    "build_profile",
+                    mode="resolve_option_details",
+                    current_option=copy.deepcopy(option_summary),
+                    current_option_label=final_step_label,
+                    current_sequence_length=1,
+                    current_sequence_label=final_step_label,
+                    resolved_variant_count=0,
                 )
                 resolved_variants = (
                     [(copy.deepcopy(base_details), "")]
                     if not bonus_details
                     and not (_player_has_sponsor(player, 221) and bool(option.get("placement_bonuses")))
                     else _resolve_build_details(base_details)
+                )
+                _legal_actions_profile_update_nested(
+                    "build_profile",
+                    mode="resolved_option_details",
+                    current_option=copy.deepcopy(option_summary),
+                    current_option_label=final_step_label,
+                    current_sequence_length=1,
+                    current_sequence_label=final_step_label,
+                    resolved_variant_count=int(len(resolved_variants)),
                 )
                 for resolved_details, resolved_label in resolved_variants:
                     final_label = _build_step_action_label(option, bonus_label)
@@ -6082,6 +6558,17 @@ def _enumerate_concrete_build_actions(
             if int(option.get("cost", 0)) <= int(simulated_player.money)
         ]
         for option in options:
+            option_summary = _build_option_profile_summary(option)
+            sequence_prefix = " ; then ".join(label_steps)
+            _legal_actions_profile_update_nested(
+                "build_profile",
+                mode="scan_option",
+                current_option=copy.deepcopy(option_summary),
+                current_option_label=str(option_summary.get("rendered") or ""),
+                current_sequence_length=int(len(selection_sequence) + 1),
+                current_sequence_label=sequence_prefix,
+                resolved_variant_count=0,
+            )
             for step_bonus_details, step_bonus_label in _enumerate_build_bonus_choice_variants(
                 simulated_state,
                 player_id,
@@ -6099,15 +6586,34 @@ def _enumerate_concrete_build_actions(
                     {"selections": next_selection_sequence},
                     next_accumulated_bonus_details,
                 )
+                current_step_label = _build_step_action_label(option, step_bonus_label)
+                current_sequence_label = " ; then ".join(label_steps + [current_step_label])
+                _legal_actions_profile_update_nested(
+                    "build_profile",
+                    mode="resolve_option_details",
+                    current_option=copy.deepcopy(option_summary),
+                    current_option_label=current_step_label,
+                    current_sequence_length=int(len(next_selection_sequence)),
+                    current_sequence_label=current_sequence_label,
+                    resolved_variant_count=0,
+                )
                 requires_resolution = (
-                    len(next_selection_sequence) > 1
-                    or bool(next_accumulated_bonus_details)
+                    bool(next_accumulated_bonus_details)
                     or (_player_has_sponsor(player, 221) and bool(option.get("placement_bonuses")))
                 )
                 resolved_variants = (
                     [(copy.deepcopy(base_details), "")]
                     if not requires_resolution
                     else _resolve_build_details(base_details)
+                )
+                _legal_actions_profile_update_nested(
+                    "build_profile",
+                    mode="resolved_option_details",
+                    current_option=copy.deepcopy(option_summary),
+                    current_option_label=current_step_label,
+                    current_sequence_length=int(len(next_selection_sequence)),
+                    current_sequence_label=current_sequence_label,
+                    resolved_variant_count=int(len(resolved_variants)),
                 )
                 if next_total_size > min_total_size_exclusive:
                     for resolved_details, resolved_label in resolved_variants:
@@ -6154,6 +6660,18 @@ def _enumerate_concrete_build_actions(
                 )
 
     _recurse(copy.deepcopy(state), strength, set(), 0, 0, [], {}, [])
+    _legal_actions_profile_update_nested(
+        "build_profile",
+        mode="enumerate_concrete_build_actions_completed",
+        current_option=None,
+        current_option_label="",
+        current_bonus="",
+        bonus_index=None,
+        bonus_count=0,
+        placement_bonuses=[],
+        current_sequence_length=0,
+        current_sequence_label="",
+    )
     return actions
 
 
@@ -6163,6 +6681,11 @@ def _enumerate_concrete_association_actions(
     player_id: int,
     template_action: Action,
 ) -> List[Action]:
+    _legal_actions_profile_update(
+        phase="enumerate_concrete_association_actions",
+        current_branch="association",
+        last_subfunction="_enumerate_concrete_association_actions",
+    )
     strength = int((template_action.details or {}).get("effective_strength", 0))
     options = list_legal_association_options(state=state, player_id=player_id, strength=strength)
     if not options:
@@ -6298,6 +6821,11 @@ def _enumerate_concrete_sponsors_actions(
     player_id: int,
     template_action: Action,
 ) -> List[Action]:
+    _legal_actions_profile_update(
+        phase="enumerate_concrete_sponsors_actions",
+        current_branch="sponsors",
+        last_subfunction="_enumerate_concrete_sponsors_actions",
+    )
     strength = int((template_action.details or {}).get("effective_strength", 0))
     sponsors_upgraded = bool(player.action_upgraded["sponsors"])
     level_cap = strength + 1 if sponsors_upgraded else strength
@@ -6407,13 +6935,71 @@ def legal_actions(
     *,
     concrete: bool = True,
 ) -> List[Action]:
-    if state is not None and player_id is not None and str(state.pending_decision_kind or "").strip():
-        return _enumerate_pending_decision_actions(state, player, player_id)
-    if state is not None and _maybe_trigger_round_limit_endgame(state):
-        return []
+    profile_state = {
+        "phase": "legal_actions_started",
+        "player_id": (None if player_id is None else int(player_id)),
+        "concrete": bool(concrete),
+        "pending": str(state.pending_decision_kind or "") if state is not None else "",
+        "action_order": [str(action_name) for action_name in list(player.action_order)],
+        "branch_metrics": {},
+        "abstract_action_count": 0,
+        "annotated_action_count": 0,
+        "pruned_action_count": 0,
+        "concrete_action_count": 0,
+        "current_branch": "",
+        "last_subfunction": "",
+        "last_completed_subfunction": "",
+    }
+    state_token = _LEGAL_ACTIONS_PROFILE_STATE.set(profile_state)
+    _legal_actions_profile_emit()
+    try:
+        if state is not None and player_id is not None and str(state.pending_decision_kind or "").strip():
+            with _legal_actions_profile_scope(
+                "_enumerate_pending_decision_actions",
+                phase="pending_decision_actions",
+            ):
+                pending_actions = _enumerate_pending_decision_actions(state, player, player_id)
+            _legal_actions_profile_update(
+                phase="legal_actions_completed",
+                concrete_action_count=int(len(pending_actions)),
+            )
+            return pending_actions
+        if state is not None and _maybe_trigger_round_limit_endgame(state):
+            _legal_actions_profile_update(
+                phase="round_limit_endgame",
+                concrete_action_count=0,
+            )
+            return []
 
-    actions = _enumerate_abstract_turn_actions(player)
-    return _annotate_legal_actions(player, actions, state=state, player_id=player_id, concrete=concrete)
+        with _legal_actions_profile_scope(
+            "_enumerate_abstract_turn_actions",
+            phase="abstract_turn_actions",
+        ):
+            actions = _enumerate_abstract_turn_actions(player)
+        _legal_actions_profile_update(
+            abstract_action_count=int(len(actions)),
+            phase="annotate_legal_actions",
+        )
+        with _legal_actions_profile_scope(
+            "_annotate_legal_actions",
+            phase="annotate_legal_actions",
+        ):
+            annotated_actions = _annotate_legal_actions(
+                player,
+                actions,
+                state=state,
+                player_id=player_id,
+                concrete=concrete,
+            )
+        _legal_actions_profile_update(
+            annotated_action_count=int(len(annotated_actions)),
+            concrete_action_count=int(len(annotated_actions)),
+            phase="legal_actions_completed",
+            current_branch="",
+        )
+        return annotated_actions
+    finally:
+        _LEGAL_ACTIONS_PROFILE_STATE.reset(state_token)
 
 
 def _annotate_legal_actions(
@@ -6584,8 +7170,26 @@ def materialize_legal_actions(
     actions: Sequence[Action],
 ) -> List[Action]:
     concrete: List[Action] = []
-    for action in _prune_dominated_materialization_actions(actions):
-        concrete.extend(materialize_action_candidates(state, player, player_id, action))
+    pruned_actions = _prune_dominated_materialization_actions(actions)
+    _legal_actions_profile_update(
+        phase="materialize_legal_actions",
+        pruned_action_count=int(len(pruned_actions)),
+    )
+    for action in pruned_actions:
+        branch_name = str(action.card_name or action.type.value or "other")
+        metrics = _legal_actions_profile_branch_metrics(branch_name)
+        metrics["template_action_count"] = int(metrics.get("template_action_count", 0) + 1)
+        with _legal_actions_profile_scope(
+            "materialize_action_candidates",
+            phase="materialize_action_candidates",
+            branch=branch_name,
+        ):
+            branch_actions = materialize_action_candidates(state, player, player_id, action)
+        metrics["concrete_action_count"] = int(
+            metrics.get("concrete_action_count", 0) + len(branch_actions)
+        )
+        _legal_actions_profile_emit()
+        concrete.extend(branch_actions)
     concrete = _dedupe_dominated_concrete_main_actions(
         concrete,
         card_name="sponsors",
@@ -6594,6 +7198,11 @@ def materialize_legal_actions(
     concrete = _dedupe_dominated_concrete_main_actions(concrete, card_name="animals")
     concrete = _dedupe_dominated_concrete_main_actions(concrete, card_name="build")
     concrete = _dedupe_dominated_concrete_main_actions(concrete, card_name="association")
+    _legal_actions_profile_update(
+        concrete_action_count=int(len(concrete)),
+        phase="materialize_legal_actions_completed",
+        current_branch="",
+    )
     return concrete
 
 
@@ -7917,6 +8526,11 @@ def list_legal_build_options(
     strength: int,
     already_built_types: Optional[Set[BuildingType]] = None,
 ) -> List[Dict[str, Any]]:
+    _legal_actions_profile_update(
+        phase="list_legal_build_options",
+        current_branch="build",
+        last_subfunction="list_legal_build_options",
+    )
     player = state.players[player_id]
     _ensure_player_map_initialized(state, player)
     if player.zoo_map is None:
@@ -7926,12 +8540,21 @@ def list_legal_build_options(
     max_size = max(0, strength)
     if max_size <= 0:
         return []
+    empty_enclosure_limit_reached = (
+        _player_empty_enclosure_count(player) >= MAX_EMPTY_ENCLOSURES_BEFORE_BUILD
+    )
     legal = player.zoo_map.legal_building_placements(
         is_build_upgraded=upgraded,
         has_diversity_researcher=has_diversity_researcher,
         max_building_size=max_size,
         already_built_buildings=already_built_types or set(),
     )
+    if empty_enclosure_limit_reached:
+        legal = [
+            building
+            for building in legal
+            if not str(building.type.name).startswith("SIZE_")
+        ]
     legal.sort(
         key=lambda b: (
             _building_type_label(b.type),
@@ -10262,6 +10885,10 @@ def _enclosure_has_animals(enclosure: Enclosure) -> bool:
     return _enclosure_used_capacity(enclosure) > 0
 
 
+def _player_empty_enclosure_count(player: PlayerState) -> int:
+    return sum(1 for enclosure in player.enclosures if not _enclosure_has_animals(enclosure))
+
+
 def _sync_enclosure_occupied(enclosure: Enclosure) -> None:
     if _enclosure_is_standard(enclosure):
         enclosure.occupied = _enclosure_used_capacity(enclosure) > 0
@@ -10620,14 +11247,85 @@ def list_legal_animals_options(
     player_id: int,
     strength: int,
 ) -> List[Dict[str, Any]]:
+    _legal_actions_profile_update(
+        phase="list_legal_animals_options",
+        current_branch="animals",
+        last_subfunction="list_legal_animals_options",
+    )
     player = state.players[player_id]
     upgraded = player.action_upgraded["animals"]
     play_limit = _animals_play_limit(strength, upgraded)
+    _legal_actions_profile_update_nested(
+        "animals_profile",
+        mode="initialize",
+        play_limit=int(play_limit),
+        hand_count=int(len(player.hand)),
+        enclosure_count=int(len(player.enclosures)),
+        single_step_count=0,
+        option_count=0,
+        current_hand_index=None,
+        current_card_name="",
+        first_play=None,
+        second_card=None,
+        last_completed_card=None,
+        last_pair_probe=None,
+        current_option=None,
+        current_option_label="",
+        current_effect_label="",
+        requires_resolution=None,
+        resolved_variant_count=0,
+        last_resolved_option=None,
+        last_resolved_label="",
+    )
     if play_limit <= 0:
         return []
 
+    hostability_cache: Dict[Tuple[int, int, int, int], bool] = {}
     single_steps: List[Dict[str, Any]] = []
+    playable_animals: List[Dict[str, Any]] = []
+
+    def _can_host_cached(
+        *,
+        hand_index: int,
+        card: AnimalCard,
+        enclosure_index: int,
+        enclosure: Enclosure,
+        ignore_conditions: int,
+        reserved_capacity: int = 0,
+    ) -> bool:
+        key = (
+            int(hand_index),
+            int(enclosure_index),
+            int(ignore_conditions),
+            int(reserved_capacity),
+        )
+        cached = hostability_cache.get(key)
+        if cached is not None:
+            return bool(cached)
+        allowed = _enclosure_can_host_animal_with_ignores(
+            player=player,
+            enclosure=enclosure,
+            card=card,
+            ignore_conditions=ignore_conditions,
+            reserved_capacity=reserved_capacity,
+        )
+        hostability_cache[key] = bool(allowed)
+        return bool(allowed)
+
     for hand_idx, card in enumerate(player.hand):
+        _legal_actions_profile_update_nested(
+            "animals_profile",
+            mode="scan_single_card",
+            current_hand_index=int(hand_idx),
+            current_card_name=str(card.name),
+            first_play=None,
+            second_card=None,
+            current_option=None,
+            current_option_label="",
+            current_effect_label="",
+            requires_resolution=None,
+            resolved_variant_count=0,
+        )
         if card.card_type != "animal":
             continue
         if not _animal_size_restriction_met(player, card):
@@ -10640,24 +11338,47 @@ def list_legal_animals_options(
         resolved_cost = _animal_play_cost(player, card)
         if resolved_cost > player.money:
             continue
+        card_single_steps_before = len(single_steps)
+        card_steps: List[Dict[str, Any]] = []
         for enclosure_idx, enclosure in enumerate(player.enclosures):
-            if not _enclosure_can_host_animal_with_ignores(
-                player=player,
-                enclosure=enclosure,
+            if not _can_host_cached(
+                hand_index=hand_idx,
                 card=card,
+                enclosure_index=enclosure_idx,
+                enclosure=enclosure,
                 ignore_conditions=remaining_ignores,
             ):
                 continue
-            single_steps.append(
-                _serialize_animal_play_step(
-                    player=player,
-                    card=card,
-                    hand_index=hand_idx,
-                    enclosure=enclosure,
-                    enclosure_index=enclosure_idx,
-                    resolved_cost=resolved_cost,
-                )
+            step = _serialize_animal_play_step(
+                player=player,
+                card=card,
+                hand_index=hand_idx,
+                enclosure=enclosure,
+                enclosure_index=enclosure_idx,
+                resolved_cost=resolved_cost,
             )
+            card_steps.append(step)
+            single_steps.append(step)
+        if card_steps:
+            playable_animals.append(
+                {
+                    "hand_index": int(hand_idx),
+                    "card": card,
+                    "card_name": str(card.name),
+                    "remaining_ignores": int(remaining_ignores),
+                    "resolved_cost": int(resolved_cost),
+                    "steps": [copy.deepcopy(step) for step in card_steps],
+                }
+            )
+        _legal_actions_profile_update_nested(
+            "animals_profile",
+            single_step_count=int(len(single_steps)),
+            last_completed_card={
+                "hand_index": int(hand_idx),
+                "card_name": str(card.name),
+                "new_single_steps": int(len(single_steps) - card_single_steps_before),
+            },
+        )
 
     dedup_keys: Set[Tuple[Tuple[str, int, int], ...]] = set()
     options: List[Dict[str, Any]] = []
@@ -10694,43 +11415,73 @@ def list_legal_animals_options(
             money_left = player.money - int(first["card_cost"])
             if money_left < 0:
                 continue
+            first_play_summary = {
+                "hand_index": int(first_hand_index),
+                "card_name": str(first.get("card_name") or ""),
+                "enclosure_index": int(first_enclosure_index),
+            }
+            _legal_actions_profile_update_nested(
+                "animals_profile",
+                mode="enumerate_second_play",
+                first_play=first_play_summary,
+                second_card=None,
+                option_count=int(len(options)),
+                current_option=None,
+                current_option_label="",
+                current_effect_label="",
+                requires_resolution=None,
+                resolved_variant_count=0,
+            )
 
-            for second_hand_idx, second_card in enumerate(player.hand):
+            for second_candidate in playable_animals:
+                second_hand_idx = int(second_candidate["hand_index"])
+                second_card = second_candidate["card"]
+                _legal_actions_profile_update_nested(
+                    "animals_profile",
+                    mode="scan_second_card",
+                    first_play=first_play_summary,
+                    second_card={
+                        "hand_index": int(second_hand_idx),
+                        "card_name": str(second_card.name),
+                    },
+                    option_count=int(len(options)),
+                    current_option=None,
+                    current_option_label="",
+                    current_effect_label="",
+                    requires_resolution=None,
+                    resolved_variant_count=0,
+                )
                 if second_hand_idx == first_hand_index:
                     continue
-                if second_card.card_type != "animal":
-                    continue
-                if not _animal_size_restriction_met(player, second_card):
-                    continue
-                second_ignore_capacity = _animal_condition_ignore_capacity(player, second_card)
-                second_missing_icons = _animal_icon_missing_conditions(player, second_card)
-                if second_missing_icons > second_ignore_capacity:
-                    continue
-                second_remaining_ignores = max(0, second_ignore_capacity - second_missing_icons)
-                second_cost = _animal_play_cost(player, second_card)
+                second_remaining_ignores = int(second_candidate["remaining_ignores"])
+                second_cost = int(second_candidate["resolved_cost"])
                 if second_cost > money_left:
                     continue
-                for second_enclosure_idx, second_enclosure in enumerate(player.enclosures):
-                    reserved_capacity = 0
+                for second in list(second_candidate["steps"]):
+                    second_enclosure_idx = int(second["enclosure_index"])
                     if second_enclosure_idx == first_enclosure_index:
-                        reserved_capacity = int(first.get("spaces_used", 0))
-                    if not _enclosure_can_host_animal_with_ignores(
-                        player=player,
-                        enclosure=second_enclosure,
-                        card=second_card,
-                        ignore_conditions=second_remaining_ignores,
-                        reserved_capacity=reserved_capacity,
-                    ):
-                        continue
-                    second = _serialize_animal_play_step(
-                        player=player,
-                        card=second_card,
-                        hand_index=second_hand_idx,
-                        enclosure=second_enclosure,
-                        enclosure_index=second_enclosure_idx,
-                        resolved_cost=second_cost,
-                    )
-                    _append_option([dict(first), second])
+                        second_enclosure = player.enclosures[second_enclosure_idx]
+                        if not _can_host_cached(
+                            hand_index=second_hand_idx,
+                            card=second_card,
+                            enclosure_index=second_enclosure_idx,
+                            enclosure=second_enclosure,
+                            ignore_conditions=second_remaining_ignores,
+                            reserved_capacity=int(first.get("spaces_used", 0)),
+                        ):
+                            continue
+                    _append_option([dict(first), dict(second)])
+                _legal_actions_profile_update_nested(
+                    "animals_profile",
+                    option_count=int(len(options)),
+                    last_pair_probe={
+                        "first_play": copy.deepcopy(first_play_summary),
+                        "second_card": {
+                            "hand_index": int(second_hand_idx),
+                            "card_name": str(second_card.name),
+                        },
+                    },
+                )
 
     options.sort(
         key=lambda item: (
@@ -10742,6 +11493,20 @@ def list_legal_animals_options(
 
     for idx, option in enumerate(options, start=1):
         option["index"] = idx
+    _legal_actions_profile_update_nested(
+        "animals_profile",
+        mode="completed",
+        option_count=int(len(options)),
+        current_hand_index=None,
+        current_card_name="",
+        first_play=None,
+        second_card=None,
+        current_option=None,
+        current_option_label="",
+        current_effect_label="",
+        requires_resolution=None,
+        resolved_variant_count=0,
+    )
     return options
 
 
@@ -11167,42 +11932,36 @@ def _perform_animals_action_effect(
             chosen_card: Optional[AnimalCard] = None
 
             if queued_choice is not None:
-                if not bool(queued_choice.get("skip")):
-                    requested_card_id = str(queued_choice.get("card_instance_id") or "").strip()
-                    requested_enclosure_index = int(queued_choice.get("enclosure_index", -1))
-                    for _, candidate_step, candidate_card in extra_candidates:
-                        if (
-                            str(candidate_step.get("card_instance_id") or "").strip() == requested_card_id
-                            and int(candidate_step.get("enclosure_index", -1)) == requested_enclosure_index
-                        ):
-                            chosen_step = candidate_step
-                            chosen_card = candidate_card
-                            break
-                    if chosen_step is None or chosen_card is None:
-                        raise ValueError("sponsor_228_extra_play_choices selected extra animal play is not legal.")
+                requested_card_id = str(queued_choice.get("card_instance_id") or "").strip()
+                requested_enclosure_index = int(queued_choice.get("enclosure_index", -1))
+                for _, candidate_step, candidate_card in extra_candidates:
+                    if (
+                        str(candidate_step.get("card_instance_id") or "").strip() == requested_card_id
+                        and int(candidate_step.get("enclosure_index", -1)) == requested_enclosure_index
+                    ):
+                        chosen_step = candidate_step
+                        chosen_card = candidate_card
+                        break
+                if chosen_step is None or chosen_card is None:
+                    raise ValueError("sponsor_228_extra_play_choices selected extra animal play is not legal.")
             elif interactive_effect_prompts:
-                print("WAZA Small Animal Program: choose 1 further small animal to play, or skip.")
-                print("1. Skip")
-                for idx, (_, candidate_step, candidate_card) in enumerate(extra_candidates, start=2):
+                print("WAZA Small Animal Program: choose 1 further small animal to play.")
+                for idx, (_, candidate_step, candidate_card) in enumerate(extra_candidates, start=1):
                     enclosure_no = int(candidate_step.get("enclosure_index", -1)) + 1
                     print(
                         f"{idx}. #{candidate_card.number} {candidate_card.name} -> enclosure {enclosure_no} "
                         f"(cost={int(candidate_step.get('card_cost', 0))})"
                     )
                 while True:
-                    raw = input(f"Select extra animal [1-{len(extra_candidates) + 1}]: ").strip()
+                    raw = input(f"Select extra animal [1-{len(extra_candidates)}]: ").strip()
                     if raw.isdigit():
                         picked = int(raw)
-                        if picked == 1:
-                            break
-                        if 2 <= picked <= len(extra_candidates) + 1:
-                            _, chosen_step, chosen_card = extra_candidates[picked - 2]
+                        if 1 <= picked <= len(extra_candidates):
+                            _, chosen_step, chosen_card = extra_candidates[picked - 1]
                             break
                     print("Please enter a valid number.")
             elif expand_implicit_choices:
-                variants: List[Tuple[Dict[str, Any], str]] = [
-                    ({"sponsor_228_extra_play_choices": [{"skip": True}]}, "sponsor228-extra(skip)")
-                ]
+                variants: List[Tuple[Dict[str, Any], str]] = []
                 for _, candidate_step, candidate_card in extra_candidates:
                     enclosure_no = int(candidate_step.get("enclosure_index", -1)) + 1
                     variants.append(
@@ -13384,6 +14143,11 @@ def list_legal_association_options(
     player_id: int,
     strength: int,
 ) -> List[Dict[str, Any]]:
+    _legal_actions_profile_update(
+        phase="list_legal_association_options",
+        current_branch="association",
+        last_subfunction="list_legal_association_options",
+    )
     player = state.players[player_id]
     options: List[Dict[str, Any]] = []
 
@@ -15077,6 +15841,11 @@ def _list_legal_sponsor_candidates(
     player: PlayerState,
     sponsors_upgraded: bool,
 ) -> List[Dict[str, Any]]:
+    _legal_actions_profile_update(
+        phase="list_legal_sponsor_candidates",
+        current_branch="sponsors",
+        last_subfunction="_list_legal_sponsor_candidates",
+    )
     candidates: List[Dict[str, Any]] = []
     for hand_idx, card in enumerate(player.hand):
         if card.card_type != "sponsor":

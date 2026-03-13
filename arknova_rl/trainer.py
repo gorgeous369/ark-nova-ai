@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from collections import Counter
-from concurrent.futures import Executor, ProcessPoolExecutor
+from collections import Counter, deque
+from concurrent.futures import FIRST_COMPLETED, Executor, ProcessPoolExecutor, wait
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 import json
 import multiprocessing as mp
+import os
 from pathlib import Path
 import random
+import sys
 import time
 from typing import Any, Dict, Iterator, List, Optional, Sequence, TextIO, Tuple
 
@@ -135,6 +138,67 @@ class _RolloutSequenceBuilder:
         )
 
 
+def format_log_timestamp() -> str:
+    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _stdout_supports_ansi_color() -> bool:
+    if "NO_COLOR" in os.environ:
+        return False
+    term = str(os.environ.get("TERM") or "").strip().lower()
+    if not term or term == "dumb":
+        return False
+    return bool(getattr(sys.stdout, "isatty", lambda: False)())
+
+
+def _highlight_log_line(message: str, *, style: str) -> str:
+    if not _stdout_supports_ansi_color():
+        return message
+    palette = {
+        "update_summary": "\033[1;96m",
+        "fixed_eval": "\033[1;95m",
+    }
+    prefix = palette.get(str(style), "\033[1m")
+    return f"{prefix}{message}\033[0m"
+
+
+def _log_progress_event(message: str) -> None:
+    print(f"[{format_log_timestamp()}] {message}", flush=True)
+
+
+def _log_rollout_slot_started(
+    *,
+    update_index: int,
+    slot_index: int,
+    slot_count: int,
+    episode_index: int,
+    total_episodes: int,
+    episode_seed: int,
+) -> None:
+    _log_progress_event(
+        f"[update {int(update_index):04d}] slot {int(slot_index)}/{max(1, int(slot_count))} started "
+        f"episode {int(episode_index) + 1:03d}/{max(1, int(total_episodes)):03d} seed={int(episode_seed)}"
+    )
+
+
+def _log_rollout_episode_completed(
+    *,
+    update_index: int,
+    slot_index: int,
+    slot_count: int,
+    episode_index: int,
+    total_episodes: int,
+    episode_seed: int,
+    episode_elapsed_seconds: float,
+    slot_elapsed_seconds: float,
+) -> None:
+    _log_progress_event(
+        f"[update {int(update_index):04d}] episode {int(episode_index) + 1:03d}/{max(1, int(total_episodes)):03d} completed "
+        f"seed={int(episode_seed)} episode_time={float(episode_elapsed_seconds):.2f}s "
+        f"slot={int(slot_index)}/{max(1, int(slot_count))} slot_elapsed={float(slot_elapsed_seconds):.2f}s"
+    )
+
+
 @dataclass
 class TrainUpdateMetrics:
     step_count: int
@@ -178,6 +242,280 @@ def _json_safe_trace_value(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
     return repr(value)
+
+
+def _episode_artifact_stem(
+    *,
+    update_index: int,
+    episode_index: int,
+    episode_seed: int,
+) -> str:
+    return (
+        f"update_{int(update_index):04d}_episode_{int(episode_index):03d}_seed_{int(episode_seed)}"
+    )
+
+
+def _episode_trace_path(
+    *,
+    trace_dir: Optional[Path],
+    update_index: int,
+    episode_index: int,
+    episode_seed: int,
+) -> Optional[Path]:
+    if trace_dir is None:
+        return None
+    return trace_dir / (
+        _episode_artifact_stem(
+            update_index=update_index,
+            episode_index=episode_index,
+            episode_seed=episode_seed,
+        )
+        + ".jsonl"
+    )
+
+
+def _episode_progress_path(
+    *,
+    trace_dir: Optional[Path],
+    update_index: int,
+    episode_index: int,
+    episode_seed: int,
+) -> Optional[Path]:
+    if trace_dir is None:
+        return None
+    return trace_dir / (
+        _episode_artifact_stem(
+            update_index=update_index,
+            episode_index=episode_index,
+            episode_seed=episode_seed,
+        )
+        + ".progress.json"
+    )
+
+
+def _write_json_snapshot(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+    with temp_path.open("w", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(_json_safe_trace_value(payload), ensure_ascii=True, sort_keys=True)
+        )
+        handle.write("\n")
+    temp_path.replace(path)
+
+
+def _read_json_snapshot(path: Optional[Path]) -> Dict[str, Any]:
+    if path is None or not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _action_progress_snapshot(action: Any) -> Dict[str, Any]:
+    details = getattr(action, "details", None)
+    rendered = str(action)
+    card_name = getattr(action, "card_name", None)
+    action_type = getattr(action, "type", None)
+    value = getattr(action, "value", None)
+    return {
+        "rendered": rendered,
+        "type": str(action_type) if action_type is not None else "",
+        "card_name": str(card_name or ""),
+        "value": (None if value is None else int(value)),
+        "details": _json_safe_trace_value(dict(details or {})) if isinstance(details, dict) else {},
+    }
+
+
+def _format_watchdog_progress_summary(progress_snapshot: Dict[str, Any]) -> str:
+    if not progress_snapshot:
+        return "stage=unknown"
+    parts: List[str] = []
+    stage = str(progress_snapshot.get("stage") or "").strip()
+    if stage:
+        parts.append(f"stage={stage}")
+    actor_name = str(progress_snapshot.get("actor_name") or "").strip()
+    if actor_name:
+        parts.append(f"actor={actor_name}")
+    current_action = progress_snapshot.get("current_action")
+    if isinstance(current_action, dict):
+        rendered = str(current_action.get("rendered") or "").strip()
+        card_name = str(current_action.get("card_name") or "").strip()
+        if rendered:
+            parts.append(f"action={rendered!r}")
+        if card_name:
+            parts.append(f"card={card_name!r}")
+    else:
+        last_action = progress_snapshot.get("last_completed_action")
+        if isinstance(last_action, dict):
+            rendered = str(last_action.get("rendered") or "").strip()
+            if rendered:
+                parts.append(f"last_action={rendered!r}")
+    pending = progress_snapshot.get("pending")
+    if pending is not None:
+        parts.append(f"pending={str(pending)!r}")
+    completed_rounds = progress_snapshot.get("completed_rounds")
+    if isinstance(completed_rounds, (int, float)):
+        parts.append(f"completed_rounds={int(completed_rounds)}")
+    legal_action_count = progress_snapshot.get("legal_action_count")
+    if isinstance(legal_action_count, (int, float)):
+        parts.append(f"legal_actions={int(legal_action_count)}")
+    legal_actions_profile = progress_snapshot.get("legal_actions_profile")
+    if isinstance(legal_actions_profile, dict):
+        phase = str(legal_actions_profile.get("phase") or "").strip()
+        current_branch = str(legal_actions_profile.get("current_branch") or "").strip()
+        last_subfunction = str(legal_actions_profile.get("last_subfunction") or "").strip()
+        if phase:
+            parts.append(f"legal_phase={phase}")
+        if current_branch:
+            parts.append(f"branch={current_branch}")
+        if last_subfunction:
+            parts.append(f"subfunction={last_subfunction}")
+        animals_profile = legal_actions_profile.get("animals_profile")
+        if isinstance(animals_profile, dict):
+            animals_mode = str(animals_profile.get("mode") or "").strip()
+            if animals_mode:
+                parts.append(f"animals_mode={animals_mode}")
+            current_option = animals_profile.get("current_option")
+            if isinstance(current_option, dict):
+                option_label = str(current_option.get("rendered") or "").strip()
+                if option_label:
+                    parts.append(f"animals_option={option_label!r}")
+                option_index = current_option.get("index")
+                if isinstance(option_index, (int, float)):
+                    parts.append(f"animals_option_index={int(option_index)}")
+            first_play = animals_profile.get("first_play")
+            if isinstance(first_play, dict):
+                first_name = str(first_play.get("card_name") or "").strip()
+                first_enclosure_index = first_play.get("enclosure_index")
+                if first_name:
+                    if isinstance(first_enclosure_index, (int, float)):
+                        parts.append(f"animals_first={first_name}@E{int(first_enclosure_index)}")
+                    else:
+                        parts.append(f"animals_first={first_name}")
+            second_card = animals_profile.get("second_card")
+            if isinstance(second_card, dict):
+                second_name = str(second_card.get("card_name") or "").strip()
+                if second_name:
+                    parts.append(f"animals_second={second_name}")
+            current_card_name = str(animals_profile.get("current_card_name") or "").strip()
+            if current_card_name:
+                parts.append(f"animals_card={current_card_name}")
+            current_option_label = str(animals_profile.get("current_option_label") or "").strip()
+            if current_option_label:
+                parts.append(f"animals_label={current_option_label!r}")
+        build_profile = legal_actions_profile.get("build_profile")
+        if current_branch == "build" and isinstance(build_profile, dict):
+            build_mode = str(build_profile.get("mode") or "").strip()
+            if build_mode:
+                parts.append(f"build_mode={build_mode}")
+            current_option = build_profile.get("current_option")
+            if isinstance(current_option, dict):
+                option_label = str(current_option.get("rendered") or "").strip()
+                if option_label:
+                    parts.append(f"build_option={option_label!r}")
+            current_option_label = str(build_profile.get("current_option_label") or "").strip()
+            if current_option_label:
+                parts.append(f"build_label={current_option_label!r}")
+            placement_bonuses = [
+                str(item).strip()
+                for item in list(build_profile.get("placement_bonuses") or [])
+                if str(item).strip()
+            ]
+            if placement_bonuses:
+                parts.append(f"build_bonuses={','.join(placement_bonuses)!r}")
+            current_bonus = str(build_profile.get("current_bonus") or "").strip()
+            if current_bonus:
+                parts.append(f"build_bonus={current_bonus}")
+            bonus_index = build_profile.get("bonus_index")
+            bonus_count = build_profile.get("bonus_count")
+            if isinstance(bonus_index, (int, float)) and isinstance(bonus_count, (int, float)):
+                parts.append(f"build_bonus_step={int(bonus_index)}/{int(bonus_count)}")
+            variant_count_before = build_profile.get("variant_count_before")
+            if isinstance(variant_count_before, (int, float)):
+                parts.append(f"build_variants_before={int(variant_count_before)}")
+            variant_count_after = build_profile.get("variant_count_after")
+            if isinstance(variant_count_after, (int, float)):
+                parts.append(f"build_variants_after={int(variant_count_after)}")
+            deduped_variant_count = build_profile.get("deduped_variant_count")
+            if isinstance(deduped_variant_count, (int, float)) and int(deduped_variant_count) > 0:
+                parts.append(f"build_variants_deduped={int(deduped_variant_count)}")
+            current_sequence_length = build_profile.get("current_sequence_length")
+            if isinstance(current_sequence_length, (int, float)) and int(current_sequence_length) > 0:
+                parts.append(f"build_sequence_length={int(current_sequence_length)}")
+            current_sequence_label = str(build_profile.get("current_sequence_label") or "").strip()
+            if current_sequence_label:
+                parts.append(f"build_sequence={current_sequence_label!r}")
+            resolved_variant_count = build_profile.get("resolved_variant_count")
+            if isinstance(resolved_variant_count, (int, float)) and int(resolved_variant_count) > 0:
+                parts.append(f"build_resolved_variants={int(resolved_variant_count)}")
+    return " ".join(parts) if parts else "stage=unknown"
+
+
+@dataclass
+class _EpisodeProgressTracker:
+    trace_dir: Optional[Path]
+    update_index: int
+    episode_index: int
+    episode_seed: int
+    enabled: bool = False
+    inside_legal_actions_min_write_interval_seconds: float = 0.25
+    path: Optional[Path] = None
+    payload: Dict[str, Any] = field(default_factory=dict)
+    last_written_at: float = 0.0
+    last_written_stage: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.enabled:
+            return
+        self.path = _episode_progress_path(
+            trace_dir=self.trace_dir,
+            update_index=self.update_index,
+            episode_index=self.episode_index,
+            episode_seed=self.episode_seed,
+        )
+
+    def update(self, **kwargs: Any) -> None:
+        if self.path is None:
+            return
+        if not self.payload:
+            self.payload = {
+                "update_index": int(self.update_index),
+                "episode_index": int(self.episode_index),
+                "episode_seed": int(self.episode_seed),
+            }
+        for key, value in kwargs.items():
+            self.payload[str(key)] = value
+        stage = str(self.payload.get("stage") or "").strip()
+        now = time.perf_counter()
+        should_write = self.last_written_at <= 0.0 or stage != "inside_legal_actions"
+        if not should_write and stage != self.last_written_stage:
+            should_write = True
+        if (
+            not should_write
+            and now - self.last_written_at >= float(self.inside_legal_actions_min_write_interval_seconds)
+        ):
+            should_write = True
+        if not should_write:
+            return
+        _write_json_snapshot(self.path, self.payload)
+        self.last_written_at = float(now)
+        self.last_written_stage = stage
+
+    def clear(self) -> None:
+        if self.path is None:
+            return
+        try:
+            self.path.unlink()
+        except FileNotFoundError:
+            return
+        finally:
+            self.payload = {}
+            self.last_written_at = 0.0
+            self.last_written_stage = ""
 
 
 @dataclass
@@ -234,8 +572,11 @@ class _SlowEpisodeTraceWriter:
             and self._should_start(elapsed_seconds=elapsed_seconds)
         ):
             self.trace_dir.mkdir(parents=True, exist_ok=True)
-            self.path = self.trace_dir / (
-                f"update_{int(self.update_index):04d}_episode_{int(self.episode_index):03d}_seed_{int(self.episode_seed)}.jsonl"
+            self.path = _episode_trace_path(
+                trace_dir=self.trace_dir,
+                update_index=self.update_index,
+                episode_index=self.episode_index,
+                episode_seed=self.episode_seed,
             )
             self.handle = self.path.open("w", encoding="utf-8")
             self._write_record(
@@ -268,8 +609,11 @@ class _SlowEpisodeTraceWriter:
             return
         if self.handle is None:
             self.trace_dir.mkdir(parents=True, exist_ok=True)
-            self.path = self.trace_dir / (
-                f"update_{int(self.update_index):04d}_episode_{int(self.episode_index):03d}_seed_{int(self.episode_seed)}.jsonl"
+            self.path = _episode_trace_path(
+                trace_dir=self.trace_dir,
+                update_index=self.update_index,
+                episode_index=self.episode_index,
+                episode_seed=self.episode_seed,
             )
             self.handle = self.path.open("w", encoding="utf-8")
             self._write_record(
@@ -306,8 +650,11 @@ class _SlowEpisodeTraceWriter:
             if self._should_stop(elapsed_seconds=elapsed_seconds):
                 return
             self.trace_dir.mkdir(parents=True, exist_ok=True)
-            self.path = self.trace_dir / (
-                f"update_{int(self.update_index):04d}_episode_{int(self.episode_index):03d}_seed_{int(self.episode_seed)}.jsonl"
+            self.path = _episode_trace_path(
+                trace_dir=self.trace_dir,
+                update_index=self.update_index,
+                episode_index=self.episode_index,
+                episode_seed=self.episode_seed,
             )
             self.handle = self.path.open("w", encoding="utf-8")
             self._write_record(
@@ -430,144 +777,230 @@ def _collect_episode_rollout(
         start_after_seconds=float(getattr(config, "slow_episode_trace_start_seconds", 0.0) or 0.0),
         stop_after_seconds=float(getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0),
     )
+    progress_tracker = _EpisodeProgressTracker(
+        trace_dir=trace_dir,
+        update_index=int(update_index),
+        episode_index=int(episode_index),
+        episode_seed=int(episode_seed),
+        enabled=float(getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0) > 0.0,
+    )
+    progress_tracker.update(
+        stage="episode_started",
+        elapsed_seconds=0.0,
+        action_count=0,
+        current_action=None,
+        last_completed_action=None,
+        legal_actions_profile=None,
+        pending=str(state.pending_decision_kind or ""),
+        completed_rounds=int(main._completed_rounds(state)),
+        turn_index=int(state.turn_index),
+    )
 
-    while str(state.pending_decision_kind or "").strip() or not state.game_over():
-        step_started_at = time.perf_counter()
-        actor_id = _current_actor_id(state)
-        actor = state.players[actor_id]
-        legal = main.legal_actions(actor, state=state, player_id=actor_id)
-        after_legal_at = time.perf_counter()
-        if not legal:
-            raise RuntimeError(
-                f"No legal actions for actor={actor_id} pending={state.pending_decision_kind!r}."
+    try:
+        while str(state.pending_decision_kind or "").strip() or not state.game_over():
+            step_started_at = time.perf_counter()
+            actor_id = _current_actor_id(state)
+            actor = state.players[actor_id]
+            progress_tracker.update(
+                stage="before_legal_actions",
+                elapsed_seconds=float(step_started_at - episode_started_at),
+                action_count=int(action_count),
+                actor_id=int(actor_id),
+                actor_name=str(actor.name),
+                pending=str(state.pending_decision_kind or ""),
+                completed_rounds=int(main._completed_rounds(state)),
+                turn_index=int(state.turn_index),
+                legal_action_count=None,
+                legal_actions_profile=None,
+                current_action=None,
+            )
+            with main.legal_actions_profiling(
+                lambda profile_snapshot: progress_tracker.update(
+                    stage="inside_legal_actions",
+                    legal_actions_profile=profile_snapshot,
+                ),
+                snapshot_copy=False,
+            ):
+                legal = main.legal_actions(actor, state=state, player_id=actor_id)
+            after_legal_at = time.perf_counter()
+            if not legal:
+                raise RuntimeError(
+                    f"No legal actions for actor={actor_id} pending={state.pending_decision_kind!r}."
+                )
+            progress_tracker.update(
+                stage="after_legal_actions",
+                elapsed_seconds=float(after_legal_at - episode_started_at),
+                action_count=int(action_count),
+                actor_id=int(actor_id),
+                actor_name=str(actor.name),
+                pending=str(state.pending_decision_kind or ""),
+                completed_rounds=int(main._completed_rounds(state)),
+                turn_index=int(state.turn_index),
+                legal_action_count=int(len(legal)),
+                legal_actions_profile=None,
             )
 
-        state_vec = obs_encoder.encode_from_state(state, actor_id)
-        action_features = action_encoder.encode_many(legal)
-        action_mask = np.ones((len(legal),), dtype=np.bool_)
-        after_encode_at = time.perf_counter()
+            state_vec = obs_encoder.encode_from_state(state, actor_id)
+            action_features = action_encoder.encode_many(legal)
+            action_mask = np.ones((len(legal),), dtype=np.bool_)
+            after_encode_at = time.perf_counter()
 
-        state_t = _to_tensor(state_vec, device=device).unsqueeze(0)
-        action_t = _to_tensor(action_features, device=device).unsqueeze(0)
-        mask_t = _to_tensor(action_mask, device=device, dtype=torch.bool).unsqueeze(0)
+            state_t = _to_tensor(state_vec, device=device).unsqueeze(0)
+            action_t = _to_tensor(action_features, device=device).unsqueeze(0)
+            mask_t = _to_tensor(action_mask, device=device, dtype=torch.bool).unsqueeze(0)
 
-        hidden = hidden_by_actor.get(actor_id) if model.use_lstm else None
-        with torch.no_grad():
-            logits, value, next_hidden = model.forward_step(
-                state_vec=state_t,
-                action_features=action_t,
-                action_mask=mask_t,
-                hidden=hidden,
+            hidden = hidden_by_actor.get(actor_id) if model.use_lstm else None
+            with torch.no_grad():
+                logits, value, next_hidden = model.forward_step(
+                    state_vec=state_t,
+                    action_features=action_t,
+                    action_mask=mask_t,
+                    hidden=hidden,
+                )
+                dist = Categorical(logits=logits[0])
+                sampled_index = int(dist.sample().item())
+                logprob = float(dist.log_prob(torch.tensor(sampled_index, device=device)).item())
+                predicted_value = float(value.item())
+            after_forward_at = time.perf_counter()
+            if model.use_lstm:
+                hidden_by_actor[actor_id] = (
+                    next_hidden[0].detach(),
+                    next_hidden[1].detach(),
+                ) if next_hidden is not None else None
+
+            before_diff = _progress_score_diff(state, actor_id)
+            endgame_was_triggered = state.endgame_trigger_player is not None
+            chosen_action = legal[sampled_index]
+            chosen_action_snapshot = _action_progress_snapshot(chosen_action)
+            effect_log_cursor = len(state.effect_log)
+            pending_before = str(state.pending_decision_kind or "")
+            turn_index_before = int(state.turn_index)
+            progress_tracker.update(
+                stage="before_apply_action",
+                elapsed_seconds=float(after_forward_at - episode_started_at),
+                action_count=int(action_count),
+                actor_id=int(actor_id),
+                actor_name=str(actor.name),
+                pending=pending_before,
+                completed_rounds=int(main._completed_rounds(state)),
+                turn_index=turn_index_before,
+                legal_action_count=int(len(legal)),
+                legal_actions_profile=None,
+                current_action=chosen_action_snapshot,
             )
-            dist = Categorical(logits=logits[0])
-            sampled_index = int(dist.sample().item())
-            logprob = float(dist.log_prob(torch.tensor(sampled_index, device=device)).item())
-            predicted_value = float(value.item())
-        after_forward_at = time.perf_counter()
-        if model.use_lstm:
-            hidden_by_actor[actor_id] = (
-                next_hidden[0].detach(),
-                next_hidden[1].detach(),
-            ) if next_hidden is not None else None
+            main.apply_action(state, chosen_action)
+            after_apply_at = time.perf_counter()
+            after_diff = _progress_score_diff(state, actor_id)
+            reward = (after_diff - before_diff) * float(config.step_reward_scale)
+            if (
+                not endgame_was_triggered
+                and state.endgame_trigger_player is not None
+                and int(state.endgame_trigger_player) == int(actor_id)
+            ):
+                reward += float(config.endgame_trigger_reward)
+                reward += _endgame_speed_bonus(state=state, config=config)
 
-        before_diff = _progress_score_diff(state, actor_id)
-        endgame_was_triggered = state.endgame_trigger_player is not None
-        chosen_action = legal[sampled_index]
-        effect_log_cursor = len(state.effect_log)
-        pending_before = str(state.pending_decision_kind or "")
-        turn_index_before = int(state.turn_index)
-        main.apply_action(state, chosen_action)
-        after_apply_at = time.perf_counter()
-        after_diff = _progress_score_diff(state, actor_id)
-        reward = (after_diff - before_diff) * float(config.step_reward_scale)
-        if (
-            not endgame_was_triggered
-            and state.endgame_trigger_player is not None
-            and int(state.endgame_trigger_player) == int(actor_id)
-        ):
-            reward += float(config.endgame_trigger_reward)
-            reward += _endgame_speed_bonus(state=state, config=config)
-
-        sequence_key = (episode_index, actor_id)
-        builder = sequence_builders.get(sequence_key)
-        if builder is None:
-            builder = _RolloutSequenceBuilder(
-                sequence_key=sequence_key,
-                actor_id=actor_id,
+            sequence_key = (episode_index, actor_id)
+            builder = sequence_builders.get(sequence_key)
+            if builder is None:
+                builder = _RolloutSequenceBuilder(
+                    sequence_key=sequence_key,
+                    actor_id=actor_id,
+                )
+                sequence_builders[sequence_key] = builder
+            builder.append(
+                state_vec=state_vec,
+                action_features=action_features,
+                action_mask=action_mask,
+                action_index=sampled_index,
+                old_logprob=logprob,
+                old_value=predicted_value,
+                reward=float(reward),
             )
-            sequence_builders[sequence_key] = builder
-        builder.append(
-            state_vec=state_vec,
-            action_features=action_features,
-            action_mask=action_mask,
-            action_index=sampled_index,
-            old_logprob=logprob,
-            old_value=predicted_value,
-            reward=float(reward),
-        )
-        action_count += 1
-        elapsed_seconds = float(after_apply_at - episode_started_at)
-        stage_timings = {
-            "legal_actions": float(after_legal_at - step_started_at),
-            "encode": float(after_encode_at - after_legal_at),
-            "forward": float(after_forward_at - after_encode_at),
-            "apply_action": float(after_apply_at - after_forward_at),
-            "step_total": float(after_apply_at - step_started_at),
-        }
-        action_trace_record = {
-            "kind": "action",
-            "episode_index": int(episode_index),
-            "episode_seed": int(episode_seed),
-            "update_index": int(update_index),
-            "action_count": int(action_count),
-            "elapsed_seconds": float(elapsed_seconds),
-            "actor_id": int(actor_id),
-            "actor_name": str(actor.name),
-            "turn_index_before": int(turn_index_before),
-            "turn_index_after": int(state.turn_index),
-            "completed_rounds": int(main._completed_rounds(state)),
-            "pending_before": pending_before,
-            "pending_after": str(state.pending_decision_kind or ""),
-            "legal_action_count": int(len(legal)),
-            "action": str(chosen_action),
-            "action_details": _json_safe_trace_value(dict(chosen_action.details or {})),
-            "timing_seconds": stage_timings,
-            "new_effect_log": [str(entry) for entry in state.effect_log[effect_log_cursor:]],
-            "players": [
-                {
-                    "player_id": int(idx),
-                    "name": str(player_state.name),
-                    "money": int(player_state.money),
-                    "appeal": int(player_state.appeal),
-                    "conservation": int(player_state.conservation),
-                    "reputation": int(player_state.reputation),
-                    "x_tokens": int(player_state.x_tokens),
-                    "progress_score": float(main._progress_score(player_state)),
-                }
-                for idx, player_state in enumerate(state.players)
-            ],
-        }
-        trace_writer.append(
-            action_trace_record,
-            elapsed_seconds=elapsed_seconds,
-            action_count=action_count,
-        )
-        trace_stop_seconds = float(getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0)
-        if trace_stop_seconds > 0.0 and elapsed_seconds > trace_stop_seconds:
-            trace_writer.record_timeout(
+            action_count += 1
+            elapsed_seconds = float(after_apply_at - episode_started_at)
+            stage_timings = {
+                "legal_actions": float(after_legal_at - step_started_at),
+                "encode": float(after_encode_at - after_legal_at),
+                "forward": float(after_forward_at - after_encode_at),
+                "apply_action": float(after_apply_at - after_forward_at),
+                "step_total": float(after_apply_at - step_started_at),
+            }
+            progress_tracker.update(
+                stage="after_apply_action",
+                elapsed_seconds=float(elapsed_seconds),
+                action_count=int(action_count),
+                actor_id=int(actor_id),
+                actor_name=str(actor.name),
+                pending=str(state.pending_decision_kind or ""),
+                completed_rounds=int(main._completed_rounds(state)),
+                turn_index=int(state.turn_index),
+                legal_action_count=int(len(legal)),
+                legal_actions_profile=None,
+                current_action=None,
+                last_completed_action=chosen_action_snapshot,
+            )
+            action_trace_record = {
+                "kind": "action",
+                "episode_index": int(episode_index),
+                "episode_seed": int(episode_seed),
+                "update_index": int(update_index),
+                "action_count": int(action_count),
+                "elapsed_seconds": float(elapsed_seconds),
+                "actor_id": int(actor_id),
+                "actor_name": str(actor.name),
+                "turn_index_before": int(turn_index_before),
+                "turn_index_after": int(state.turn_index),
+                "completed_rounds": int(main._completed_rounds(state)),
+                "pending_before": pending_before,
+                "pending_after": str(state.pending_decision_kind or ""),
+                "legal_action_count": int(len(legal)),
+                "action": str(chosen_action),
+                "action_details": _json_safe_trace_value(dict(chosen_action.details or {})),
+                "timing_seconds": stage_timings,
+                "new_effect_log": [str(entry) for entry in state.effect_log[effect_log_cursor:]],
+                "players": [
+                    {
+                        "player_id": int(idx),
+                        "name": str(player_state.name),
+                        "money": int(player_state.money),
+                        "appeal": int(player_state.appeal),
+                        "conservation": int(player_state.conservation),
+                        "reputation": int(player_state.reputation),
+                        "x_tokens": int(player_state.x_tokens),
+                        "progress_score": float(main._progress_score(player_state)),
+                    }
+                    for idx, player_state in enumerate(state.players)
+                ],
+            }
+            trace_writer.append(
                 action_trace_record,
                 elapsed_seconds=elapsed_seconds,
                 action_count=action_count,
-                reason="episode_timeout",
             )
-            raise TimeoutError(
-                "Episode rollout exceeded slow_episode_trace_stop_seconds "
-                f"({trace_stop_seconds:.2f}s) before reaching terminal state: "
-                f"update={int(update_index)} episode_index={int(episode_index)} "
-                f"episode_seed={int(episode_seed)} action_count={int(action_count)} "
-                f"pending={state.pending_decision_kind!r} completed_rounds={int(main._completed_rounds(state))} "
-                f"action={str(chosen_action)!r} timings={stage_timings}."
-            )
+            trace_stop_seconds = float(getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0)
+            if trace_stop_seconds > 0.0 and elapsed_seconds > trace_stop_seconds:
+                trace_writer.record_timeout(
+                    action_trace_record,
+                    elapsed_seconds=elapsed_seconds,
+                    action_count=action_count,
+                    reason="episode_timeout",
+                )
+                raise TimeoutError(
+                    "Episode rollout exceeded slow_episode_trace_stop_seconds "
+                    f"({trace_stop_seconds:.2f}s) before reaching terminal state: "
+                    f"update={int(update_index)} episode_index={int(episode_index)} "
+                    f"episode_seed={int(episode_seed)} action_count={int(action_count)} "
+                    f"pending={state.pending_decision_kind!r} completed_rounds={int(main._completed_rounds(state))} "
+                    f"action={str(chosen_action)!r} timings={stage_timings}."
+                )
+    except Exception as exc:
+        progress_tracker.update(
+            stage="episode_exception",
+            error_type=exc.__class__.__name__,
+            error_message=str(exc),
+        )
+        raise
 
     for player_id in range(len(state.players)):
         seq_key = (episode_index, player_id)
@@ -596,6 +1029,16 @@ def _collect_episode_rollout(
         if sequence_builders[key].step_count > 0
     ]
     elapsed_seconds = float(time.perf_counter() - episode_started_at)
+    progress_tracker.update(
+        stage="episode_terminal",
+        elapsed_seconds=float(elapsed_seconds),
+        action_count=int(action_count),
+        pending=str(state.pending_decision_kind or ""),
+        completed_rounds=int(main._completed_rounds(state)),
+        turn_index=int(state.turn_index),
+        terminal_reason=terminal_reason,
+        current_action=None,
+    )
     trace_path = trace_writer.finalize(
         {
             "kind": "terminal",
@@ -612,6 +1055,7 @@ def _collect_episode_rollout(
             },
         }
     )
+    progress_tracker.clear()
 
     return EpisodeRolloutResult(
         episode_index=int(episode_index),
@@ -667,16 +1111,6 @@ def _state_dict_to_cpu(model_state_dict: Dict[str, Any]) -> Dict[str, Any]:
     return cpu_state
 
 
-def _chunk_episode_specs(
-    episode_specs: Sequence[Tuple[int, int]],
-    chunk_count: int,
-) -> List[List[Tuple[int, int]]]:
-    chunks: List[List[Tuple[int, int]]] = [[] for _ in range(max(1, int(chunk_count)))]
-    for index, spec in enumerate(episode_specs):
-        chunks[index % len(chunks)].append(spec)
-    return [chunk for chunk in chunks if chunk]
-
-
 def _collect_rollout_chunk_worker(payload: Dict[str, Any]) -> List[EpisodeRolloutResult]:
     torch.set_num_threads(1)
     task_seed = int(payload.get("task_seed", 0))
@@ -693,23 +1127,73 @@ def _collect_rollout_chunk_worker(payload: Dict[str, Any]) -> List[EpisodeRollou
     update_index = int(payload.get("update_index", 0) or 0)
     trace_dir_raw = str(payload.get("trace_dir") or "").strip()
     trace_dir = Path(trace_dir_raw) if trace_dir_raw else None
+    episode_specs = list(payload.get("episode_specs") or [])
 
     episode_results: List[EpisodeRolloutResult] = []
-    for episode_index, episode_seed in list(payload.get("episode_specs") or []):
-        episode_results.append(
-            _collect_episode_rollout(
-                model=model,
-                obs_encoder=obs_encoder,
-                action_encoder=action_encoder,
-                config=config,
-                device=device,
-                episode_index=int(episode_index),
-                episode_seed=int(episode_seed),
-                update_index=update_index,
-                trace_dir=trace_dir,
-            )
+    for episode_index, episode_seed in episode_specs:
+        episode_result = _collect_episode_rollout(
+            model=model,
+            obs_encoder=obs_encoder,
+            action_encoder=action_encoder,
+            config=config,
+            device=device,
+            episode_index=int(episode_index),
+            episode_seed=int(episode_seed),
+            update_index=update_index,
+            trace_dir=trace_dir,
         )
+        episode_results.append(episode_result)
     return episode_results
+
+
+def _shutdown_rollout_executor(
+    rollout_executor: Optional[Executor],
+    *,
+    force_terminate: bool = False,
+) -> None:
+    if rollout_executor is None:
+        return
+    processes = list(getattr(rollout_executor, "_processes", {}).values()) if force_terminate else []
+    shutdown = getattr(rollout_executor, "shutdown", None)
+    if callable(shutdown):
+        try:
+            shutdown(wait=not force_terminate, cancel_futures=True)
+        except TypeError:
+            shutdown()
+    if not force_terminate:
+        return
+    for process in processes:
+        if process is None:
+            continue
+        try:
+            if process.is_alive():
+                process.terminate()
+        except Exception:
+            continue
+    deadline = time.perf_counter() + 2.0
+    for process in processes:
+        if process is None:
+            continue
+        try:
+            process.join(timeout=max(0.0, deadline - time.perf_counter()))
+        except Exception:
+            continue
+    for process in processes:
+        if process is None:
+            continue
+        try:
+            if process.is_alive() and hasattr(process, "kill"):
+                process.kill()
+        except Exception:
+            continue
+    final_deadline = time.perf_counter() + 1.0
+    for process in processes:
+        if process is None:
+            continue
+        try:
+            process.join(timeout=max(0.0, final_deadline - time.perf_counter()))
+        except Exception:
+            continue
 
 
 def _collect_rollout(
@@ -733,43 +1217,188 @@ def _collect_rollout(
         (episode_idx, rng.randint(0, 10_000_000))
         for episode_idx in range(int(config.episodes_per_update))
     ]
+    total_episodes = len(episode_specs)
     worker_count = max(1, int(getattr(config, "rollout_workers", 1) or 1))
+    watchdog_timeout_seconds = float(
+        getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0
+    )
 
     episode_results: List[EpisodeRolloutResult] = []
     if rollout_executor is None or worker_count <= 1 or len(episode_specs) <= 1:
         for episode_idx, episode_seed in episode_specs:
-            episode_results.append(
-                _collect_episode_rollout(
-                    model=model,
-                    obs_encoder=obs_encoder,
-                    action_encoder=action_encoder,
-                    config=config,
-                    device=device,
-                    episode_index=int(episode_idx),
-                    episode_seed=int(episode_seed),
-                    update_index=int(update_index),
-                    trace_dir=trace_dir,
-                )
+            slot_started_at = time.perf_counter()
+            _log_rollout_slot_started(
+                update_index=int(update_index),
+                slot_index=1,
+                slot_count=1,
+                episode_index=int(episode_idx),
+                total_episodes=total_episodes,
+                episode_seed=int(episode_seed),
+            )
+            episode_result = _collect_episode_rollout(
+                model=model,
+                obs_encoder=obs_encoder,
+                action_encoder=action_encoder,
+                config=config,
+                device=device,
+                episode_index=int(episode_idx),
+                episode_seed=int(episode_seed),
+                update_index=int(update_index),
+                trace_dir=trace_dir,
+            )
+            episode_results.append(episode_result)
+            slot_elapsed_seconds = float(time.perf_counter() - slot_started_at)
+            _log_rollout_episode_completed(
+                update_index=int(update_index),
+                slot_index=1,
+                slot_count=1,
+                episode_index=int(episode_idx),
+                total_episodes=total_episodes,
+                episode_seed=int(episode_seed),
+                episode_elapsed_seconds=float(episode_result.elapsed_seconds),
+                slot_elapsed_seconds=slot_elapsed_seconds,
             )
     else:
         cpu_model_state = _state_dict_to_cpu(model.state_dict())
-        chunked_specs = _chunk_episode_specs(episode_specs, min(worker_count, len(episode_specs)))
-        futures = [
-            rollout_executor.submit(
+        slot_count = min(worker_count, len(episode_specs))
+        pending_episode_specs = deque(episode_specs)
+        active_futures: Dict[Any, Dict[str, Any]] = {}
+
+        def _submit_episode_to_slot(*, slot_index: int, episode_spec: Tuple[int, int]) -> None:
+            episode_idx, episode_seed = int(episode_spec[0]), int(episode_spec[1])
+            slot_started_at = time.perf_counter()
+            _log_rollout_slot_started(
+                update_index=int(update_index),
+                slot_index=slot_index,
+                slot_count=slot_count,
+                episode_index=episode_idx,
+                total_episodes=total_episodes,
+                episode_seed=episode_seed,
+            )
+            future = rollout_executor.submit(
                 _collect_rollout_chunk_worker,
                 {
                     "config": asdict(config),
                     "model_state_dict": cpu_model_state,
-                    "episode_specs": chunk,
+                    "episode_specs": [(episode_idx, episode_seed)],
                     "task_seed": rng.randint(0, 10_000_000),
                     "update_index": int(update_index),
                     "trace_dir": str(trace_dir) if trace_dir is not None else "",
                 },
             )
-            for chunk in chunked_specs
-        ]
-        for future in futures:
-            episode_results.extend(list(future.result()))
+            active_futures[future] = {
+                "slot_index": int(slot_index),
+                "episode_index": int(episode_idx),
+                "episode_seed": int(episode_seed),
+                "started_at": float(slot_started_at),
+                "progress_path": _episode_progress_path(
+                    trace_dir=trace_dir,
+                    update_index=int(update_index),
+                    episode_index=int(episode_idx),
+                    episode_seed=int(episode_seed),
+                ),
+            }
+
+        for slot_index in range(1, slot_count + 1):
+            if not pending_episode_specs:
+                break
+            _submit_episode_to_slot(
+                slot_index=slot_index,
+                episode_spec=pending_episode_specs.popleft(),
+            )
+
+        while active_futures:
+            wait_timeout: Optional[float] = None
+            watchdog_now: Optional[float] = None
+            if watchdog_timeout_seconds > 0.0:
+                watchdog_now = time.perf_counter()
+                remaining_seconds = [
+                    max(
+                        0.0,
+                        watchdog_timeout_seconds - (
+                            float(watchdog_now) - float(info["started_at"])
+                        ),
+                    )
+                    for info in active_futures.values()
+                ]
+                wait_timeout = min(remaining_seconds) if remaining_seconds else 0.0
+            done, _ = wait(
+                tuple(active_futures.keys()),
+                return_when=FIRST_COMPLETED,
+                timeout=wait_timeout,
+            )
+            if not done and watchdog_timeout_seconds > 0.0 and watchdog_now is not None:
+                timed_out_entries: List[Tuple[Any, Dict[str, Any], float]] = []
+                for future, info in active_futures.items():
+                    slot_elapsed_seconds = float(watchdog_now - float(info["started_at"]))
+                    if slot_elapsed_seconds > watchdog_timeout_seconds:
+                        timed_out_entries.append((future, dict(info), slot_elapsed_seconds))
+                if timed_out_entries:
+                    timed_out_entries.sort(key=lambda item: float(item[1].get("started_at", 0.0)))
+                    timed_out_future, timed_out_info, slot_elapsed_seconds = timed_out_entries[0]
+                    progress_path_value = timed_out_info.get("progress_path")
+                    progress_path = (
+                        progress_path_value
+                        if isinstance(progress_path_value, Path)
+                        else Path(progress_path_value)
+                        if progress_path_value
+                        else None
+                    )
+                    progress_snapshot = _read_json_snapshot(progress_path)
+                    progress_summary = _format_watchdog_progress_summary(progress_snapshot)
+                    for active_future in tuple(active_futures.keys()):
+                        cancel = getattr(active_future, "cancel", None)
+                        if callable(cancel):
+                            try:
+                                cancel()
+                            except Exception:
+                                pass
+                    message = (
+                        "Rollout watchdog exceeded slow_episode_trace_stop_seconds "
+                        f"({watchdog_timeout_seconds:.2f}s): update={int(update_index):04d} "
+                        f"slot={int(timed_out_info['slot_index'])}/{slot_count} "
+                        f"episode {int(timed_out_info['episode_index']) + 1:03d}/{max(1, total_episodes):03d} "
+                        f"seed={int(timed_out_info['episode_seed'])} "
+                        f"slot_elapsed={slot_elapsed_seconds:.2f}s {progress_summary}"
+                    )
+                    if progress_path is not None:
+                        message += f" progress_path={progress_path}"
+                    _log_progress_event(message)
+                    raise TimeoutError(message)
+                continue
+            for future in done:
+                info = dict(active_futures.pop(future))
+                slot_elapsed_seconds = float(time.perf_counter() - float(info["started_at"]))
+                try:
+                    future_results = list(future.result())
+                except Exception:
+                    _log_progress_event(
+                        f"[update {int(update_index):04d}] slot {int(info['slot_index'])}/{slot_count} failed "
+                        f"episode {int(info['episode_index']) + 1:03d}/{max(1, total_episodes):03d} "
+                        f"elapsed={slot_elapsed_seconds:.2f}s"
+                    )
+                    raise
+                episode_results.extend(future_results)
+                if future_results:
+                    episode_result = future_results[0]
+                    episode_elapsed_sec = float(episode_result.elapsed_seconds)
+                else:
+                    episode_elapsed_sec = 0.0
+                _log_rollout_episode_completed(
+                    update_index=int(update_index),
+                    slot_index=int(info["slot_index"]),
+                    slot_count=slot_count,
+                    episode_index=int(info["episode_index"]),
+                    total_episodes=total_episodes,
+                    episode_seed=int(info["episode_seed"]),
+                    episode_elapsed_seconds=episode_elapsed_sec,
+                    slot_elapsed_seconds=slot_elapsed_seconds,
+                )
+                if pending_episode_specs:
+                    _submit_episode_to_slot(
+                        slot_index=int(info["slot_index"]),
+                        episode_spec=pending_episode_specs.popleft(),
+                    )
 
     episode_results.sort(key=lambda item: int(item.episode_index))
     for episode_result in episode_results:
@@ -1421,6 +2050,7 @@ def train_self_play(
         return all_metrics
 
     rollout_executor: Optional[Executor] = None
+    force_terminate_rollout_executor = False
     requested_rollout_workers = int(getattr(config, "rollout_workers", 1) or 1)
     parallel_rollout_reason = _parallel_rollout_unavailable_reason(
         device=inference_device,
@@ -1446,6 +2076,7 @@ def train_self_play(
             rollout_executor = None
     try:
         for update_idx in range(start_update, end_update + 1):
+            _log_progress_event(f"starting update {update_idx:04d}")
             rollout_model = model
             rollout_obs_encoder = obs_encoder
             rollout_action_encoder = action_encoder
@@ -1462,17 +2093,21 @@ def train_self_play(
                 rollout_action_encoder = rollout_bundle.action_encoder
                 rollout_device = inference_device
             rollout_started_at = time.perf_counter()
-            rollout_sequences, rollout_stats = _collect_rollout(
-                model=rollout_model,
-                obs_encoder=rollout_obs_encoder,
-                action_encoder=rollout_action_encoder,
-                config=config,
-                rng=rng,
-                device=rollout_device,
-                update_index=update_idx,
-                trace_dir=slow_trace_dir,
-                rollout_executor=rollout_executor,
-            )
+            try:
+                rollout_sequences, rollout_stats = _collect_rollout(
+                    model=rollout_model,
+                    obs_encoder=rollout_obs_encoder,
+                    action_encoder=rollout_action_encoder,
+                    config=config,
+                    rng=rng,
+                    device=rollout_device,
+                    update_index=update_idx,
+                    trace_dir=slow_trace_dir,
+                    rollout_executor=rollout_executor,
+                )
+            except TimeoutError:
+                force_terminate_rollout_executor = True
+                raise
             update_time_sec = float(time.perf_counter() - rollout_started_at)
             model_update_started_at = time.perf_counter()
             update_stats = _update_model(
@@ -1528,18 +2163,23 @@ def train_self_play(
                     for key, value in sorted(metrics.terminal_reason_counts.items())
                 ) or "-"
                 print(
-                    f"[update {update_idx:04d}] "
-                    f"steps={metrics.step_count} episodes={metrics.episode_count} "
-                    f"rounds_avg={metrics.avg_completed_rounds:.2f} "
-                    f"term_diff_abs={metrics.avg_terminal_score_diff_abs:.2f} "
-                    f"episode_avg={metrics.episode_time_avg_sec:.2f}s "
-                    f"episode_min={metrics.episode_time_min_sec:.2f}s "
-                    f"episode_max={metrics.episode_time_max_sec:.2f}s "
-                    f"update_time={metrics.update_time_sec:.2f}s "
-                    f"model_update_time={metrics.model_update_time_sec:.2f}s "
-                    f"policy={metrics.policy_loss:.4f} value={metrics.value_loss:.4f} "
-                    f"entropy={metrics.entropy:.4f} total={metrics.total_loss:.4f} "
-                    f"reasons={reason_text}"
+                    _highlight_log_line(
+                        (
+                            f"[update {update_idx:04d}] "
+                            f"steps={metrics.step_count} episodes={metrics.episode_count} "
+                            f"rounds_avg={metrics.avg_completed_rounds:.2f} "
+                            f"term_diff_abs={metrics.avg_terminal_score_diff_abs:.2f} "
+                            f"episode_avg={metrics.episode_time_avg_sec:.2f}s "
+                            f"episode_min={metrics.episode_time_min_sec:.2f}s "
+                            f"episode_max={metrics.episode_time_max_sec:.2f}s "
+                            f"update_time={metrics.update_time_sec:.2f}s "
+                            f"model_update_time={metrics.model_update_time_sec:.2f}s "
+                            f"policy={metrics.policy_loss:.4f} value={metrics.value_loss:.4f} "
+                            f"entropy={metrics.entropy:.4f} total={metrics.total_loss:.4f} "
+                            f"reasons={reason_text}"
+                        ),
+                        style="update_summary",
+                    )
                 )
 
             should_run_fixed_eval = (
@@ -1570,13 +2210,18 @@ def train_self_play(
                     for key, value in sorted(fixed_eval_metrics.terminal_reason_counts.items())
                 ) or "-"
                 print(
-                    f"[fixed_eval {update_idx:04d}] "
-                    f"vs={fixed_eval_bundle.name} episodes={fixed_eval_metrics.episodes} "
-                    f"win_rate={fixed_eval_metrics.win_rate_a:.3f} "
-                    f"wins={fixed_eval_metrics.wins_a}/{fixed_eval_metrics.wins_b} draws={fixed_eval_metrics.draws} "
-                    f"score_diff={fixed_eval_metrics.avg_score_diff_a_minus_b:.2f} "
-                    f"rounds_avg={fixed_eval_metrics.avg_completed_rounds:.2f} "
-                    f"reasons={fixed_reason_text}"
+                    _highlight_log_line(
+                        (
+                            f"[fixed_eval {update_idx:04d}] "
+                            f"vs={fixed_eval_bundle.name} episodes={fixed_eval_metrics.episodes} "
+                            f"win_rate={fixed_eval_metrics.win_rate_a:.3f} "
+                            f"wins={fixed_eval_metrics.wins_a}/{fixed_eval_metrics.wins_b} draws={fixed_eval_metrics.draws} "
+                            f"score_diff={fixed_eval_metrics.avg_score_diff_a_minus_b:.2f} "
+                            f"rounds_avg={fixed_eval_metrics.avg_completed_rounds:.2f} "
+                            f"reasons={fixed_reason_text}"
+                        ),
+                        style="fixed_eval",
+                    )
                 )
                 with fixed_eval_log_path.open("a", encoding="utf-8") as handle:
                     handle.write(
@@ -1609,7 +2254,9 @@ def train_self_play(
                 )
                 print(f"saved checkpoint: {checkpoint_path}")
     finally:
-        if rollout_executor is not None:
-            rollout_executor.shutdown(wait=True, cancel_futures=True)
+        _shutdown_rollout_executor(
+            rollout_executor,
+            force_terminate=force_terminate_rollout_executor,
+        )
 
     return all_metrics

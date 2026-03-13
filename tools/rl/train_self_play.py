@@ -162,7 +162,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main_cli() -> None:
     args = parse_args()
     try:
-        from arknova_rl.trainer import train_self_play
+        from arknova_rl.trainer import format_log_timestamp, train_self_play
     except ModuleNotFoundError as exc:
         if str(getattr(exc, "name", "")) == "torch":
             raise SystemExit(
@@ -201,7 +201,7 @@ def main_cli() -> None:
     output_dir = Path(args.output_dir)
     resume_from = Path(args.resume_from) if str(args.resume_from).strip() else None
     print(
-        "starting training: "
+        f"[{format_log_timestamp()}] starting training: "
         f"algo={config.algo} updates={config.total_updates} "
         f"episodes_per_update={config.episodes_per_update} "
         f"device={config.device} rollout_workers={config.rollout_workers} "

@@ -77,6 +77,36 @@ def test_size5_options_match_all_unique_legal_footprints():
     assert ui_size5 == engine_size5
 
 
+def test_build_options_hide_new_enclosures_when_four_empty_enclosures_already_exist():
+    state = make_state(606)
+    p0 = state.players[0]
+    p0.enclosures = [
+        Enclosure(size=1, occupied=False, enclosure_type="enclosure_1"),
+        Enclosure(size=2, occupied=False, enclosure_type="enclosure_2"),
+        Enclosure(size=3, occupied=False, enclosure_type="enclosure_3"),
+        Enclosure(size=4, occupied=False, enclosure_type="enclosure_4"),
+    ]
+
+    options = list_legal_build_options(state=state, player_id=0, strength=5)
+
+    assert options
+    assert all(not opt["building_type"].startswith("SIZE_") for opt in options)
+
+
+def test_build_options_still_allow_new_enclosures_below_empty_enclosure_cap():
+    state = make_state(606)
+    p0 = state.players[0]
+    p0.enclosures = [
+        Enclosure(size=1, occupied=False, enclosure_type="enclosure_1"),
+        Enclosure(size=2, occupied=False, enclosure_type="enclosure_2"),
+        Enclosure(size=3, occupied=False, enclosure_type="enclosure_3"),
+    ]
+
+    options = list_legal_build_options(state=state, player_id=0, strength=5)
+
+    assert any(opt["building_type"].startswith("SIZE_") for opt in options)
+
+
 def test_build_action_uses_serialized_selection_and_places_building():
     state = make_state(602)
     p0 = state.players[0]

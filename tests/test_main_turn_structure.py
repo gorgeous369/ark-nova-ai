@@ -1561,6 +1561,60 @@ def test_state_legal_actions_build_ii_sequences_stop_at_two_buildings(monkeypatc
     assert any(str(action).count(" ; then ") == 1 for action in build_actions)
 
 
+def test_state_legal_actions_build_ii_plain_sequences_skip_full_resolution(monkeypatch):
+    state = setup_game(seed=386, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_upgraded["build"] = True
+    player.action_order = ["cards", "build", "animals", "association", "sponsors"]
+
+    option_a = {
+        "index": 1,
+        "building_type": "SIZE_1",
+        "building_label": "enclosure_1",
+        "cells": [(0, 0)],
+        "size": 1,
+        "cost": 2,
+        "placement_bonuses": [],
+    }
+    option_b = {
+        "index": 2,
+        "building_type": "PAVILION",
+        "building_label": "pavilion",
+        "cells": [(1, 0)],
+        "size": 1,
+        "cost": 2,
+        "placement_bonuses": [],
+    }
+
+    def _fake_list_legal_build_options(*, already_built_types=None, strength, **kwargs):
+        built = {item.name for item in set(already_built_types or set())}
+        options = []
+        if strength >= 1 and "SIZE_1" not in built:
+            options.append(copy.deepcopy(option_a))
+        if strength >= 1 and "PAVILION" not in built:
+            options.append(copy.deepcopy(option_b))
+        return options
+
+    monkeypatch.setattr(main, "list_legal_build_options", _fake_list_legal_build_options)
+    monkeypatch.setattr(
+        main,
+        "_perform_build_action_effect",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("full build simulation should not run")),
+    )
+
+    actions = legal_actions(player, state=state, player_id=0)
+    build_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "build"
+        and len((action.details or {}).get("selections") or []) == 2
+    ]
+
+    assert build_actions
+
+
 def test_build_ii_rejects_more_than_two_requested_selections():
     state = setup_game(seed=385, player_names=["P1", "P2"])
     player = state.players[0]

@@ -34,12 +34,12 @@ class PPOTrainConfig:
     terminal_win_bonus: float = 3.0
     terminal_loss_penalty: float = 3.0
 
-    checkpoint_interval: int = 5
+    checkpoint_interval: int = 2
     log_interval: int = 1
     rollout_workers: int = 8
     slow_episode_trace_start_seconds: float = 300.0
     slow_episode_trace_stop_seconds: float = 480.0
-    fixed_eval_interval: int = 20
+    fixed_eval_interval: int = 10
     fixed_eval_episodes: int = 8
     fixed_eval_deterministic: bool = True
     fixed_eval_opponent: str = ""
