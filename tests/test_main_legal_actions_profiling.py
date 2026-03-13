@@ -11,6 +11,7 @@ class _FakeCard:
         self.name = name
         self.instance_id = instance_id
         self.card_type = card_type
+        self.badges = ()
         self.size = 2
         self.number = 1
         self.appeal = 3
@@ -168,7 +169,11 @@ def test_enumerate_concrete_animals_actions_profiles_current_resolve_option(monk
     )
     monkeypatch.setattr(main, "_enumerate_animals_effect_choice_variants", lambda *args, **kwargs: [({}, "")])
     monkeypatch.setattr(main, "_player_has_sponsor", lambda *args, **kwargs: False)
-    monkeypatch.setattr(main, "resolve_card_effect", lambda card: SimpleNamespace(code=""))
+    monkeypatch.setattr(
+        main,
+        "resolve_card_effect",
+        lambda card: SimpleNamespace(code="trade" if card.instance_id == "card-tiger" else ""),
+    )
 
     def _fake_resolve_action_detail_variants_by_simulation(**kwargs):
         del kwargs
@@ -224,6 +229,107 @@ def test_enumerate_concrete_animals_actions_profiles_current_resolve_option(monk
     assert resolve_profile["current_option_label"] == "Tiger@E1 ; then Bear@E0"
     assert resolve_profile["first_play"]["card_name"] == "Tiger"
     assert resolve_profile["second_card"]["card_name"] == "Bear"
+
+
+def test_enumerate_concrete_animals_actions_plain_two_play_sequences_skip_resolution(monkeypatch):
+    player = _FakePlayer()
+    player.sponsor_tokens_by_number = {}
+    state = _FakeState()
+    option = {
+        "index": 3,
+        "plays": [
+            {
+                "card_instance_id": "card-tiger",
+                "card_name": "Tiger",
+                "card_hand_index": 0,
+                "enclosure_index": 1,
+            },
+            {
+                "card_instance_id": "card-bear",
+                "card_name": "Bear",
+                "card_hand_index": 1,
+                "enclosure_index": 0,
+            },
+        ],
+    }
+
+    monkeypatch.setattr(main, "list_legal_animals_options", lambda **kwargs: [copy.deepcopy(option)])
+    monkeypatch.setattr(
+        main,
+        "_format_animals_play_step_for_human",
+        lambda step, player: f"{step['card_name']}@E{step['enclosure_index']}",
+    )
+    monkeypatch.setattr(main, "_enumerate_animals_effect_choice_variants", lambda *args, **kwargs: [({}, "")])
+    monkeypatch.setattr(main, "_player_has_sponsor", lambda *args, **kwargs: False)
+    monkeypatch.setattr(main, "resolve_card_effect", lambda card: SimpleNamespace(code=""))
+    monkeypatch.setattr(
+        main,
+        "_resolve_action_detail_variants_by_simulation",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("plain two-play animals should not resolve by simulation")),
+    )
+
+    actions = main._enumerate_concrete_animals_actions(
+        state=state,
+        player=player,
+        player_id=0,
+        template_action=main.Action(
+            main.ActionType.MAIN_ACTION,
+            value=0,
+            card_name="animals",
+            details={"effective_strength": 5},
+        ),
+    )
+
+    assert len(actions) == 1
+    assert str(actions[0]) == "animals(strength=5) | Tiger@E1 ; then Bear@E0"
+
+
+def test_enumerate_concrete_animals_actions_skips_irrelevant_sponsor_resolution(monkeypatch):
+    player = _FakePlayer()
+    player.sponsor_tokens_by_number = {}
+    state = _FakeState()
+    option = {
+        "index": 2,
+        "plays": [
+            {
+                "card_instance_id": "card-tiger",
+                "card_name": "Tiger",
+                "card_hand_index": 0,
+                "enclosure_index": 1,
+            }
+        ],
+    }
+
+    monkeypatch.setattr(main, "list_legal_animals_options", lambda **kwargs: [copy.deepcopy(option)])
+    monkeypatch.setattr(
+        main,
+        "_format_animals_play_step_for_human",
+        lambda step, player: f"{step['card_name']}@E{step['enclosure_index']}",
+    )
+    monkeypatch.setattr(main, "_enumerate_animals_effect_choice_variants", lambda *args, **kwargs: [({}, "")])
+    monkeypatch.setattr(main, "_player_has_sponsor", lambda _player, sponsor_no: sponsor_no == 249)
+    monkeypatch.setattr(main, "resolve_card_effect", lambda card: SimpleNamespace(code=""))
+    monkeypatch.setattr(main, "_card_icon_counts", lambda card: {})
+    monkeypatch.setattr(
+        main,
+        "_resolve_action_detail_variants_by_simulation",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("irrelevant sponsor should not force simulation")),
+    )
+
+    actions = main._enumerate_concrete_animals_actions(
+        state=state,
+        player=player,
+        player_id=0,
+        template_action=main.Action(
+            main.ActionType.MAIN_ACTION,
+            value=0,
+            card_name="animals",
+            details={"effective_strength": 5},
+        ),
+    )
+
+    assert len(actions) == 1
+    assert str(actions[0]) == "animals(strength=5) | Tiger@E1"
 
 
 def test_list_legal_animals_options_clears_resolve_fields_during_scan_second_card(monkeypatch):
@@ -391,7 +497,11 @@ def test_enumerate_concrete_animals_actions_dedupes_equivalent_resolution_signat
     )
     monkeypatch.setattr(main, "_enumerate_animals_effect_choice_variants", lambda *args, **kwargs: [({}, "")])
     monkeypatch.setattr(main, "_player_has_sponsor", lambda *args, **kwargs: False)
-    monkeypatch.setattr(main, "resolve_card_effect", lambda card: SimpleNamespace(code=""))
+    monkeypatch.setattr(
+        main,
+        "resolve_card_effect",
+        lambda card: SimpleNamespace(code="trade" if card.instance_id == "card-tiger" else ""),
+    )
     monkeypatch.setattr(
         main,
         "_perform_animals_action_effect",

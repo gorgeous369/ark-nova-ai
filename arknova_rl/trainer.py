@@ -142,13 +142,17 @@ def format_log_timestamp() -> str:
     return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _stdout_supports_ansi_color() -> bool:
-    if "NO_COLOR" in os.environ:
-        return False
+def _stdout_supports_live_updates() -> bool:
     term = str(os.environ.get("TERM") or "").strip().lower()
     if not term or term == "dumb":
         return False
     return bool(getattr(sys.stdout, "isatty", lambda: False)())
+
+
+def _stdout_supports_ansi_color() -> bool:
+    if "NO_COLOR" in os.environ:
+        return False
+    return _stdout_supports_live_updates()
 
 
 def _highlight_log_line(message: str, *, style: str) -> str:
@@ -166,37 +170,189 @@ def _log_progress_event(message: str) -> None:
     print(f"[{format_log_timestamp()}] {message}", flush=True)
 
 
-def _log_rollout_slot_started(
-    *,
-    update_index: int,
-    slot_index: int,
-    slot_count: int,
-    episode_index: int,
-    total_episodes: int,
-    episode_seed: int,
-) -> None:
-    _log_progress_event(
-        f"[update {int(update_index):04d}] slot {int(slot_index)}/{max(1, int(slot_count))} started "
-        f"episode {int(episode_index) + 1:03d}/{max(1, int(total_episodes)):03d} seed={int(episode_seed)}"
-    )
+@dataclass
+class _RolloutProgressBar:
+    update_index: int
+    total_episodes: int
+    slot_count: int
+    started_at: float = field(default_factory=time.perf_counter)
+    completed_episodes: int = 0
+    episode_elapsed_total: float = 0.0
+    active_slots: Dict[int, Dict[str, Any]] = field(default_factory=dict)
+    enabled: bool = field(init=False, default=False)
+    last_line_length: int = 0
+    closed: bool = False
+
+    def __post_init__(self) -> None:
+        self.enabled = _stdout_supports_live_updates() and int(self.total_episodes) > 0
+
+    def slot_started(
+        self,
+        *,
+        slot_index: int,
+        episode_index: int,
+        episode_seed: int,
+    ) -> None:
+        if self.closed:
+            return
+        self.active_slots[int(slot_index)] = {
+            "episode_index": int(episode_index),
+            "episode_seed": int(episode_seed),
+        }
+        self._render()
+
+    def episode_completed(
+        self,
+        *,
+        slot_index: int,
+        episode_index: int,
+        episode_seed: int,
+        episode_elapsed_seconds: float,
+    ) -> None:
+        if self.closed:
+            return
+        self.completed_episodes = min(
+            max(0, int(self.total_episodes)),
+            int(self.completed_episodes) + 1,
+        )
+        self.episode_elapsed_total += float(episode_elapsed_seconds)
+        self.active_slots.pop(int(slot_index), None)
+        self._render()
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        if not self.enabled or self.last_line_length <= 0:
+            return
+        self._render(force=True)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+    def _render(self, *, force: bool = False) -> None:
+        if not self.enabled:
+            return
+        line = self._format_line()
+        padded = line
+        if len(line) < self.last_line_length:
+            padded += " " * (self.last_line_length - len(line))
+        if force or padded.strip():
+            sys.stdout.write("\r" + padded)
+            sys.stdout.flush()
+        self.last_line_length = max(self.last_line_length, len(line))
+
+    def _format_line(self) -> str:
+        total = max(1, int(self.total_episodes))
+        completed = max(0, min(total, int(self.completed_episodes)))
+        width = 24
+        filled = min(width, int(width * completed / total))
+        bar = "#" * filled + "-" * (width - filled)
+        elapsed = max(0.0, float(time.perf_counter() - self.started_at))
+        avg_episode_seconds = (
+            float(self.episode_elapsed_total) / float(completed)
+            if completed > 0
+            else 0.0
+        )
+        active_parts = [
+            f"{slot}:{int(info.get('episode_index', 0)) + 1:03d}"
+            for slot, info in sorted(self.active_slots.items())
+        ]
+        active_text = " ".join(active_parts[:4])
+        if len(active_parts) > 4:
+            active_text += f" +{len(active_parts) - 4}"
+        if not active_text:
+            active_text = "-"
+        return (
+            f"[update {int(self.update_index):04d}] rollout "
+            f"[{bar}] {completed:02d}/{total:02d} "
+            f"active={active_text} "
+            f"avg={avg_episode_seconds:.2f}s elapsed={elapsed:.1f}s"
+        )
 
 
-def _log_rollout_episode_completed(
-    *,
-    update_index: int,
-    slot_index: int,
-    slot_count: int,
-    episode_index: int,
-    total_episodes: int,
-    episode_seed: int,
-    episode_elapsed_seconds: float,
-    slot_elapsed_seconds: float,
-) -> None:
-    _log_progress_event(
-        f"[update {int(update_index):04d}] episode {int(episode_index) + 1:03d}/{max(1, int(total_episodes)):03d} completed "
-        f"seed={int(episode_seed)} episode_time={float(episode_elapsed_seconds):.2f}s "
-        f"slot={int(slot_index)}/{max(1, int(slot_count))} slot_elapsed={float(slot_elapsed_seconds):.2f}s"
-    )
+@dataclass
+class _ModelUpdateProgressBar:
+    update_index: int
+    total_epochs: int
+    units_per_epoch: int
+    unit_label: str
+    started_at: float = field(default_factory=time.perf_counter)
+    completed_units: int = 0
+    current_epoch: int = 0
+    current_epoch_unit: int = 0
+    enabled: bool = field(init=False, default=False)
+    last_line_length: int = 0
+    last_rendered_at: float = 0.0
+    min_render_interval_seconds: float = 0.1
+    closed: bool = False
+
+    def __post_init__(self) -> None:
+        self.enabled = (
+            _stdout_supports_live_updates()
+            and int(self.total_epochs) > 0
+            and int(self.units_per_epoch) > 0
+        )
+
+    def start_epoch(self, *, epoch_index: int) -> None:
+        if self.closed:
+            return
+        self.current_epoch = max(0, int(epoch_index))
+        self.current_epoch_unit = 0
+        self._render(force=True)
+
+    def advance(self) -> None:
+        if self.closed:
+            return
+        self.completed_units += 1
+        self.current_epoch_unit += 1
+        self._render()
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        if not self.enabled or self.last_line_length <= 0:
+            return
+        self._render(force=True)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+    def _render(self, *, force: bool = False) -> None:
+        if not self.enabled:
+            return
+        now = time.perf_counter()
+        total_units = max(1, int(self.total_epochs) * int(self.units_per_epoch))
+        if (
+            not force
+            and self.last_rendered_at > 0.0
+            and self.completed_units < total_units
+            and now - self.last_rendered_at < float(self.min_render_interval_seconds)
+        ):
+            return
+        line = self._format_line(now=now)
+        padded = line
+        if len(line) < self.last_line_length:
+            padded += " " * (self.last_line_length - len(line))
+        sys.stdout.write("\r" + padded)
+        sys.stdout.flush()
+        self.last_line_length = max(self.last_line_length, len(line))
+        self.last_rendered_at = float(now)
+
+    def _format_line(self, *, now: float) -> str:
+        total_units = max(1, int(self.total_epochs) * int(self.units_per_epoch))
+        completed_units = max(0, min(total_units, int(self.completed_units)))
+        width = 24
+        filled = min(width, int(width * completed_units / total_units))
+        bar = "#" * filled + "-" * (width - filled)
+        elapsed = max(0.0, float(now - self.started_at))
+        current_epoch = max(1, min(max(1, int(self.total_epochs)), int(self.current_epoch or 1)))
+        current_unit = max(0, min(max(1, int(self.units_per_epoch)), int(self.current_epoch_unit)))
+        return (
+            f"[update {int(self.update_index):04d}] optimize "
+            f"[{bar}] epoch={current_epoch}/{max(1, int(self.total_epochs))} "
+            f"{self.unit_label}={current_unit}/{max(1, int(self.units_per_epoch))} "
+            f"elapsed={elapsed:.1f}s"
+        )
 
 
 @dataclass
@@ -1222,183 +1378,181 @@ def _collect_rollout(
     watchdog_timeout_seconds = float(
         getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0
     )
+    progress_bar = _RolloutProgressBar(
+        update_index=int(update_index),
+        total_episodes=total_episodes,
+        slot_count=min(max(1, worker_count), max(1, total_episodes)),
+    )
 
     episode_results: List[EpisodeRolloutResult] = []
-    if rollout_executor is None or worker_count <= 1 or len(episode_specs) <= 1:
-        for episode_idx, episode_seed in episode_specs:
-            slot_started_at = time.perf_counter()
-            _log_rollout_slot_started(
-                update_index=int(update_index),
-                slot_index=1,
-                slot_count=1,
-                episode_index=int(episode_idx),
-                total_episodes=total_episodes,
-                episode_seed=int(episode_seed),
-            )
-            episode_result = _collect_episode_rollout(
-                model=model,
-                obs_encoder=obs_encoder,
-                action_encoder=action_encoder,
-                config=config,
-                device=device,
-                episode_index=int(episode_idx),
-                episode_seed=int(episode_seed),
-                update_index=int(update_index),
-                trace_dir=trace_dir,
-            )
-            episode_results.append(episode_result)
-            slot_elapsed_seconds = float(time.perf_counter() - slot_started_at)
-            _log_rollout_episode_completed(
-                update_index=int(update_index),
-                slot_index=1,
-                slot_count=1,
-                episode_index=int(episode_idx),
-                total_episodes=total_episodes,
-                episode_seed=int(episode_seed),
-                episode_elapsed_seconds=float(episode_result.elapsed_seconds),
-                slot_elapsed_seconds=slot_elapsed_seconds,
-            )
-    else:
-        cpu_model_state = _state_dict_to_cpu(model.state_dict())
-        slot_count = min(worker_count, len(episode_specs))
-        pending_episode_specs = deque(episode_specs)
-        active_futures: Dict[Any, Dict[str, Any]] = {}
-
-        def _submit_episode_to_slot(*, slot_index: int, episode_spec: Tuple[int, int]) -> None:
-            episode_idx, episode_seed = int(episode_spec[0]), int(episode_spec[1])
-            slot_started_at = time.perf_counter()
-            _log_rollout_slot_started(
-                update_index=int(update_index),
-                slot_index=slot_index,
-                slot_count=slot_count,
-                episode_index=episode_idx,
-                total_episodes=total_episodes,
-                episode_seed=episode_seed,
-            )
-            future = rollout_executor.submit(
-                _collect_rollout_chunk_worker,
-                {
-                    "config": asdict(config),
-                    "model_state_dict": cpu_model_state,
-                    "episode_specs": [(episode_idx, episode_seed)],
-                    "task_seed": rng.randint(0, 10_000_000),
-                    "update_index": int(update_index),
-                    "trace_dir": str(trace_dir) if trace_dir is not None else "",
-                },
-            )
-            active_futures[future] = {
-                "slot_index": int(slot_index),
-                "episode_index": int(episode_idx),
-                "episode_seed": int(episode_seed),
-                "started_at": float(slot_started_at),
-                "progress_path": _episode_progress_path(
-                    trace_dir=trace_dir,
-                    update_index=int(update_index),
+    try:
+        if rollout_executor is None or worker_count <= 1 or len(episode_specs) <= 1:
+            for episode_idx, episode_seed in episode_specs:
+                progress_bar.slot_started(
+                    slot_index=1,
                     episode_index=int(episode_idx),
                     episode_seed=int(episode_seed),
-                ),
-            }
-
-        for slot_index in range(1, slot_count + 1):
-            if not pending_episode_specs:
-                break
-            _submit_episode_to_slot(
-                slot_index=slot_index,
-                episode_spec=pending_episode_specs.popleft(),
-            )
-
-        while active_futures:
-            wait_timeout: Optional[float] = None
-            watchdog_now: Optional[float] = None
-            if watchdog_timeout_seconds > 0.0:
-                watchdog_now = time.perf_counter()
-                remaining_seconds = [
-                    max(
-                        0.0,
-                        watchdog_timeout_seconds - (
-                            float(watchdog_now) - float(info["started_at"])
-                        ),
-                    )
-                    for info in active_futures.values()
-                ]
-                wait_timeout = min(remaining_seconds) if remaining_seconds else 0.0
-            done, _ = wait(
-                tuple(active_futures.keys()),
-                return_when=FIRST_COMPLETED,
-                timeout=wait_timeout,
-            )
-            if not done and watchdog_timeout_seconds > 0.0 and watchdog_now is not None:
-                timed_out_entries: List[Tuple[Any, Dict[str, Any], float]] = []
-                for future, info in active_futures.items():
-                    slot_elapsed_seconds = float(watchdog_now - float(info["started_at"]))
-                    if slot_elapsed_seconds > watchdog_timeout_seconds:
-                        timed_out_entries.append((future, dict(info), slot_elapsed_seconds))
-                if timed_out_entries:
-                    timed_out_entries.sort(key=lambda item: float(item[1].get("started_at", 0.0)))
-                    timed_out_future, timed_out_info, slot_elapsed_seconds = timed_out_entries[0]
-                    progress_path_value = timed_out_info.get("progress_path")
-                    progress_path = (
-                        progress_path_value
-                        if isinstance(progress_path_value, Path)
-                        else Path(progress_path_value)
-                        if progress_path_value
-                        else None
-                    )
-                    progress_snapshot = _read_json_snapshot(progress_path)
-                    progress_summary = _format_watchdog_progress_summary(progress_snapshot)
-                    for active_future in tuple(active_futures.keys()):
-                        cancel = getattr(active_future, "cancel", None)
-                        if callable(cancel):
-                            try:
-                                cancel()
-                            except Exception:
-                                pass
-                    message = (
-                        "Rollout watchdog exceeded slow_episode_trace_stop_seconds "
-                        f"({watchdog_timeout_seconds:.2f}s): update={int(update_index):04d} "
-                        f"slot={int(timed_out_info['slot_index'])}/{slot_count} "
-                        f"episode {int(timed_out_info['episode_index']) + 1:03d}/{max(1, total_episodes):03d} "
-                        f"seed={int(timed_out_info['episode_seed'])} "
-                        f"slot_elapsed={slot_elapsed_seconds:.2f}s {progress_summary}"
-                    )
-                    if progress_path is not None:
-                        message += f" progress_path={progress_path}"
-                    _log_progress_event(message)
-                    raise TimeoutError(message)
-                continue
-            for future in done:
-                info = dict(active_futures.pop(future))
-                slot_elapsed_seconds = float(time.perf_counter() - float(info["started_at"]))
-                try:
-                    future_results = list(future.result())
-                except Exception:
-                    _log_progress_event(
-                        f"[update {int(update_index):04d}] slot {int(info['slot_index'])}/{slot_count} failed "
-                        f"episode {int(info['episode_index']) + 1:03d}/{max(1, total_episodes):03d} "
-                        f"elapsed={slot_elapsed_seconds:.2f}s"
-                    )
-                    raise
-                episode_results.extend(future_results)
-                if future_results:
-                    episode_result = future_results[0]
-                    episode_elapsed_sec = float(episode_result.elapsed_seconds)
-                else:
-                    episode_elapsed_sec = 0.0
-                _log_rollout_episode_completed(
-                    update_index=int(update_index),
-                    slot_index=int(info["slot_index"]),
-                    slot_count=slot_count,
-                    episode_index=int(info["episode_index"]),
-                    total_episodes=total_episodes,
-                    episode_seed=int(info["episode_seed"]),
-                    episode_elapsed_seconds=episode_elapsed_sec,
-                    slot_elapsed_seconds=slot_elapsed_seconds,
                 )
-                if pending_episode_specs:
-                    _submit_episode_to_slot(
+                episode_result = _collect_episode_rollout(
+                    model=model,
+                    obs_encoder=obs_encoder,
+                    action_encoder=action_encoder,
+                    config=config,
+                    device=device,
+                    episode_index=int(episode_idx),
+                    episode_seed=int(episode_seed),
+                    update_index=int(update_index),
+                    trace_dir=trace_dir,
+                )
+                episode_results.append(episode_result)
+                progress_bar.episode_completed(
+                    slot_index=1,
+                    episode_index=int(episode_idx),
+                    episode_seed=int(episode_seed),
+                    episode_elapsed_seconds=float(episode_result.elapsed_seconds),
+                )
+        else:
+            cpu_model_state = _state_dict_to_cpu(model.state_dict())
+            slot_count = min(worker_count, len(episode_specs))
+            pending_episode_specs = deque(episode_specs)
+            active_futures: Dict[Any, Dict[str, Any]] = {}
+
+            def _submit_episode_to_slot(*, slot_index: int, episode_spec: Tuple[int, int]) -> None:
+                episode_idx, episode_seed = int(episode_spec[0]), int(episode_spec[1])
+                slot_started_at = time.perf_counter()
+                task_seed = int(rng.randint(0, 10_000_000))
+                progress_bar.slot_started(
+                    slot_index=int(slot_index),
+                    episode_index=episode_idx,
+                    episode_seed=episode_seed,
+                )
+                future = rollout_executor.submit(
+                    _collect_rollout_chunk_worker,
+                    {
+                        "config": asdict(config),
+                        "model_state_dict": cpu_model_state,
+                        "episode_specs": [(episode_idx, episode_seed)],
+                        "task_seed": int(task_seed),
+                        "update_index": int(update_index),
+                        "trace_dir": str(trace_dir) if trace_dir is not None else "",
+                    },
+                )
+                active_futures[future] = {
+                    "slot_index": int(slot_index),
+                    "episode_index": int(episode_idx),
+                    "episode_seed": int(episode_seed),
+                    "task_seed": int(task_seed),
+                    "started_at": float(slot_started_at),
+                    "progress_path": _episode_progress_path(
+                        trace_dir=trace_dir,
+                        update_index=int(update_index),
+                        episode_index=int(episode_idx),
+                        episode_seed=int(episode_seed),
+                    ),
+                }
+
+            for slot_index in range(1, slot_count + 1):
+                if not pending_episode_specs:
+                    break
+                _submit_episode_to_slot(
+                    slot_index=slot_index,
+                    episode_spec=pending_episode_specs.popleft(),
+                )
+
+            while active_futures:
+                wait_timeout: Optional[float] = None
+                watchdog_now: Optional[float] = None
+                if watchdog_timeout_seconds > 0.0:
+                    watchdog_now = time.perf_counter()
+                    remaining_seconds = [
+                        max(
+                            0.0,
+                            watchdog_timeout_seconds - (
+                                float(watchdog_now) - float(info["started_at"])
+                            ),
+                        )
+                        for info in active_futures.values()
+                    ]
+                    wait_timeout = min(remaining_seconds) if remaining_seconds else 0.0
+                done, _ = wait(
+                    tuple(active_futures.keys()),
+                    return_when=FIRST_COMPLETED,
+                    timeout=wait_timeout,
+                )
+                if not done and watchdog_timeout_seconds > 0.0 and watchdog_now is not None:
+                    timed_out_entries: List[Tuple[Any, Dict[str, Any], float]] = []
+                    for future, info in active_futures.items():
+                        slot_elapsed_seconds = float(watchdog_now - float(info["started_at"]))
+                        if slot_elapsed_seconds > watchdog_timeout_seconds:
+                            timed_out_entries.append((future, dict(info), slot_elapsed_seconds))
+                    if timed_out_entries:
+                        timed_out_entries.sort(key=lambda item: float(item[1].get("started_at", 0.0)))
+                        timed_out_future, timed_out_info, slot_elapsed_seconds = timed_out_entries[0]
+                        del timed_out_future
+                        progress_path_value = timed_out_info.get("progress_path")
+                        progress_path = (
+                            progress_path_value
+                            if isinstance(progress_path_value, Path)
+                            else Path(progress_path_value)
+                            if progress_path_value
+                            else None
+                        )
+                        progress_snapshot = _read_json_snapshot(progress_path)
+                        progress_summary = _format_watchdog_progress_summary(progress_snapshot)
+                        for active_future in tuple(active_futures.keys()):
+                            cancel = getattr(active_future, "cancel", None)
+                            if callable(cancel):
+                                try:
+                                    cancel()
+                                except Exception:
+                                    pass
+                        message = (
+                            "Rollout watchdog exceeded slow_episode_trace_stop_seconds "
+                            f"({watchdog_timeout_seconds:.2f}s): update={int(update_index):04d} "
+                            f"slot={int(timed_out_info['slot_index'])}/{slot_count} "
+                            f"episode {int(timed_out_info['episode_index']) + 1:03d}/{max(1, total_episodes):03d} "
+                            f"seed={int(timed_out_info['episode_seed'])} "
+                            f"task_seed={int(timed_out_info['task_seed'])} "
+                            f"slot_elapsed={slot_elapsed_seconds:.2f}s {progress_summary}"
+                        )
+                        if progress_path is not None:
+                            message += f" progress_path={progress_path}"
+                        progress_bar.close()
+                        _log_progress_event(message)
+                        raise TimeoutError(message)
+                    continue
+                for future in done:
+                    info = dict(active_futures.pop(future))
+                    slot_elapsed_seconds = float(time.perf_counter() - float(info["started_at"]))
+                    try:
+                        future_results = list(future.result())
+                    except Exception:
+                        progress_bar.close()
+                        _log_progress_event(
+                            f"[update {int(update_index):04d}] slot {int(info['slot_index'])}/{slot_count} failed "
+                            f"episode {int(info['episode_index']) + 1:03d}/{max(1, total_episodes):03d} "
+                            f"elapsed={slot_elapsed_seconds:.2f}s"
+                        )
+                        raise
+                    episode_results.extend(future_results)
+                    if future_results:
+                        episode_result = future_results[0]
+                        episode_elapsed_sec = float(episode_result.elapsed_seconds)
+                    else:
+                        episode_elapsed_sec = 0.0
+                    progress_bar.episode_completed(
                         slot_index=int(info["slot_index"]),
-                        episode_spec=pending_episode_specs.popleft(),
+                        episode_index=int(info["episode_index"]),
+                        episode_seed=int(info["episode_seed"]),
+                        episode_elapsed_seconds=episode_elapsed_sec,
                     )
+                    if pending_episode_specs:
+                        _submit_episode_to_slot(
+                            slot_index=int(info["slot_index"]),
+                            episode_spec=pending_episode_specs.popleft(),
+                        )
+    finally:
+        progress_bar.close()
 
     episode_results.sort(key=lambda item: int(item.episode_index))
     for episode_result in episode_results:
@@ -1548,6 +1702,7 @@ def _update_model(
     rollout_sequences: Sequence[RolloutSequence],
     config: PPOTrainConfig,
     device: torch.device,
+    update_index: int = 0,
 ) -> Dict[str, float]:
     if not rollout_sequences:
         return _zero_loss_metrics()
@@ -1572,106 +1727,121 @@ def _update_model(
         ) / adv_std
         for sequence in rollout_sequences
     ]
+    nonempty_sequence_count = sum(
+        1 for sequence in rollout_sequences if int(sequence.step_count) > 0
+    )
     total_step_count = sum(int(sequence.step_count) for sequence in rollout_sequences)
     if total_step_count <= 0:
         return _zero_loss_metrics()
+
+    if not model.use_lstm:
+        units_per_epoch = max(
+            1,
+            (int(total_step_count) + int(_FEEDFORWARD_STEP_BATCH_SIZE) - 1)
+            // int(_FEEDFORWARD_STEP_BATCH_SIZE),
+        )
+        unit_label = "batch"
+    else:
+        units_per_epoch = max(1, int(nonempty_sequence_count))
+        unit_label = "seq"
+    progress_bar = _ModelUpdateProgressBar(
+        update_index=int(update_index),
+        total_epochs=max(0, int(config.update_epochs)),
+        units_per_epoch=units_per_epoch,
+        unit_label=unit_label,
+    )
 
     epoch_policy_losses: List[float] = []
     epoch_value_losses: List[float] = []
     epoch_entropies: List[float] = []
     epoch_total_losses: List[float] = []
 
-    for _ in range(config.update_epochs):
-        optimizer.zero_grad(set_to_none=True)
-        epoch_policy_loss = 0.0
-        epoch_value_loss = 0.0
-        epoch_entropy = 0.0
-        epoch_total_loss = 0.0
-        processed_weight = 0.0
+    try:
+        for epoch_idx in range(int(config.update_epochs)):
+            progress_bar.start_epoch(epoch_index=epoch_idx + 1)
+            optimizer.zero_grad(set_to_none=True)
+            epoch_policy_loss = 0.0
+            epoch_value_loss = 0.0
+            epoch_entropy = 0.0
+            epoch_total_loss = 0.0
+            processed_weight = 0.0
 
-        if not model.use_lstm:
-            for step_refs in _iter_feedforward_step_refs(
-                rollout_sequences,
-                batch_size=_FEEDFORWARD_STEP_BATCH_SIZE,
-            ):
-                batch = _build_feedforward_training_batch_from_refs(
+            if not model.use_lstm:
+                for step_refs in _iter_feedforward_step_refs(
                     rollout_sequences,
-                    normalized_advantages,
-                    step_refs,
-                    device=device,
-                )
-                logits, values, _ = model.forward_step(
-                    state_vec=batch["state_vec"],
-                    action_features=batch["action_features"],
-                    action_mask=batch["action_mask"],
-                    hidden=None,
-                )
-                step_log_probs = torch.log_softmax(logits, dim=-1)
-                step_probs = torch.softmax(logits, dim=-1)
-                chosen_indices = batch["action_index"].unsqueeze(1)
-                new_logprob = step_log_probs.gather(1, chosen_indices).squeeze(1)
-                entropy = -(step_probs * step_log_probs).sum(dim=-1)
-                old_logprob = batch["old_logprob"]
-                target_return = batch["target_return"]
-                advantage = batch["advantage"]
-                ratio = torch.exp(new_logprob - old_logprob)
-                clipped_ratio = torch.clamp(
-                    ratio,
-                    1.0 - float(config.clip_epsilon),
-                    1.0 + float(config.clip_epsilon),
-                )
-                surrogate_1 = ratio * advantage
-                surrogate_2 = clipped_ratio * advantage
-                policy_loss = -torch.min(surrogate_1, surrogate_2).mean()
-                value_loss = ((target_return - values) ** 2).mean()
-                entropy_mean = entropy.mean()
-                total_loss = (
-                    policy_loss
-                    + float(config.value_coef) * value_loss
-                    - float(config.entropy_coef) * entropy_mean
-                )
-                batch_weight = float(len(step_refs)) / float(total_step_count)
-                (total_loss * batch_weight).backward()
-                processed_weight += batch_weight
-                epoch_policy_loss += float(policy_loss.detach().cpu().item()) * batch_weight
-                epoch_value_loss += float(value_loss.detach().cpu().item()) * batch_weight
-                epoch_entropy += float(entropy_mean.detach().cpu().item()) * batch_weight
-                epoch_total_loss += float(total_loss.detach().cpu().item()) * batch_weight
-        else:
-            for sequence_idx, rollout_sequence in enumerate(rollout_sequences):
-                step_count = int(rollout_sequence.step_count)
-                if step_count <= 0:
-                    continue
-                sequence_batch = _tensorize_rollout_sequence(
-                    rollout_sequence,
-                    normalized_advantages[sequence_idx],
-                    device=device,
-                )
-                hidden = model.init_hidden(1, device=device)
-                policy_losses_t: List[torch.Tensor] = []
-                value_losses_t: List[torch.Tensor] = []
-                entropies_t: List[torch.Tensor] = []
-
-                for step_idx in range(step_count):
-                    state_t = sequence_batch["state_vec"][step_idx : step_idx + 1]
-                    action_t = sequence_batch["action_features"][step_idx : step_idx + 1]
-                    mask_t = sequence_batch["action_mask"][step_idx : step_idx + 1]
-                    logits, values, hidden = model.forward_step(
-                        state_vec=state_t,
-                        action_features=action_t,
-                        action_mask=mask_t,
+                    batch_size=_FEEDFORWARD_STEP_BATCH_SIZE,
+                ):
+                    batch = _build_feedforward_training_batch_from_refs(
+                        rollout_sequences,
+                        normalized_advantages,
+                        step_refs,
+                        device=device,
+                    )
+                    logits, values, _ = model.forward_step(
+                        state_vec=batch["state_vec"],
+                        action_features=batch["action_features"],
+                        action_mask=batch["action_mask"],
+                        hidden=None,
+                    )
+                    step_log_probs = torch.log_softmax(logits, dim=-1)
+                    step_probs = torch.softmax(logits, dim=-1)
+                    chosen_indices = batch["action_index"].unsqueeze(1)
+                    new_logprob = step_log_probs.gather(1, chosen_indices).squeeze(1)
+                    entropy = -(step_probs * step_log_probs).sum(dim=-1)
+                    old_logprob = batch["old_logprob"]
+                    target_return = batch["target_return"]
+                    advantage = batch["advantage"]
+                    ratio = torch.exp(new_logprob - old_logprob)
+                    clipped_ratio = torch.clamp(
+                        ratio,
+                        1.0 - float(config.clip_epsilon),
+                        1.0 + float(config.clip_epsilon),
+                    )
+                    surrogate_1 = ratio * advantage
+                    surrogate_2 = clipped_ratio * advantage
+                    policy_loss = -torch.min(surrogate_1, surrogate_2).mean()
+                    value_loss = ((target_return - values) ** 2).mean()
+                    entropy_mean = entropy.mean()
+                    total_loss = (
+                        policy_loss
+                        + float(config.value_coef) * value_loss
+                        - float(config.entropy_coef) * entropy_mean
+                    )
+                    batch_weight = float(len(step_refs)) / float(total_step_count)
+                    (total_loss * batch_weight).backward()
+                    processed_weight += batch_weight
+                    epoch_policy_loss += float(policy_loss.detach().cpu().item()) * batch_weight
+                    epoch_value_loss += float(value_loss.detach().cpu().item()) * batch_weight
+                    epoch_entropy += float(entropy_mean.detach().cpu().item()) * batch_weight
+                    epoch_total_loss += float(total_loss.detach().cpu().item()) * batch_weight
+                    progress_bar.advance()
+            else:
+                for sequence_idx, rollout_sequence in enumerate(rollout_sequences):
+                    step_count = int(rollout_sequence.step_count)
+                    if step_count <= 0:
+                        continue
+                    sequence_batch = _tensorize_rollout_sequence(
+                        rollout_sequence,
+                        normalized_advantages[sequence_idx],
+                        device=device,
+                    )
+                    hidden = model.init_hidden(1, device=device)
+                    logits, values, hidden = model.forward_sequence(
+                        state_vec=sequence_batch["state_vec"],
+                        action_features=sequence_batch["action_features"],
+                        action_mask=sequence_batch["action_mask"],
                         hidden=hidden,
                     )
-                    step_log_probs = torch.log_softmax(logits[0], dim=-1)
-                    step_probs = torch.softmax(logits[0], dim=-1)
-                    action_index_t = sequence_batch["action_index"][step_idx]
-                    new_logprob = step_log_probs[action_index_t]
-                    entropy = -(step_probs * step_log_probs).sum()
-                    new_value = values.squeeze(0)
+                    del hidden
+                    step_log_probs = torch.log_softmax(logits, dim=-1)
+                    step_probs = torch.softmax(logits, dim=-1)
+                    chosen_indices = sequence_batch["action_index"].unsqueeze(1)
+                    new_logprob = step_log_probs.gather(1, chosen_indices).squeeze(1)
+                    entropy = -(step_probs * step_log_probs).sum(dim=-1)
 
-                    old_logprob = sequence_batch["old_logprob"][step_idx]
-                    target_return = sequence_batch["target_return"][step_idx]
-                    advantage = sequence_batch["advantage"][step_idx]
+                    old_logprob = sequence_batch["old_logprob"]
+                    target_return = sequence_batch["target_return"]
+                    advantage = sequence_batch["advantage"]
 
                     ratio = torch.exp(new_logprob - old_logprob)
                     clipped_ratio = torch.clamp(
@@ -1681,40 +1851,36 @@ def _update_model(
                     )
                     surrogate_1 = ratio * advantage
                     surrogate_2 = clipped_ratio * advantage
-                    policy_losses_t.append(-torch.min(surrogate_1, surrogate_2))
-                    value_losses_t.append((target_return - new_value) ** 2)
-                    entropies_t.append(entropy)
+                    policy_loss = -torch.min(surrogate_1, surrogate_2).mean()
+                    value_loss = ((target_return - values) ** 2).mean()
+                    entropy_mean = entropy.mean()
+                    total_loss = (
+                        policy_loss
+                        + float(config.value_coef) * value_loss
+                        - float(config.entropy_coef) * entropy_mean
+                    )
+                    sequence_weight = float(step_count) / float(total_step_count)
+                    (total_loss * sequence_weight).backward()
+                    processed_weight += sequence_weight
+                    epoch_policy_loss += float(policy_loss.detach().cpu().item()) * sequence_weight
+                    epoch_value_loss += float(value_loss.detach().cpu().item()) * sequence_weight
+                    epoch_entropy += float(entropy_mean.detach().cpu().item()) * sequence_weight
+                    epoch_total_loss += float(total_loss.detach().cpu().item()) * sequence_weight
+                    progress_bar.advance()
 
-                if not policy_losses_t:
-                    continue
+            if processed_weight <= 0.0:
+                optimizer.zero_grad(set_to_none=True)
+                break
 
-                policy_loss = torch.stack(policy_losses_t).mean()
-                value_loss = torch.stack(value_losses_t).mean()
-                entropy_mean = torch.stack(entropies_t).mean()
-                total_loss = (
-                    policy_loss
-                    + float(config.value_coef) * value_loss
-                    - float(config.entropy_coef) * entropy_mean
-                )
-                sequence_weight = float(step_count) / float(total_step_count)
-                (total_loss * sequence_weight).backward()
-                processed_weight += sequence_weight
-                epoch_policy_loss += float(policy_loss.detach().cpu().item()) * sequence_weight
-                epoch_value_loss += float(value_loss.detach().cpu().item()) * sequence_weight
-                epoch_entropy += float(entropy_mean.detach().cpu().item()) * sequence_weight
-                epoch_total_loss += float(total_loss.detach().cpu().item()) * sequence_weight
+            nn.utils.clip_grad_norm_(model.parameters(), float(config.max_grad_norm))
+            optimizer.step()
 
-        if processed_weight <= 0.0:
-            optimizer.zero_grad(set_to_none=True)
-            break
-
-        nn.utils.clip_grad_norm_(model.parameters(), float(config.max_grad_norm))
-        optimizer.step()
-
-        epoch_policy_losses.append(epoch_policy_loss)
-        epoch_value_losses.append(epoch_value_loss)
-        epoch_entropies.append(epoch_entropy)
-        epoch_total_losses.append(epoch_total_loss)
+            epoch_policy_losses.append(epoch_policy_loss)
+            epoch_value_losses.append(epoch_value_loss)
+            epoch_entropies.append(epoch_entropy)
+            epoch_total_losses.append(epoch_total_loss)
+    finally:
+        progress_bar.close()
 
     if not epoch_policy_losses:
         return _zero_loss_metrics()
@@ -1742,6 +1908,14 @@ def _mps_rng_api_available() -> bool:
     )
 
 
+def _mps_training_available() -> bool:
+    return bool(
+        hasattr(torch, "backends")
+        and hasattr(torch.backends, "mps")
+        and torch.backends.mps.is_available()
+    )
+
+
 def _parallel_rollout_unavailable_reason(
     *,
     device: torch.device,
@@ -1756,7 +1930,17 @@ def _parallel_rollout_unavailable_reason(
 
 def _resolve_training_device(requested_device: str) -> torch.device:
     requested = str(requested_device or "cpu").strip().lower()
-    if requested in {"", "auto", "cpu", "mps"}:
+    if requested in {"", "cpu"}:
+        return torch.device("cpu")
+    if requested == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if _mps_training_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+    if requested == "mps":
+        if _mps_training_available():
+            return torch.device("mps")
         return torch.device("cpu")
     return torch.device(requested)
 
@@ -1956,10 +2140,15 @@ def train_self_play(
     model, obs_encoder, action_encoder = _build_model_and_encoders(config=config, device=device)
     optimizer = torch.optim.Adam(model.parameters(), lr=float(config.learning_rate))
     requested_device_lower = requested_device.strip().lower()
-    if requested_device_lower in {"", "auto", "mps"}:
+    if requested_device_lower in {"", "auto"}:
         print(
             "device policy: "
-            f"requested={requested_device_lower or 'cpu'}; using cpu for training and inference."
+            f"requested={requested_device_lower or 'cpu'}; selected {device.type} for training and {inference_device.type} for inference."
+        )
+    elif requested_device_lower == "mps" and device.type != "mps":
+        print(
+            "device policy: "
+            "requested=mps; mps unavailable, using cpu for training and inference."
         )
     print(
         "resolved devices: "
@@ -2116,6 +2305,7 @@ def train_self_play(
                 rollout_sequences=rollout_sequences,
                 config=config,
                 device=device,
+                update_index=update_idx,
             )
             model_update_time_sec = float(time.perf_counter() - model_update_started_at)
             metrics = TrainUpdateMetrics(

@@ -17,6 +17,7 @@ from arknova_rl.trainer import (
     _SlowEpisodeTraceWriter,
     _collect_episode_rollout,
     _collect_rollout,
+    _update_model,
     _build_model_and_encoders,
     _collect_rollout_chunk_worker,
     _episode_progress_path,
@@ -313,12 +314,12 @@ def test_collect_rollout_parallel_refills_next_episode_on_first_completed_slot(m
     monkeypatch.setattr("arknova_rl.trainer.wait", _fake_wait)
     monkeypatch.setattr("arknova_rl.trainer._log_progress_event", lambda message: None)
     monkeypatch.setattr(
-        "arknova_rl.trainer._log_rollout_episode_completed",
-        lambda **kwargs: None,
+        "arknova_rl.trainer._RolloutProgressBar.episode_completed",
+        lambda self, **kwargs: None,
     )
     monkeypatch.setattr(
-        "arknova_rl.trainer._log_rollout_slot_started",
-        lambda **kwargs: started.append((int(kwargs["slot_index"]), int(kwargs["episode_index"]))),
+        "arknova_rl.trainer._RolloutProgressBar.slot_started",
+        lambda self, **kwargs: started.append((int(kwargs["slot_index"]), int(kwargs["episode_index"]))),
     )
 
     rollout_sequences, rollout_stats = _collect_rollout(
@@ -697,3 +698,134 @@ def test_episode_progress_tracker_throttles_inside_legal_actions_writes(monkeypa
     assert len(writes) == 3
     assert writes[1][1]["legal_actions_profile"]["phase"] == "scan_option"
     assert writes[2][1]["legal_actions_profile"]["phase"] == "completed_bonus_variants"
+
+
+def test_update_model_drives_progress_bar(monkeypatch):
+    events = []
+
+    class _FakeProgressBar:
+        def __init__(self, *, update_index, total_epochs, units_per_epoch, unit_label):
+            events.append(("init", int(update_index), int(total_epochs), int(units_per_epoch), str(unit_label)))
+
+        def start_epoch(self, *, epoch_index):
+            events.append(("start", int(epoch_index)))
+
+        def advance(self):
+            events.append(("advance",))
+
+        def close(self):
+            events.append(("close",))
+
+    class _TinyModel(torch.nn.Module):
+        use_lstm = False
+
+        def __init__(self):
+            super().__init__()
+            self.state_head = torch.nn.Linear(1, 1)
+            self.action_head = torch.nn.Linear(1, 1)
+
+        def forward_step(self, *, state_vec, action_features, action_mask, hidden=None):
+            del action_mask
+            del hidden
+            logits = self.action_head(action_features).squeeze(-1)
+            values = self.state_head(state_vec).squeeze(-1)
+            return logits, values, None
+
+    monkeypatch.setattr("arknova_rl.trainer._ModelUpdateProgressBar", _FakeProgressBar)
+
+    model = _TinyModel()
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    sequence = RolloutSequence(
+        sequence_key=(0, 0),
+        actor_id=0,
+        state_vec=np.asarray([[0.0], [1.0]], dtype=np.float32),
+        action_features=np.asarray([[[0.0]], [[1.0]]], dtype=np.float32),
+        action_mask=np.asarray([[True], [True]], dtype=np.bool_),
+        action_count=np.asarray([1, 1], dtype=np.int32),
+        action_index=np.asarray([0, 0], dtype=np.int64),
+        old_logprob=np.asarray([0.0, 0.0], dtype=np.float32),
+        old_value=np.asarray([0.0, 0.0], dtype=np.float32),
+        reward=np.asarray([1.0, 1.0], dtype=np.float32),
+        advantage=np.asarray([1.0, 0.5], dtype=np.float32),
+        return_=np.asarray([1.0, 1.0], dtype=np.float32),
+    )
+    config = PPOTrainConfig(update_epochs=2)
+    config.resolve_algo_flags()
+
+    metrics = _update_model(
+        model=model,
+        optimizer=optimizer,
+        rollout_sequences=[sequence],
+        config=config,
+        device=torch.device("cpu"),
+        update_index=47,
+    )
+
+    assert metrics["total_loss"] == pytest.approx(metrics["total_loss"])
+    assert events[0] == ("init", 47, 2, 1, "batch")
+    assert ("start", 1) in events
+    assert ("start", 2) in events
+    assert events.count(("advance",)) == 2
+    assert events[-1] == ("close",)
+
+
+def test_update_model_recurrent_path_handles_large_action_indices():
+    class _TinyRecurrentModel(torch.nn.Module):
+        use_lstm = True
+
+        def __init__(self):
+            super().__init__()
+            self.state_head = torch.nn.Linear(1, 1)
+            self.logit_bias = torch.nn.Parameter(torch.zeros((512,), dtype=torch.float32))
+
+        def init_hidden(self, batch_size, *, device):
+            del batch_size
+            return (
+                torch.zeros((1, 1, 1), dtype=torch.float32, device=device),
+                torch.zeros((1, 1, 1), dtype=torch.float32, device=device),
+            )
+
+        def forward_step(self, *, state_vec, action_features, action_mask, hidden=None):
+            del action_features
+            logits = self.logit_bias.unsqueeze(0).expand(state_vec.shape[0], -1)
+            logits = logits.masked_fill(~action_mask, -1e9)
+            values = self.state_head(state_vec).squeeze(-1)
+            return logits, values, hidden
+
+        def forward_sequence(self, *, state_vec, action_features, action_mask, hidden=None):
+            return self.forward_step(
+                state_vec=state_vec,
+                action_features=action_features,
+                action_mask=action_mask,
+                hidden=hidden,
+            )
+
+    model = _TinyRecurrentModel()
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    sequence = RolloutSequence(
+        sequence_key=(0, 0),
+        actor_id=0,
+        state_vec=np.asarray([[0.0], [1.0]], dtype=np.float32),
+        action_features=np.zeros((2, 512, 1), dtype=np.float32),
+        action_mask=np.ones((2, 512), dtype=np.bool_),
+        action_count=np.asarray([512, 512], dtype=np.int32),
+        action_index=np.asarray([511, 510], dtype=np.int64),
+        old_logprob=np.asarray([0.0, 0.0], dtype=np.float32),
+        old_value=np.asarray([0.0, 0.0], dtype=np.float32),
+        reward=np.asarray([1.0, 1.0], dtype=np.float32),
+        advantage=np.asarray([1.0, 0.5], dtype=np.float32),
+        return_=np.asarray([1.0, 1.0], dtype=np.float32),
+    )
+    config = PPOTrainConfig(update_epochs=1)
+    config.resolve_algo_flags()
+
+    metrics = _update_model(
+        model=model,
+        optimizer=optimizer,
+        rollout_sequences=[sequence],
+        config=config,
+        device=torch.device("cpu"),
+        update_index=55,
+    )
+
+    assert metrics["total_loss"] == pytest.approx(metrics["total_loss"])

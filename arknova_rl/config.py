@@ -9,7 +9,7 @@ from dataclasses import dataclass
 class PPOTrainConfig:
     algo: str = "masked_ppo"  # masked_ppo | recurrent_ppo
     seed: int = 42
-    device: str = "cpu"
+    device: str = "auto"
 
     total_updates: int = 200
     episodes_per_update: int = 16
@@ -27,20 +27,20 @@ class PPOTrainConfig:
     action_hidden_size: int = 256
     use_lstm: bool = True
 
-    step_reward_scale: float = 0.2
+    step_reward_scale: float = 0.8
     terminal_reward_scale: float = 1.0
     endgame_trigger_reward: float = 1.0
     endgame_speed_bonus: float = 8.0
-    terminal_win_bonus: float = 3.0
-    terminal_loss_penalty: float = 3.0
+    terminal_win_bonus: float = 1.0
+    terminal_loss_penalty: float = 1.0
 
-    checkpoint_interval: int = 2
+    checkpoint_interval: int = 5
     log_interval: int = 1
     rollout_workers: int = 8
     slow_episode_trace_start_seconds: float = 300.0
     slow_episode_trace_stop_seconds: float = 480.0
     fixed_eval_interval: int = 10
-    fixed_eval_episodes: int = 8
+    fixed_eval_episodes: int = 10
     fixed_eval_deterministic: bool = True
     fixed_eval_opponent: str = ""
 

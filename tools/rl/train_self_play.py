@@ -37,7 +37,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--device",
         type=str,
         default=defaults.device,
-        help="Training device for model updates: cpu | cuda[:index] (mps requests fall back to cpu)",
+        help="Training device for model updates: auto | cpu | mps | cuda[:index] (rollout/fixed-eval inference stays on cpu)",
     )
     parser.add_argument(
         "--rollout-workers",

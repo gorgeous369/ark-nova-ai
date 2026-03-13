@@ -2898,6 +2898,7 @@ def _resolve_action_detail_variants_by_simulation(
     invalid_effect_log_prefixes: Sequence[str] = (),
     result_signature_builder: Optional[Callable[[GameState], str]] = None,
     seen_result_signatures: Optional[Set[str]] = None,
+    max_results: Optional[int] = None,
 ) -> List[Tuple[Dict[str, Any], str]]:
     _legal_actions_profile_update(
         phase="resolve_action_detail_variants_by_simulation",
@@ -2908,6 +2909,8 @@ def _resolve_action_detail_variants_by_simulation(
     emitted_result_signatures: Set[str] = set() if seen_result_signatures is None else seen_result_signatures
 
     def _recurse(details_payload: Dict[str, Any], label_parts: List[str]) -> None:
+        if max_results is not None and len(resolved) >= int(max_results):
+            return
         payload_key = json.dumps(details_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
         if payload_key in visiting:
             return
@@ -2925,6 +2928,8 @@ def _resolve_action_detail_variants_by_simulation(
             except _ActionDetailExpansionRequired as pending:
                 random.setstate(rng_state)
                 for extra_details, extra_label in pending.variants:
+                    if max_results is not None and len(resolved) >= int(max_results):
+                        break
                     next_details = _merge_detail_fragments(details_payload, extra_details)
                     next_labels = list(label_parts)
                     if extra_label:
@@ -6157,6 +6162,7 @@ def _enumerate_concrete_animals_actions(
     player: PlayerState,
     player_id: int,
     template_action: Action,
+    max_actions: Optional[int] = None,
 ) -> List[Action]:
     _legal_actions_profile_update(
         phase="enumerate_concrete_animals_actions",
@@ -6190,10 +6196,15 @@ def _enumerate_concrete_animals_actions(
         "sun_bathing",
         "pouch",
     }
-    choice_sensitive_sponsors = {210, 211, 213, 228, 249, 252, 253}
     seen_resolution_signatures: Set[str] = set()
+    sponsor_building_choice_available: Dict[int, bool] = {}
+    sponsor_253_candidate_available: Optional[bool] = None
 
-    def _resolve_animals_details(details_payload: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str]]:
+    def _resolve_animals_details(
+        details_payload: Dict[str, Any],
+        *,
+        max_results: Optional[int] = None,
+    ) -> List[Tuple[Dict[str, Any], str]]:
         return _resolve_action_detail_variants_by_simulation(
             state=state,
             player_id=player_id,
@@ -6211,7 +6222,121 @@ def _enumerate_concrete_animals_actions(
                 viewer_player_id=player_id,
             ),
             seen_result_signatures=seen_resolution_signatures,
+            max_results=max_results,
         )
+
+    def _has_sponsor_building_choice(sponsor_number: int, building_type: BuildingType) -> bool:
+        cached = sponsor_building_choice_available.get(int(sponsor_number))
+        if cached is not None:
+            return bool(cached)
+        if not _player_has_sponsor(player, sponsor_number):
+            sponsor_building_choice_available[int(sponsor_number)] = False
+            return False
+        _ensure_player_map_initialized(state, player)
+        if player.zoo_map is None:
+            sponsor_building_choice_available[int(sponsor_number)] = False
+            return False
+        legal_buildings = player.zoo_map.legal_building_placements(
+            is_build_upgraded=bool(player.action_upgraded["build"]),
+            has_diversity_researcher=_player_has_sponsor(player, 219),
+            max_building_size=len(building_type.layout),
+            already_built_buildings=set(),
+        )
+        available = any(building.type == building_type for building in legal_buildings)
+        sponsor_building_choice_available[int(sponsor_number)] = bool(available)
+        return bool(available)
+
+    def _has_sponsor_253_followup_candidate() -> bool:
+        nonlocal sponsor_253_candidate_available
+        if sponsor_253_candidate_available is not None:
+            return bool(sponsor_253_candidate_available)
+        tokens_left = int(player.sponsor_tokens_by_number.get(253, 0))
+        if tokens_left <= 0:
+            sponsor_253_candidate_available = False
+            return False
+        sponsors_upgraded = bool(player.action_upgraded["sponsors"])
+        available = False
+        for hand_card in player.hand:
+            if hand_card.card_type != "sponsor":
+                continue
+            requirements_met, _ = _sponsor_requirements_met(
+                player=player,
+                card=hand_card,
+                sponsors_upgraded=sponsors_upgraded,
+            )
+            if not requirements_met:
+                continue
+            if not _sponsor_unique_building_can_be_placed(state, player, hand_card.number):
+                continue
+            if player.money < _sponsor_level(hand_card):
+                continue
+            available = True
+            break
+        sponsor_253_candidate_available = bool(available)
+        return bool(available)
+
+    def _needs_sponsor_228_resolution(
+        *,
+        played_cards: Sequence[AnimalCard],
+        plays: Sequence[Dict[str, Any]],
+    ) -> bool:
+        if not _player_has_sponsor(player, 228):
+            return False
+        resolved_cards = [card for card in played_cards if card is not None]
+        if not resolved_cards or not all(_is_small_animal(card) for card in resolved_cards):
+            return False
+        selected_card_ids = {
+            str(play.get("card_instance_id") or "").strip()
+            for play in plays
+            if str(play.get("card_instance_id") or "").strip()
+        }
+        used_enclosures = {
+            int(play.get("enclosure_index", -1))
+            for play in plays
+            if int(play.get("enclosure_index", -1)) >= 0
+        }
+        projected_money = int(player.money) - sum(int(play.get("card_cost", 0)) for play in plays)
+        extra_candidate_count = 0
+        for hand_idx, extra_card in enumerate(player.hand):
+            if str(extra_card.instance_id or "").strip() in selected_card_ids:
+                continue
+            if extra_card.card_type != "animal" or not _is_small_animal(extra_card):
+                continue
+            if not _animal_size_restriction_met(player, extra_card):
+                continue
+            ignore_capacity = _animal_condition_ignore_capacity(player, extra_card)
+            missing_icons = _animal_icon_missing_conditions(player, extra_card)
+            if missing_icons > ignore_capacity:
+                continue
+            remaining_ignores = max(0, ignore_capacity - missing_icons)
+            extra_cost = _animal_play_cost(player, extra_card)
+            if extra_cost > projected_money:
+                continue
+            for enclosure_idx, enclosure in enumerate(player.enclosures):
+                reserved_capacity = 0
+                if enclosure_idx in used_enclosures:
+                    reserved_capacity = sum(
+                        int(play.get("spaces_used", 0))
+                        for play in plays
+                        if int(play.get("enclosure_index", -1)) == enclosure_idx
+                    )
+                if not _enclosure_can_host_animal_with_ignores(
+                    player=player,
+                    enclosure=enclosure,
+                    card=extra_card,
+                    ignore_conditions=remaining_ignores,
+                    reserved_capacity=reserved_capacity,
+                ):
+                    continue
+                extra_candidate_count += 1
+                if extra_candidate_count > 1:
+                    return True
+        display_small_count = sum(
+            1
+            for display_card in state.zoo_display
+            if display_card.card_type == "animal" and _is_small_animal(display_card)
+        )
+        return display_small_count > 1
 
     _legal_actions_profile_update_nested(
         "animals_profile",
@@ -6224,11 +6349,15 @@ def _enumerate_concrete_animals_actions(
         concrete_action_count=0,
     )
     for option in options:
+        if max_actions is not None and len(actions) >= int(max_actions):
+            return actions
         base_label = " ; then ".join(_format_animals_play_step_for_human(step, player) for step in option["plays"])
         option_summary = _animals_play_profile_summary(list(option.get("plays") or []))
         option_summary["index"] = int(option.get("index", 0))
         effect_variants = _enumerate_animals_effect_choice_variants(player, option["plays"], state=state)
         for extra_effect_details, effect_label in effect_variants:
+            if max_actions is not None and len(actions) >= int(max_actions):
+                return actions
             label = base_label if not effect_label else f"{base_label} ; {effect_label}"
             details = {"animals_sequence_index": int(option["index"]) - 1}
             details.update(copy.deepcopy(extra_effect_details))
@@ -6247,11 +6376,42 @@ def _enumerate_concrete_animals_actions(
                 card is not None and resolve_card_effect(card).code in choice_effect_codes
                 for card in played_cards
             )
+            played_icon_counts: Dict[str, int] = {}
+            for card in played_cards:
+                if card is None:
+                    continue
+                for icon_name, icon_count in _card_icon_counts(card).items():
+                    played_icon_counts[str(icon_name)] = int(played_icon_counts.get(str(icon_name), 0)) + int(
+                        icon_count
+                    )
+            sponsor_trigger_requires_resolution = (
+                (
+                    int(played_icon_counts.get("america", 0)) > 0
+                    and _has_sponsor_building_choice(210, BuildingType.KIOSK)
+                )
+                or (
+                    int(played_icon_counts.get("europe", 0)) > 0
+                    and _has_sponsor_building_choice(211, BuildingType.SIZE_1)
+                )
+                or (
+                    int(played_icon_counts.get("asia", 0)) > 0
+                    and _has_sponsor_building_choice(213, BuildingType.PAVILION)
+                )
+                or _needs_sponsor_228_resolution(
+                    played_cards=[card for card in played_cards if card is not None],
+                    plays=list(option.get("plays") or []),
+                )
+                or (_player_has_sponsor(player, 249) and int(played_icon_counts.get("bird", 0)) > 0)
+                or (_player_has_sponsor(player, 252) and int(played_icon_counts.get("predator", 0)) > 0)
+                or (
+                    int(played_icon_counts.get("herbivore", 0)) > 0
+                    and _player_has_sponsor(player, 253)
+                    and _has_sponsor_253_followup_candidate()
+                )
+            )
             requires_resolution = (
-                len(option["plays"]) >= 2
-                or has_implicit_effect_choice
-                or any(_player_has_sponsor(player, sponsor_no) for sponsor_no in choice_sensitive_sponsors)
-                or int(player.sponsor_tokens_by_number.get(253, 0)) > 0
+                has_implicit_effect_choice
+                or sponsor_trigger_requires_resolution
             )
             if requires_resolution:
                 _legal_actions_profile_update_nested(
@@ -6264,7 +6424,16 @@ def _enumerate_concrete_animals_actions(
                     first_play=copy.deepcopy(option_summary.get("first_play")),
                     second_card=copy.deepcopy(option_summary.get("second_play")),
                 )
-            resolved_variants = [(copy.deepcopy(details), "")] if not requires_resolution else _resolve_animals_details(details)
+            remaining_action_limit = (
+                None
+                if max_actions is None
+                else max(0, int(max_actions) - int(len(actions)))
+            )
+            resolved_variants = (
+                [(copy.deepcopy(details), "")]
+                if not requires_resolution
+                else _resolve_animals_details(details, max_results=remaining_action_limit)
+            )
             if requires_resolution:
                 _legal_actions_profile_update_nested(
                     "animals_profile",
@@ -6286,6 +6455,8 @@ def _enumerate_concrete_animals_actions(
                         extra_details=resolved_details,
                     )
                 )
+                if max_actions is not None and len(actions) >= int(max_actions):
+                    return actions
     _legal_actions_profile_update_nested(
         "animals_profile",
         mode="enumerate_concrete_animals_actions_completed",
@@ -6304,6 +6475,7 @@ def _enumerate_concrete_build_actions(
     player: PlayerState,
     player_id: int,
     template_action: Action,
+    max_actions: Optional[int] = None,
 ) -> List[Action]:
     _legal_actions_profile_update(
         phase="enumerate_concrete_build_actions",
@@ -6334,7 +6506,11 @@ def _enumerate_concrete_build_actions(
         last_completed_bonus="",
     )
 
-    def _resolve_build_details(details_payload: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str]]:
+    def _resolve_build_details(
+        details_payload: Dict[str, Any],
+        *,
+        max_results: Optional[int] = None,
+    ) -> List[Tuple[Dict[str, Any], str]]:
         return _resolve_action_detail_variants_by_simulation(
             state=state,
             player_id=player_id,
@@ -6346,6 +6522,7 @@ def _enumerate_concrete_build_actions(
                 details=sim_details,
                 player_id=player_id,
             ),
+            max_results=max_results,
         )
 
     def _build_options_cache_key(
@@ -6382,6 +6559,20 @@ def _enumerate_concrete_build_actions(
         remaining_strength: int,
         already_built_types: Set[BuildingType],
     ) -> List[Dict[str, Any]]:
+        def _clone_cached_option(option: Dict[str, Any]) -> Dict[str, Any]:
+            cloned = dict(option)
+            cloned["cells"] = [
+                [int(cell[0]), int(cell[1])]
+                for cell in list(option.get("cells") or [])
+            ]
+            placement_bonuses = option.get("placement_bonuses")
+            if placement_bonuses is not None:
+                cloned["placement_bonuses"] = list(placement_bonuses)
+            origin = option.get("origin")
+            if origin is not None:
+                cloned["origin"] = [int(origin[0]), int(origin[1])]
+            return cloned
+
         if getattr(list_legal_build_options, "__module__", None) != __name__:
             return list_legal_build_options(
                 state=cached_state,
@@ -6398,8 +6589,8 @@ def _enumerate_concrete_build_actions(
                 strength=min(5, int(remaining_strength)),
                 already_built_types=already_built_types,
             )
-            _BUILD_ENUM_LEGAL_OPTION_CACHE[key] = copy.deepcopy(cached)
-        return copy.deepcopy(cached)
+            _BUILD_ENUM_LEGAL_OPTION_CACHE[key] = [_clone_cached_option(option) for option in cached]
+        return [_clone_cached_option(option) for option in cached]
 
     def _simulate_build_step_for_enumeration(
         simulated_state: GameState,
@@ -6477,6 +6668,8 @@ def _enumerate_concrete_build_actions(
         if not options:
             return []
         for option in options:
+            if max_actions is not None and len(actions) >= int(max_actions):
+                return actions
             if int(option.get("size", 0)) <= min_total_size_exclusive:
                 continue
             option_summary = _build_option_profile_summary(option)
@@ -6505,11 +6698,16 @@ def _enumerate_concrete_build_actions(
                     current_sequence_label=final_step_label,
                     resolved_variant_count=0,
                 )
+                remaining_action_limit = (
+                    None
+                    if max_actions is None
+                    else max(0, int(max_actions) - int(len(actions)))
+                )
                 resolved_variants = (
                     [(copy.deepcopy(base_details), "")]
                     if not bonus_details
                     and not (_player_has_sponsor(player, 221) and bool(option.get("placement_bonuses")))
-                    else _resolve_build_details(base_details)
+                    else _resolve_build_details(base_details, max_results=remaining_action_limit)
                 )
                 _legal_actions_profile_update_nested(
                     "build_profile",
@@ -6531,6 +6729,8 @@ def _enumerate_concrete_build_actions(
                             extra_details=resolved_details,
                         )
                     )
+                    if max_actions is not None and len(actions) >= int(max_actions):
+                        return actions
         return actions
 
     seen_sequences: Set[str] = set()
@@ -6545,6 +6745,8 @@ def _enumerate_concrete_build_actions(
         accumulated_bonus_details: Dict[str, Any],
         label_steps: List[str],
     ) -> None:
+        if max_actions is not None and len(actions) >= int(max_actions):
+            return
         if built_count >= max_build_steps:
             return
         simulated_player = simulated_state.players[player_id]
@@ -6558,6 +6760,8 @@ def _enumerate_concrete_build_actions(
             if int(option.get("cost", 0)) <= int(simulated_player.money)
         ]
         for option in options:
+            if max_actions is not None and len(actions) >= int(max_actions):
+                return
             option_summary = _build_option_profile_summary(option)
             sequence_prefix = " ; then ".join(label_steps)
             _legal_actions_profile_update_nested(
@@ -6574,6 +6778,8 @@ def _enumerate_concrete_build_actions(
                 player_id,
                 option,
             ):
+                if max_actions is not None and len(actions) >= int(max_actions):
+                    return
                 selection_payload = _build_selection_payload(option)
                 next_selection_sequence = selection_sequence + [selection_payload]
                 next_accumulated_bonus_details = _merge_list_detail_fragments(
@@ -6601,10 +6807,15 @@ def _enumerate_concrete_build_actions(
                     bool(next_accumulated_bonus_details)
                     or (_player_has_sponsor(player, 221) and bool(option.get("placement_bonuses")))
                 )
+                remaining_action_limit = (
+                    None
+                    if max_actions is None
+                    else max(0, int(max_actions) - int(len(actions)))
+                )
                 resolved_variants = (
                     [(copy.deepcopy(base_details), "")]
                     if not requires_resolution
-                    else _resolve_build_details(base_details)
+                    else _resolve_build_details(base_details, max_results=remaining_action_limit)
                 )
                 _legal_actions_profile_update_nested(
                     "build_profile",
@@ -6636,6 +6847,8 @@ def _enumerate_concrete_build_actions(
                                 extra_details=resolved_details,
                             )
                         )
+                        if max_actions is not None and len(actions) >= int(max_actions):
+                            return
 
                 next_remaining_strength = remaining_strength - int(option.get("size", 0))
                 if next_remaining_strength <= 0:
@@ -12622,7 +12835,12 @@ def _perform_animals_action_effect(
             if not available_actions:
                 return f"target={target_player.name} no_action"
 
-            def _hypnosis_concrete_variants_for_action(action_name: str, x_spent_value: int) -> List[Action]:
+            def _hypnosis_concrete_variants_for_action(
+                action_name: str,
+                x_spent_value: int,
+                *,
+                max_actions: Optional[int] = None,
+            ) -> List[Action]:
                 base_strength_for_action = target_player.action_order.index(action_name) + 1
                 strength_value = _effective_action_strength(
                     target_player,
@@ -12641,11 +12859,23 @@ def _perform_animals_action_effect(
                 )
                 try:
                     if action_name == "animals":
-                        concrete = _enumerate_concrete_animals_actions(state, player, player_id, template_action)
+                        concrete = _enumerate_concrete_animals_actions(
+                            state,
+                            player,
+                            player_id,
+                            template_action,
+                            max_actions=max_actions,
+                        )
                     elif action_name == "cards":
                         concrete = _enumerate_concrete_cards_actions(state, player, template_action)
                     elif action_name == "build":
-                        concrete = _enumerate_concrete_build_actions(state, player, player_id, template_action)
+                        concrete = _enumerate_concrete_build_actions(
+                            state,
+                            player,
+                            player_id,
+                            template_action,
+                            max_actions=max_actions,
+                        )
                     elif action_name == "association":
                         concrete = _enumerate_concrete_association_actions(state, player, player_id, template_action)
                     elif action_name == "sponsors":
@@ -12656,16 +12886,20 @@ def _perform_animals_action_effect(
                     return []
                 return list(concrete)
 
-            executable_variants_by_action: Dict[str, Dict[int, List[Action]]] = {}
+            executable_x_choices_by_action: Dict[str, List[int]] = {}
             for action_name in available_actions:
-                variants_by_x: Dict[int, List[Action]] = {}
+                valid_x_choices: List[int] = []
                 for x_choice in range(max(0, int(player.x_tokens)) + 1):
-                    concrete_variants = _hypnosis_concrete_variants_for_action(action_name, x_choice)
+                    concrete_variants = _hypnosis_concrete_variants_for_action(
+                        action_name,
+                        x_choice,
+                        max_actions=2,
+                    )
                     if concrete_variants:
-                        variants_by_x[int(x_choice)] = concrete_variants
-                if variants_by_x:
-                    executable_variants_by_action[action_name] = variants_by_x
-            executable_actions = list(executable_variants_by_action.keys())
+                        valid_x_choices.append(int(x_choice))
+                if valid_x_choices:
+                    executable_x_choices_by_action[action_name] = valid_x_choices
+            executable_actions = list(executable_x_choices_by_action.keys())
             if not executable_actions:
                 return f"target={target_player.name} no_action"
 
@@ -12716,7 +12950,7 @@ def _perform_animals_action_effect(
             if chosen_action is None:
                 raise ValueError("Hypnosis action selection failed.")
 
-            valid_x_spent_values = sorted(executable_variants_by_action[chosen_action].keys())
+            valid_x_spent_values = sorted(executable_x_choices_by_action[chosen_action])
             if not valid_x_spent_values:
                 return f"target={target_player.name} no_action"
             queued_x_spent = (
@@ -12811,7 +13045,7 @@ def _perform_animals_action_effect(
                 if queued_hypnosis_action_details:
                     hypnosis_details = copy.deepcopy(queued_hypnosis_action_details.pop(0))
                 else:
-                    concrete_variants = list(executable_variants_by_action.get(chosen_action, {}).get(x_spent, []))
+                    concrete_variants = _hypnosis_concrete_variants_for_action(chosen_action, x_spent)
                     if len(concrete_variants) == 1:
                         hypnosis_details = copy.deepcopy(concrete_variants[0].details or {})
                     elif len(concrete_variants) > 1 and expand_implicit_choices:

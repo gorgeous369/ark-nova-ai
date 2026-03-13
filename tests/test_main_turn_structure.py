@@ -1615,6 +1615,73 @@ def test_state_legal_actions_build_ii_plain_sequences_skip_full_resolution(monke
     assert build_actions
 
 
+def test_state_legal_actions_animals_ii_plain_sequences_skip_full_resolution(monkeypatch):
+    state = setup_game(seed=387, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.action_upgraded["animals"] = True
+    player.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    player.hand = [
+        AnimalCard(
+            name="Tiger",
+            cost=3,
+            size=2,
+            appeal=2,
+            conservation=0,
+            card_type="animal",
+            number=980001,
+            instance_id="980001",
+        ),
+        AnimalCard(
+            name="Bear",
+            cost=4,
+            size=2,
+            appeal=3,
+            conservation=1,
+            card_type="animal",
+            number=980002,
+            instance_id="980002",
+        ),
+    ]
+
+    option = {
+        "index": 1,
+        "plays": [
+            {
+                "card_instance_id": "980001",
+                "card_name": "Tiger",
+                "card_hand_index": 0,
+                "enclosure_index": 0,
+            },
+            {
+                "card_instance_id": "980002",
+                "card_name": "Bear",
+                "card_hand_index": 1,
+                "enclosure_index": 1,
+            },
+        ],
+    }
+
+    monkeypatch.setattr(main, "list_legal_animals_options", lambda **kwargs: [copy.deepcopy(option)])
+    monkeypatch.setattr(main, "_player_has_sponsor", lambda *args, **kwargs: False)
+    monkeypatch.setattr(
+        main,
+        "_perform_animals_action_effect",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("full animals simulation should not run")),
+    )
+
+    actions = legal_actions(player, state=state, player_id=0)
+    animal_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "animals"
+        and int((action.details or {}).get("animals_sequence_index", -1)) == 0
+    ]
+
+    assert animal_actions
+
+
 def test_build_ii_rejects_more_than_two_requested_selections():
     state = setup_game(seed=385, player_names=["P1", "P2"])
     player = state.players[0]

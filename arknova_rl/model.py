@@ -128,3 +128,56 @@ class MaskedActorCritic(nn.Module):
         logits = logits.masked_fill(~legal_mask, -1e9)
         values = self.value_head(state_latent).squeeze(-1)
         return logits, values, hidden
+
+    def forward_sequence(
+        self,
+        *,
+        state_vec: torch.Tensor,
+        action_features: torch.Tensor,
+        action_mask: torch.Tensor,
+        hidden: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
+        """Forward an entire rollout sequence for recurrent PPO updates.
+
+        Args:
+            state_vec: [T, state_dim]
+            action_features: [T, N, action_dim]
+            action_mask: [T, N]
+            hidden: optional initial LSTM hidden state for batch size 1
+        """
+        if state_vec.ndim != 2:
+            raise ValueError("state_vec must be [T, state_dim].")
+        if action_features.ndim != 3:
+            raise ValueError("action_features must be [T, N, action_dim].")
+        if action_mask.ndim != 2:
+            raise ValueError("action_mask must be [T, N].")
+        if action_features.shape[0] != state_vec.shape[0]:
+            raise ValueError("Sequence length mismatch between state_vec and action_features.")
+        if action_mask.shape[:2] != action_features.shape[:2]:
+            raise ValueError("action_mask shape must match first 2 dims of action_features.")
+
+        step_count = state_vec.shape[0]
+        action_count = action_features.shape[1]
+
+        state_latent = self.state_encoder(state_vec)
+        if self.use_lstm:
+            if hidden is None:
+                hidden = self.init_hidden(1, device=state_vec.device)
+            lstm_input = state_latent.unsqueeze(0)  # [1,T,H]
+            lstm_output, hidden = self.state_lstm(lstm_input, hidden)
+            state_latent = lstm_output.squeeze(0)
+
+        action_flat = action_features.reshape(step_count * action_count, self.action_dim)
+        action_latent = self.action_encoder(action_flat).reshape(
+            step_count,
+            action_count,
+            self.action_hidden_size,
+        )
+        expanded_state = state_latent.unsqueeze(1).expand(-1, action_count, -1)
+        policy_input = torch.cat([expanded_state, action_latent], dim=-1)
+        logits = self.policy_head(policy_input).squeeze(-1)
+
+        legal_mask = action_mask if action_mask.dtype == torch.bool else action_mask > 0.5
+        logits = logits.masked_fill(~legal_mask, -1e9)
+        values = self.value_head(state_latent).squeeze(-1)
+        return logits, values, hidden
