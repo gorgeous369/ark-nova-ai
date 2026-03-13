@@ -10,11 +10,13 @@ import pytest
 import torch
 
 from arknova_rl.config import PPOTrainConfig
+from arknova_rl.evaluator import EvaluationMetrics
 from arknova_rl.trainer import (
     EpisodeRolloutResult,
     RolloutSequence,
     _EpisodeProgressTracker,
     _SlowEpisodeTraceWriter,
+    train_self_play,
     _collect_episode_rollout,
     _collect_rollout,
     _update_model,
@@ -796,6 +798,143 @@ def test_update_model_drives_progress_bar(monkeypatch):
     assert ("start", 1) in events
     assert ("start", 2) in events
     assert events.count(("advance",)) == 2
+    assert events[-1] == ("close",)
+
+
+def test_train_self_play_drives_fixed_eval_progress_bar(monkeypatch, tmp_path):
+    events = []
+
+    class _FakeFixedEvalProgressBar:
+        def __init__(self, *, update_index, total_episodes, opponent_name):
+            events.append(
+                ("init", int(update_index), int(total_episodes), str(opponent_name))
+            )
+
+        def episode_completed(self, *, completed_episodes, episode_seed):
+            events.append(("episode", int(completed_episodes), int(episode_seed)))
+
+        def close(self):
+            events.append(("close",))
+
+    class _TinyModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.tensor([0.0], dtype=torch.float32))
+
+        def init_hidden(self, batch_size, *, device):
+            return (
+                torch.zeros((1, int(batch_size), 1), dtype=torch.float32, device=device),
+                torch.zeros((1, int(batch_size), 1), dtype=torch.float32, device=device),
+            )
+
+    monkeypatch.setattr("arknova_rl.trainer._FixedEvalProgressBar", _FakeFixedEvalProgressBar)
+    monkeypatch.setattr("arknova_rl.trainer._log_progress_event", lambda message: None)
+    monkeypatch.setattr(
+        "arknova_rl.trainer._build_model_and_encoders",
+        lambda **kwargs: (_TinyModel(), SimpleNamespace(), SimpleNamespace()),
+    )
+    monkeypatch.setattr(
+        "arknova_rl.trainer._collect_rollout",
+        lambda **kwargs: (
+            [],
+            {
+                "step_count": 0,
+                "episode_count": 1,
+                "avg_completed_rounds": 0.0,
+                "avg_terminal_score_diff_abs": 0.0,
+                "episode_elapsed_seconds": [1.0],
+                "avg_episode_time_sec": 1.0,
+                "min_episode_time_sec": 1.0,
+                "max_episode_time_sec": 1.0,
+                "terminal_reason_counts": {},
+                "episode_summaries": [],
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        "arknova_rl.trainer._update_model",
+        lambda **kwargs: {
+            "policy_loss": 0.0,
+            "value_loss": 0.0,
+            "entropy": 0.0,
+            "total_loss": 0.0,
+        },
+    )
+    monkeypatch.setattr(
+        "arknova_rl.trainer._resolve_fixed_eval_opponent_path",
+        lambda **kwargs: tmp_path / "checkpoint_0000.pt",
+    )
+    monkeypatch.setattr(
+        "arknova_rl.trainer.load_policy_bundle_from_checkpoint",
+        lambda *args, **kwargs: SimpleNamespace(
+            name="fixed:checkpoint_0000",
+            model=_TinyModel(),
+            obs_encoder=SimpleNamespace(),
+            action_encoder=SimpleNamespace(),
+        ),
+    )
+    monkeypatch.setattr(
+        "arknova_rl.trainer._build_policy_bundle_from_model_snapshot",
+        lambda **kwargs: SimpleNamespace(
+            name=str(kwargs.get("name", "current")),
+            model=_TinyModel(),
+            obs_encoder=SimpleNamespace(),
+            action_encoder=SimpleNamespace(),
+        ),
+    )
+
+    def _fake_evaluate_policy_matchup(
+        *,
+        policy_a,
+        policy_b,
+        episodes,
+        seed,
+        device,
+        deterministic=True,
+        progress_callback=None,
+    ):
+        del policy_a, policy_b, seed, device, deterministic
+        for episode_idx in range(int(episodes)):
+            if progress_callback is not None:
+                progress_callback(int(episode_idx) + 1, int(episodes), 10_000 + int(episode_idx))
+        return EvaluationMetrics(
+            episodes=int(episodes),
+            wins_a=1,
+            wins_b=1,
+            draws=max(0, int(episodes) - 2),
+            avg_score_a=10.0,
+            avg_score_b=9.0,
+            avg_score_diff_a_minus_b=1.0,
+            avg_completed_rounds=80.0,
+            terminal_reason_counts={"score_threshold_endgame": int(episodes)},
+        )
+
+    monkeypatch.setattr("arknova_rl.trainer.evaluate_policy_matchup", _fake_evaluate_policy_matchup)
+    monkeypatch.setattr("arknova_rl.trainer._save_checkpoint", lambda **kwargs: None)
+
+    config = PPOTrainConfig(
+        device="cpu",
+        total_updates=1,
+        episodes_per_update=1,
+        rollout_workers=1,
+        fixed_eval_interval=1,
+        fixed_eval_episodes=3,
+        checkpoint_interval=99,
+    )
+    config.resolve_algo_flags()
+
+    metrics = train_self_play(
+        config=config,
+        output_dir=tmp_path,
+    )
+
+    assert len(metrics) == 1
+    assert events[0] == ("init", 1, 3, "fixed:checkpoint_0000")
+    assert events[1:4] == [
+        ("episode", 1, 10000),
+        ("episode", 2, 10001),
+        ("episode", 3, 10002),
+    ]
     assert events[-1] == ("close",)
 
 

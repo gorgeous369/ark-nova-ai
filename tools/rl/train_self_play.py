@@ -18,7 +18,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from arknova_rl.config import PPOTrainConfig
+from arknova_rl.config import PPOTrainConfig, SUPPORTED_TRAINING_DEVICE_HELP, normalize_torch_device_spec
+
+
+def _parse_training_device_arg(raw_value: str) -> str:
+    try:
+        return normalize_torch_device_spec(raw_value, allow_auto=True)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -27,9 +34,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=defaults.seed, help="Random seed")
     parser.add_argument(
         "--device",
-        type=str,
+        type=_parse_training_device_arg,
         default=defaults.device,
-        help="Training device for model updates: auto | cpu | mps | cuda[:index] (rollout/fixed-eval inference stays on cpu)",
+        help=(
+            "Training device for model updates: "
+            f"{SUPPORTED_TRAINING_DEVICE_HELP} "
+            "(rollout/fixed-eval inference stays on cpu)"
+        ),
     )
     parser.add_argument(
         "--rollout-workers",

@@ -13,7 +13,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from arknova_rl.config import SUPPORTED_EXPLICIT_DEVICE_HELP, normalize_torch_device_spec
 from arknova_rl.evaluator import evaluate_policy_matchup, load_policy_bundle_from_checkpoint
+
+
+def _parse_eval_device_arg(raw_value: str) -> str:
+    try:
+        return normalize_torch_device_spec(raw_value, allow_auto=False)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def parse_args() -> argparse.Namespace:
@@ -22,7 +30,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint-b", type=str, required=True, help="Checkpoint path for player B")
     parser.add_argument("--episodes", type=int, default=16, help="Evaluation episodes")
     parser.add_argument("--seed", type=int, default=12345, help="Evaluation seed")
-    parser.add_argument("--device", type=str, default="cpu", help="Torch device")
+    parser.add_argument(
+        "--device",
+        type=_parse_eval_device_arg,
+        default="cpu",
+        help=f"Evaluation device: {SUPPORTED_EXPLICIT_DEVICE_HELP}",
+    )
     parser.add_argument(
         "--stochastic",
         action="store_true",
@@ -83,4 +96,3 @@ def main_cli() -> None:
 
 if __name__ == "__main__":
     main_cli()
-

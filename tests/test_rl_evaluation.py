@@ -128,6 +128,7 @@ def test_evaluate_policy_matchup_from_checkpoint_is_well_formed(tmp_path, monkey
             lambda legal, _action_dim=action_dim: np.zeros((len(legal), _action_dim), dtype=np.float32)
         )
 
+    progress_events = []
     metrics = evaluate_policy_matchup(
         policy_a=bundle_a,
         policy_b=bundle_b,
@@ -135,6 +136,9 @@ def test_evaluate_policy_matchup_from_checkpoint_is_well_formed(tmp_path, monkey
         seed=123,
         device=device,
         deterministic=True,
+        progress_callback=lambda completed, total, episode_seed: progress_events.append(
+            (int(completed), int(total), int(episode_seed))
+        ),
     )
 
     assert metrics.episodes == 1
@@ -145,3 +149,5 @@ def test_evaluate_policy_matchup_from_checkpoint_is_well_formed(tmp_path, monkey
     assert len(fake_models) == 2
     assert all(model.loaded_state_dict is not None for model in fake_models)
     assert all(float(model.loaded_state_dict["fake_weight"].item()) == 1.0 for model in fake_models)
+    assert len(progress_events) == 1
+    assert progress_events[0][0:2] == (1, 1)

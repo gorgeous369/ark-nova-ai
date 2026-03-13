@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -85,7 +85,9 @@ def evaluate_policy_matchup(
     seed: int,
     device: torch.device,
     deterministic: bool = True,
+    progress_callback: Optional[Callable[[int, int, int], None]] = None,
 ) -> EvaluationMetrics:
+    episode_count = max(0, int(episodes))
     wins_a = 0
     wins_b = 0
     draws = 0
@@ -102,7 +104,7 @@ def evaluate_policy_matchup(
     eval_rng = np.random.default_rng(int(seed))
 
     try:
-        for episode_idx in range(max(0, int(episodes))):
+        for episode_idx in range(episode_count):
             episode_seed = int(eval_rng.integers(0, 2**31 - 1))
             state = main.setup_game(seed=episode_seed, player_names=["P1", "P2"])
             if episode_idx % 2 == 0:
@@ -179,11 +181,12 @@ def evaluate_policy_matchup(
             if not terminal_reason:
                 terminal_reason = "unknown_terminal_reason"
             terminal_reason_counts[terminal_reason] += 1
+            if progress_callback is not None:
+                progress_callback(int(episode_idx) + 1, episode_count, episode_seed)
     finally:
         policy_a.model.train(prev_training_a)
         policy_b.model.train(prev_training_b)
 
-    episode_count = max(0, int(episodes))
     if episode_count <= 0:
         return EvaluationMetrics(
             episodes=0,

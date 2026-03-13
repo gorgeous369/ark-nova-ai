@@ -22,7 +22,7 @@ from torch.distributions import Categorical
 
 import main
 
-from .config import PPOTrainConfig
+from .config import PPOTrainConfig, normalize_torch_device_spec
 from .encoding import ActionFeatureEncoder, ObservationEncoder
 from .evaluator import (
     PolicyBundle,
@@ -351,6 +351,78 @@ class _ModelUpdateProgressBar:
             f"[update {int(self.update_index):04d}] optimize "
             f"[{bar}] epoch={current_epoch}/{max(1, int(self.total_epochs))} "
             f"{self.unit_label}={current_unit}/{max(1, int(self.units_per_epoch))} "
+            f"elapsed={elapsed:.1f}s"
+        )
+
+
+@dataclass
+class _FixedEvalProgressBar:
+    update_index: int
+    total_episodes: int
+    opponent_name: str
+    started_at: float = field(default_factory=time.perf_counter)
+    completed_episodes: int = 0
+    enabled: bool = field(init=False, default=False)
+    last_line_length: int = 0
+    closed: bool = False
+    last_rendered_at: float = 0.0
+    min_render_interval_seconds: float = 0.1
+
+    def __post_init__(self) -> None:
+        self.enabled = _stdout_supports_live_updates() and int(self.total_episodes) > 0
+        self._render(force=True)
+
+    def episode_completed(self, *, completed_episodes: int, episode_seed: int) -> None:
+        del episode_seed
+        if self.closed:
+            return
+        self.completed_episodes = max(
+            0,
+            min(max(1, int(self.total_episodes)), int(completed_episodes)),
+        )
+        self._render()
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        if not self.enabled or self.last_line_length <= 0:
+            return
+        self._render(force=True)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+    def _render(self, *, force: bool = False) -> None:
+        if not self.enabled:
+            return
+        now = time.perf_counter()
+        if (
+            not force
+            and self.last_rendered_at > 0.0
+            and self.completed_episodes < max(1, int(self.total_episodes))
+            and now - self.last_rendered_at < float(self.min_render_interval_seconds)
+        ):
+            return
+        line = self._format_line(now=now)
+        padded = line
+        if len(line) < self.last_line_length:
+            padded += " " * (self.last_line_length - len(line))
+        sys.stdout.write("\r" + padded)
+        sys.stdout.flush()
+        self.last_line_length = max(self.last_line_length, len(line))
+        self.last_rendered_at = float(now)
+
+    def _format_line(self, *, now: float) -> str:
+        total = max(1, int(self.total_episodes))
+        completed = max(0, min(total, int(self.completed_episodes)))
+        width = 24
+        filled = min(width, int(width * completed / total))
+        bar = "#" * filled + "-" * (width - filled)
+        elapsed = max(0.0, float(now - self.started_at))
+        return (
+            f"[fixed_eval {int(self.update_index):04d}] "
+            f"[{bar}] {completed:02d}/{total:02d} "
+            f"vs={self.opponent_name} "
             f"elapsed={elapsed:.1f}s"
         )
 
@@ -1783,25 +1855,6 @@ def _coerce_rng_state_tensor(raw_state: Any) -> Optional[torch.Tensor]:
     return raw_state.detach().to(device="cpu", dtype=torch.uint8).contiguous()
 
 
-def _mps_rng_api_available() -> bool:
-    return bool(
-        hasattr(torch, "mps")
-        and hasattr(torch, "backends")
-        and hasattr(torch.backends, "mps")
-        and torch.backends.mps.is_available()
-        and hasattr(torch.mps, "get_rng_state")
-        and hasattr(torch.mps, "set_rng_state")
-    )
-
-
-def _mps_training_available() -> bool:
-    return bool(
-        hasattr(torch, "backends")
-        and hasattr(torch.backends, "mps")
-        and torch.backends.mps.is_available()
-    )
-
-
 def _parallel_rollout_unavailable_reason(
     *,
     device: torch.device,
@@ -1815,18 +1868,10 @@ def _parallel_rollout_unavailable_reason(
 
 
 def _resolve_training_device(requested_device: str) -> torch.device:
-    requested = str(requested_device or "cpu").strip().lower()
-    if requested in {"", "cpu"}:
-        return torch.device("cpu")
+    requested = normalize_torch_device_spec(requested_device, allow_auto=True)
     if requested == "auto":
         if torch.cuda.is_available():
             return torch.device("cuda")
-        if _mps_training_available():
-            return torch.device("mps")
-        return torch.device("cpu")
-    if requested == "mps":
-        if _mps_training_available():
-            return torch.device("mps")
         return torch.device("cpu")
     return torch.device(requested)
 
@@ -1887,15 +1932,6 @@ def _restore_torch_rng_states(
                 except Exception:
                     pass
 
-    if device.type == "mps" and _mps_rng_api_available():
-        mps_rng_state = _coerce_rng_state_tensor(checkpoint.get("torch_mps_rng_state"))
-        if mps_rng_state is not None:
-            try:
-                torch.mps.set_rng_state(mps_rng_state)
-            except Exception:
-                pass
-
-
 def _save_checkpoint(
     *,
     path: Path,
@@ -1921,8 +1957,6 @@ def _save_checkpoint(
             _coerce_rng_state_tensor(state)
             for state in torch.cuda.get_rng_state_all()
         ]
-    if _mps_rng_api_available():
-        payload["torch_mps_rng_state"] = _coerce_rng_state_tensor(torch.mps.get_rng_state())
     torch.save(
         payload,
         path,
@@ -2030,11 +2064,6 @@ def train_self_play(
         print(
             "device policy: "
             f"requested={requested_device_lower or 'cpu'}; selected {device.type} for training and {inference_device.type} for inference."
-        )
-    elif requested_device_lower == "mps" and device.type != "mps":
-        print(
-            "device policy: "
-            "requested=mps; mps unavailable, using cpu for training and inference."
         )
     print(
         "resolved devices: "
@@ -2271,14 +2300,29 @@ def train_self_play(
                     config=config,
                     device=inference_device,
                 )
-                fixed_eval_metrics = evaluate_policy_matchup(
-                    policy_a=current_bundle,
-                    policy_b=fixed_eval_bundle,
-                    episodes=fixed_eval_episodes,
-                    seed=int(config.seed) + int(update_idx) * 10_000,
-                    device=inference_device,
-                    deterministic=bool(getattr(config, "fixed_eval_deterministic", True)),
+                fixed_eval_progress_bar = _FixedEvalProgressBar(
+                    update_index=int(update_idx),
+                    total_episodes=int(fixed_eval_episodes),
+                    opponent_name=str(fixed_eval_bundle.name),
                 )
+                try:
+                    fixed_eval_metrics = evaluate_policy_matchup(
+                        policy_a=current_bundle,
+                        policy_b=fixed_eval_bundle,
+                        episodes=fixed_eval_episodes,
+                        seed=int(config.seed) + int(update_idx) * 10_000,
+                        device=inference_device,
+                        deterministic=bool(getattr(config, "fixed_eval_deterministic", True)),
+                        progress_callback=(
+                            lambda completed_episodes, total_episodes, episode_seed:
+                            fixed_eval_progress_bar.episode_completed(
+                                completed_episodes=int(completed_episodes),
+                                episode_seed=int(episode_seed),
+                            )
+                        ),
+                    )
+                finally:
+                    fixed_eval_progress_bar.close()
                 fixed_reason_text = ", ".join(
                     f"{key}:{value}"
                     for key, value in sorted(fixed_eval_metrics.terminal_reason_counts.items())

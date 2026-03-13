@@ -505,6 +505,29 @@ def test_hypnosis_legal_actions_expand_distinct_x_spend_choices():
     assert x_choices == {(0,), (1,)}
 
 
+def test_hypnosis_x_spend_queue_fragments_append_across_recursive_expansion():
+    state = make_state(61422)
+
+    def _executor(sim_state, sim_player, sim_details):
+        del sim_state, sim_player
+        queued_x_spent = list(sim_details.get("hypnosis_x_spent_choices") or [])
+        if not queued_x_spent:
+            raise _ActionDetailExpansionRequired([({"hypnosis_x_spent_choices": [0]}, "hypnosis x(0)")])
+        if len(queued_x_spent) == 1:
+            raise _ActionDetailExpansionRequired([({"hypnosis_x_spent_choices": [1]}, "hypnosis x(1)")])
+
+    resolved = main._resolve_action_detail_variants_by_simulation(
+        state=state,
+        player_id=0,
+        base_details={},
+        executor=_executor,
+    )
+
+    assert resolved == [
+        ({"hypnosis_x_spent_choices": [0, 1]}, "hypnosis x(0) ; hypnosis x(1)")
+    ]
+
+
 def test_hypnosis_ignores_stale_x_spend_queue_values_that_are_no_longer_legal():
     state, player = make_basic_animals_play_state(seed=61421)
     target = state.players[1]

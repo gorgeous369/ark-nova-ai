@@ -2256,6 +2256,65 @@ def test_boost_action_card_effect_expands_animals_legal_actions_and_applies_slot
     assert player.action_order == ["animals", "cards", "build", "sponsors", "association"]
 
 
+def test_clever_action_card_effect_expands_animals_legal_actions_and_applies_target_choice():
+    state = setup_game(seed=29415, player_names=["P1", "P2"])
+    player = state.players[0]
+    state.current_player = 0
+    player.hand = [
+        AnimalCard(
+            "CLEVER FOX",
+            0,
+            1,
+            0,
+            0,
+            card_type="animal",
+            ability_title="Clever",
+            ability_text="Move one of your action cards to slot 1.",
+            number=9310,
+            instance_id="clever-fox",
+        )
+    ]
+    player.action_order = ["cards", "animals", "build", "association", "sponsors"]
+    player.enclosures = [Enclosure(size=1, origin=(0, 0))]
+
+    actions = legal_actions(player, state=state, player_id=0)
+    animal_actions = [
+        action
+        for action in actions
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "animals"
+        and "CLEVER FOX" in str((action.details or {}).get("action_label") or "")
+    ]
+
+    assert len(animal_actions) == 5
+    assert {
+        tuple((action.details or {}).get("clever_targets") or [])
+        for action in animal_actions
+    } == {
+        ("cards",),
+        ("animals",),
+        ("build",),
+        ("association",),
+        ("sponsors",),
+    }
+    assert {str(action).split(" ; ", 1)[1] for action in animal_actions} == {
+        "clever cards->1",
+        "clever animals->1",
+        "clever build->1",
+        "clever association->1",
+        "clever sponsors->1",
+    }
+
+    chosen = next(
+        action
+        for action in animal_actions
+        if list((action.details or {}).get("clever_targets") or []) == ["sponsors"]
+    )
+    apply_action(state, chosen)
+
+    assert player.action_order == ["sponsors", "animals", "cards", "build", "association"]
+
+
 def test_petting_zoo_animals_only_generate_petting_zoo_placements():
     state = setup_game(seed=2942, player_names=["P1", "P2"])
     player = state.players[0]

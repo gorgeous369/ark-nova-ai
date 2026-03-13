@@ -5,6 +5,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+SUPPORTED_TRAINING_DEVICE_HELP = "auto | cpu | cuda[:index]"
+SUPPORTED_EXPLICIT_DEVICE_HELP = "cpu | cuda[:index]"
+
+
+def normalize_torch_device_spec(raw_device: str, *, allow_auto: bool) -> str:
+    value = str(raw_device or "").strip().lower()
+    if allow_auto and value == "":
+        return "auto"
+    if value == "cpu":
+        return value
+    if allow_auto and value == "auto":
+        return value
+    if value == "cuda":
+        return value
+    if value.startswith("cuda:") and value[5:].isdigit():
+        return value
+    supported = SUPPORTED_TRAINING_DEVICE_HELP if allow_auto else SUPPORTED_EXPLICIT_DEVICE_HELP
+    raise ValueError(f"unsupported torch device '{raw_device}'. Supported values: {supported}.")
+
+
 @dataclass
 class PPOTrainConfig:
     seed: int = 42

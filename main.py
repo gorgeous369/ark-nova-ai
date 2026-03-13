@@ -2727,6 +2727,7 @@ def _merge_detail_fragments(*fragments: Dict[str, Any]) -> Dict[str, Any]:
                 "sponsor_free_building_placement_choices",
                 "hypnosis_target_players",
                 "hypnosis_targets",
+                "hypnosis_x_spent_choices",
                 "clever_targets",
             }:
                 merged.setdefault(key, [])
@@ -3376,7 +3377,7 @@ def _enumerate_animals_effect_choice_variants(
                     )
                 )
                 continue
-            if effect.code not in {"sun_bathing", "pouch", "boost"}:
+            if effect.code not in {"sun_bathing", "pouch", "boost", "clever"}:
                 next_variants.append(
                     (
                         copy.deepcopy(queued_choices),
@@ -3419,6 +3420,20 @@ def _enumerate_animals_effect_choice_variants(
                             list(labels) + [label],
                             hand_after_play,
                             list(next_action_order),
+                        )
+                    )
+                continue
+
+            if effect.code == "clever":
+                for target_action in current_action_order:
+                    updated_choices = copy.deepcopy(queued_choices)
+                    updated_choices.setdefault("clever_targets", []).append(target_action)
+                    next_variants.append(
+                        (
+                            updated_choices,
+                            list(labels) + [f"clever {target_action}->1"],
+                            hand_after_play,
+                            _move_action_order_to_slot(current_action_order, target_action, 1),
                         )
                     )
                 continue
