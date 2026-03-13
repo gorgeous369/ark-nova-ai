@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 @dataclass
 class PPOTrainConfig:
-    algo: str = "masked_ppo"  # masked_ppo | recurrent_ppo
     seed: int = 42
     device: str = "auto"
 
@@ -25,7 +24,6 @@ class PPOTrainConfig:
     hidden_size: int = 512
     lstm_size: int = 512
     action_hidden_size: int = 256
-    use_lstm: bool = True
 
     step_reward_scale: float = 0.8
     terminal_reward_scale: float = 1.0
@@ -37,6 +35,7 @@ class PPOTrainConfig:
     checkpoint_interval: int = 5
     log_interval: int = 1
     rollout_workers: int = 8
+    slow_episode_trace_enabled: bool = False
     slow_episode_trace_start_seconds: float = 300.0
     slow_episode_trace_stop_seconds: float = 480.0
     fixed_eval_interval: int = 10
@@ -45,11 +44,9 @@ class PPOTrainConfig:
     fixed_eval_opponent: str = ""
 
     def resolve_algo_flags(self) -> None:
-        algo_name = str(self.algo).strip().lower()
-        if algo_name not in {"masked_ppo", "recurrent_ppo"}:
-            raise ValueError(f"Unsupported algo: {self.algo}")
-        self.algo = algo_name
-        self.use_lstm = True
+        self.slow_episode_trace_enabled = bool(
+            getattr(self, "slow_episode_trace_enabled", False)
+        )
         self.slow_episode_trace_start_seconds = max(
             0.0,
             float(getattr(self, "slow_episode_trace_start_seconds", 0.0) or 0.0),

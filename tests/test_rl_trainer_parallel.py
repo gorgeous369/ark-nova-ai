@@ -150,18 +150,24 @@ def test_collect_episode_rollout_aborts_training_when_elapsed_exceeds_stop_secon
     tmp_path,
 ):
     config = PPOTrainConfig(
+        slow_episode_trace_enabled=True,
         slow_episode_trace_start_seconds=300.0,
         slow_episode_trace_stop_seconds=480.0,
     )
     config.resolve_algo_flags()
 
     class _FakeModel:
-        use_lstm = False
+        def init_hidden(self, batch_size, *, device):
+            return (
+                torch.zeros((1, int(batch_size), 1), dtype=torch.float32, device=device),
+                torch.zeros((1, int(batch_size), 1), dtype=torch.float32, device=device),
+            )
 
         def forward_step(self, **kwargs):
             logits = torch.zeros((1, 1), dtype=torch.float32)
             value = torch.zeros((1, 1), dtype=torch.float32)
-            return logits, value, None
+            hidden = kwargs.get("hidden")
+            return logits, value, hidden
 
     class _FakeObsEncoder:
         def encode_from_state(self, state, actor_id):
@@ -215,7 +221,7 @@ def test_collect_episode_rollout_aborts_training_when_elapsed_exceeds_stop_secon
     monkeypatch.setattr("arknova_rl.trainer.main._progress_score", lambda player: 0.0)
     monkeypatch.setattr(
         "arknova_rl.trainer.time.perf_counter",
-        iter([0.0, 10.0, 11.0, 12.0, 13.0, 481.0]).__next__,
+        iter([0.0, 0.0, 10.0, 10.0, 11.0, 11.0, 12.0, 13.0, 13.0, 481.0, 481.0, 481.0, 481.0]).__next__,
     )
 
     with pytest.raises(TimeoutError, match="slow_episode_trace_stop_seconds.*action='fake_action'"):
@@ -347,18 +353,24 @@ def test_collect_rollout_parallel_refills_next_episode_on_first_completed_slot(m
 
 def test_collect_episode_rollout_persists_current_action_in_progress_snapshot(monkeypatch, tmp_path):
     config = PPOTrainConfig(
+        slow_episode_trace_enabled=True,
         slow_episode_trace_start_seconds=300.0,
         slow_episode_trace_stop_seconds=480.0,
     )
     config.resolve_algo_flags()
 
     class _FakeModel:
-        use_lstm = False
+        def init_hidden(self, batch_size, *, device):
+            return (
+                torch.zeros((1, int(batch_size), 1), dtype=torch.float32, device=device),
+                torch.zeros((1, int(batch_size), 1), dtype=torch.float32, device=device),
+            )
 
         def forward_step(self, **kwargs):
             logits = torch.zeros((1, 1), dtype=torch.float32)
             value = torch.zeros((1, 1), dtype=torch.float32)
-            return logits, value, None
+            hidden = kwargs.get("hidden")
+            return logits, value, hidden
 
     class _FakeObsEncoder:
         def encode_from_state(self, state, actor_id):
@@ -446,18 +458,24 @@ def test_collect_episode_rollout_persists_current_action_in_progress_snapshot(mo
 
 def test_collect_episode_rollout_persists_legal_actions_profile_snapshot(monkeypatch, tmp_path):
     config = PPOTrainConfig(
+        slow_episode_trace_enabled=True,
         slow_episode_trace_start_seconds=300.0,
         slow_episode_trace_stop_seconds=480.0,
     )
     config.resolve_algo_flags()
 
     class _FakeModel:
-        use_lstm = False
+        def init_hidden(self, batch_size, *, device):
+            return (
+                torch.zeros((1, int(batch_size), 1), dtype=torch.float32, device=device),
+                torch.zeros((1, int(batch_size), 1), dtype=torch.float32, device=device),
+            )
 
         def forward_step(self, **kwargs):
             logits = torch.zeros((1, 1), dtype=torch.float32)
             value = torch.zeros((1, 1), dtype=torch.float32)
-            return logits, value, None
+            hidden = kwargs.get("hidden")
+            return logits, value, hidden
 
     class _FakeObsEncoder:
         def encode_from_state(self, state, actor_id):
@@ -567,6 +585,7 @@ def test_collect_rollout_parallel_watchdog_reports_progress_snapshot(monkeypatch
         seed=91,
         episodes_per_update=2,
         rollout_workers=2,
+        slow_episode_trace_enabled=True,
         slow_episode_trace_start_seconds=30.0,
         slow_episode_trace_stop_seconds=60.0,
     )
@@ -717,19 +736,30 @@ def test_update_model_drives_progress_bar(monkeypatch):
             events.append(("close",))
 
     class _TinyModel(torch.nn.Module):
-        use_lstm = False
-
         def __init__(self):
             super().__init__()
             self.state_head = torch.nn.Linear(1, 1)
             self.action_head = torch.nn.Linear(1, 1)
 
+        def init_hidden(self, batch_size, *, device):
+            return (
+                torch.zeros((1, int(batch_size), 1), dtype=torch.float32, device=device),
+                torch.zeros((1, int(batch_size), 1), dtype=torch.float32, device=device),
+            )
+
         def forward_step(self, *, state_vec, action_features, action_mask, hidden=None):
             del action_mask
-            del hidden
             logits = self.action_head(action_features).squeeze(-1)
             values = self.state_head(state_vec).squeeze(-1)
-            return logits, values, None
+            return logits, values, hidden
+
+        def forward_sequence(self, *, state_vec, action_features, action_mask, hidden=None):
+            return self.forward_step(
+                state_vec=state_vec,
+                action_features=action_features,
+                action_mask=action_mask,
+                hidden=hidden,
+            )
 
     monkeypatch.setattr("arknova_rl.trainer._ModelUpdateProgressBar", _FakeProgressBar)
 
@@ -762,7 +792,7 @@ def test_update_model_drives_progress_bar(monkeypatch):
     )
 
     assert metrics["total_loss"] == pytest.approx(metrics["total_loss"])
-    assert events[0] == ("init", 47, 2, 1, "batch")
+    assert events[0] == ("init", 47, 2, 1, "seq")
     assert ("start", 1) in events
     assert ("start", 2) in events
     assert events.count(("advance",)) == 2
@@ -771,8 +801,6 @@ def test_update_model_drives_progress_bar(monkeypatch):
 
 def test_update_model_recurrent_path_handles_large_action_indices():
     class _TinyRecurrentModel(torch.nn.Module):
-        use_lstm = True
-
         def __init__(self):
             super().__init__()
             self.state_head = torch.nn.Linear(1, 1)

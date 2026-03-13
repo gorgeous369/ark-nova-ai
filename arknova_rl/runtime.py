@@ -25,6 +25,7 @@ def restore_config(raw_config: Any) -> PPOTrainConfig:
     config = PPOTrainConfig()
     if isinstance(raw_config, dict):
         known_fields = {field.name for field in fields(PPOTrainConfig)}
+        trace_enabled_present = "slow_episode_trace_enabled" in raw_config
         if (
             "slow_episode_trace_start_seconds" not in raw_config
             and "slow_episode_trace_seconds" in raw_config
@@ -36,6 +37,11 @@ def restore_config(raw_config: Any) -> PPOTrainConfig:
             key_text = str(key)
             if key_text in known_fields:
                 setattr(config, key_text, value)
+        if not trace_enabled_present:
+            config.slow_episode_trace_enabled = bool(
+                float(getattr(config, "slow_episode_trace_start_seconds", 0.0) or 0.0) > 0.0
+                or float(getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0) > 0.0
+            )
     config.resolve_algo_flags()
     return config
 
@@ -80,6 +86,5 @@ def build_model_and_encoders(
         hidden_size=int(config.hidden_size),
         lstm_size=int(config.lstm_size),
         action_hidden_size=int(config.action_hidden_size),
-        use_lstm=bool(config.use_lstm),
     ).to(device)
     return model, obs_encoder, action_encoder

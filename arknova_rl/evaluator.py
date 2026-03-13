@@ -112,12 +112,10 @@ def evaluate_policy_matchup(
                 seat_policies = {0: policy_b, 1: policy_a}
                 owner_by_seat = {0: "B", 1: "A"}
 
-            hidden_by_seat: Dict[int, Optional[Tuple[torch.Tensor, torch.Tensor]]] = {}
-            for seat, bundle in seat_policies.items():
-                if bundle.model.use_lstm:
-                    hidden_by_seat[seat] = bundle.model.init_hidden(1, device=device)
-                else:
-                    hidden_by_seat[seat] = None
+            hidden_by_seat: Dict[int, Tuple[torch.Tensor, torch.Tensor]] = {
+                seat: bundle.model.init_hidden(1, device=device)
+                for seat, bundle in seat_policies.items()
+            }
 
             while str(state.pending_decision_kind or "").strip() or not state.game_over():
                 actor_id = _current_actor_id(state)
@@ -145,11 +143,10 @@ def evaluate_policy_matchup(
                         action_mask=mask_t,
                         hidden=hidden,
                     )
-                if bundle.model.use_lstm:
-                    hidden_by_seat[actor_id] = (
-                        next_hidden[0].detach(),
-                        next_hidden[1].detach(),
-                    ) if next_hidden is not None else None
+                hidden_by_seat[actor_id] = (
+                    next_hidden[0].detach(),
+                    next_hidden[1].detach(),
+                )
 
                 if deterministic:
                     chosen_index = int(torch.argmax(logits[0]).item())

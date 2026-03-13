@@ -20,6 +20,7 @@ def main() -> None:
     config.device = "cpu"
     config.rollout_workers = 8
     config.episodes_per_update = 16
+    config.slow_episode_trace_enabled = True
     config.slow_episode_trace_start_seconds = 30.0
     config.slow_episode_trace_stop_seconds = 120.0
 

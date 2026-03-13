@@ -1,4 +1,4 @@
-"""Self-play training loop for Masked PPO / Recurrent PPO."""
+"""Self-play training loop for recurrent PPO."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 import random
 import sys
 import time
-from typing import Any, Dict, Iterator, List, Optional, Sequence, TextIO, Tuple
+from typing import Any, Dict, List, Optional, Sequence, TextIO, Tuple
 
 import numpy as np
 import torch
@@ -841,9 +841,6 @@ class _SlowEpisodeTraceWriter:
             self.handle = None
         return str(self.path) if self.path is not None else ""
 
-
-_FEEDFORWARD_STEP_BATCH_SIZE = 256
-
 def _progress_score_diff(state: main.GameState, player_id: int) -> float:
     actor_score = float(main._progress_score(state.players[player_id]))
     other_scores = [
@@ -917,10 +914,21 @@ def _collect_episode_rollout(
 ) -> EpisodeRolloutResult:
     episode_started_at = time.perf_counter()
     state = main.setup_game(seed=episode_seed, player_names=["P1", "P2"])
-    hidden_by_actor: Dict[int, Optional[Tuple[torch.Tensor, torch.Tensor]]] = {}
-    if model.use_lstm:
-        for player_id in range(len(state.players)):
-            hidden_by_actor[player_id] = model.init_hidden(1, device=device)
+    trace_enabled = bool(getattr(config, "slow_episode_trace_enabled", False))
+    trace_start_seconds = (
+        float(getattr(config, "slow_episode_trace_start_seconds", 0.0) or 0.0)
+        if trace_enabled
+        else 0.0
+    )
+    trace_stop_seconds = (
+        float(getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0)
+        if trace_enabled
+        else 0.0
+    )
+    hidden_by_actor: Dict[int, Tuple[torch.Tensor, torch.Tensor]] = {
+        player_id: model.init_hidden(1, device=device)
+        for player_id in range(len(state.players))
+    }
 
     sequence_builders: Dict[Tuple[int, int], _RolloutSequenceBuilder] = {}
     terminal_abs_diffs: List[float] = []
@@ -930,15 +938,15 @@ def _collect_episode_rollout(
         update_index=int(update_index),
         episode_index=int(episode_index),
         episode_seed=int(episode_seed),
-        start_after_seconds=float(getattr(config, "slow_episode_trace_start_seconds", 0.0) or 0.0),
-        stop_after_seconds=float(getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0),
+        start_after_seconds=trace_start_seconds,
+        stop_after_seconds=trace_stop_seconds,
     )
     progress_tracker = _EpisodeProgressTracker(
         trace_dir=trace_dir,
         update_index=int(update_index),
         episode_index=int(episode_index),
         episode_seed=int(episode_seed),
-        enabled=float(getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0) > 0.0,
+        enabled=trace_enabled,
     )
     progress_tracker.update(
         stage="episode_started",
@@ -1005,7 +1013,7 @@ def _collect_episode_rollout(
             action_t = _to_tensor(action_features, device=device).unsqueeze(0)
             mask_t = _to_tensor(action_mask, device=device, dtype=torch.bool).unsqueeze(0)
 
-            hidden = hidden_by_actor.get(actor_id) if model.use_lstm else None
+            hidden = hidden_by_actor[actor_id]
             with torch.no_grad():
                 logits, value, next_hidden = model.forward_step(
                     state_vec=state_t,
@@ -1018,11 +1026,10 @@ def _collect_episode_rollout(
                 logprob = float(dist.log_prob(torch.tensor(sampled_index, device=device)).item())
                 predicted_value = float(value.item())
             after_forward_at = time.perf_counter()
-            if model.use_lstm:
-                hidden_by_actor[actor_id] = (
-                    next_hidden[0].detach(),
-                    next_hidden[1].detach(),
-                ) if next_hidden is not None else None
+            hidden_by_actor[actor_id] = (
+                next_hidden[0].detach(),
+                next_hidden[1].detach(),
+            )
 
             before_diff = _progress_score_diff(state, actor_id)
             endgame_was_triggered = state.endgame_trigger_player is not None
@@ -1134,7 +1141,6 @@ def _collect_episode_rollout(
                 elapsed_seconds=elapsed_seconds,
                 action_count=action_count,
             )
-            trace_stop_seconds = float(getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0)
             if trace_stop_seconds > 0.0 and elapsed_seconds > trace_stop_seconds:
                 trace_writer.record_timeout(
                     action_trace_record,
@@ -1375,8 +1381,11 @@ def _collect_rollout(
     ]
     total_episodes = len(episode_specs)
     worker_count = max(1, int(getattr(config, "rollout_workers", 1) or 1))
-    watchdog_timeout_seconds = float(
-        getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0
+    trace_enabled = bool(getattr(config, "slow_episode_trace_enabled", False))
+    watchdog_timeout_seconds = (
+        float(getattr(config, "slow_episode_trace_stop_seconds", 0.0) or 0.0)
+        if trace_enabled
+        else 0.0
     )
     progress_bar = _RolloutProgressBar(
         update_index=int(update_index),
@@ -1613,71 +1622,6 @@ def _zero_loss_metrics() -> Dict[str, float]:
     }
 
 
-def _iter_feedforward_step_refs(
-    rollout_sequences: Sequence[RolloutSequence],
-    *,
-    batch_size: int,
-) -> Iterator[List[Tuple[int, int]]]:
-    current_batch: List[Tuple[int, int]] = []
-    for sequence_idx, rollout_sequence in enumerate(rollout_sequences):
-        for step_idx in range(int(rollout_sequence.step_count)):
-            current_batch.append((sequence_idx, step_idx))
-            if len(current_batch) >= batch_size:
-                yield current_batch
-                current_batch = []
-    if current_batch:
-        yield current_batch
-
-
-def _build_feedforward_training_batch_from_refs(
-    rollout_sequences: Sequence[RolloutSequence],
-    normalized_advantages: Sequence[np.ndarray],
-    step_refs: Sequence[Tuple[int, int]],
-    *,
-    device: torch.device,
-) -> Dict[str, torch.Tensor]:
-    if not step_refs:
-        raise ValueError("step_refs must be non-empty.")
-
-    batch_size = len(step_refs)
-    first_sequence = rollout_sequences[step_refs[0][0]]
-    state_dim = int(first_sequence.state_vec.shape[1])
-    action_dim = int(first_sequence.action_features.shape[2])
-    max_action_count = max(
-        int(rollout_sequences[sequence_idx].action_count[step_idx])
-        for sequence_idx, step_idx in step_refs
-    )
-
-    state_array = np.zeros((batch_size, state_dim), dtype=np.float32)
-    action_array = np.zeros((batch_size, max_action_count, action_dim), dtype=np.float32)
-    mask_array = np.zeros((batch_size, max_action_count), dtype=np.bool_)
-    action_indices = np.zeros((batch_size,), dtype=np.int64)
-    old_logprobs = np.zeros((batch_size,), dtype=np.float32)
-    returns = np.zeros((batch_size,), dtype=np.float32)
-    advantages = np.zeros((batch_size,), dtype=np.float32)
-
-    for batch_idx, (sequence_idx, step_idx) in enumerate(step_refs):
-        rollout_sequence = rollout_sequences[sequence_idx]
-        action_count = int(rollout_sequence.action_count[step_idx])
-        state_array[batch_idx] = rollout_sequence.state_vec[step_idx]
-        action_array[batch_idx, :action_count] = rollout_sequence.action_features[step_idx, :action_count]
-        mask_array[batch_idx, :action_count] = rollout_sequence.action_mask[step_idx, :action_count]
-        action_indices[batch_idx] = int(rollout_sequence.action_index[step_idx])
-        old_logprobs[batch_idx] = float(rollout_sequence.old_logprob[step_idx])
-        returns[batch_idx] = float(rollout_sequence.return_[step_idx])
-        advantages[batch_idx] = float(normalized_advantages[sequence_idx][step_idx])
-
-    return {
-        "state_vec": _to_tensor(state_array, device=device),
-        "action_features": _to_tensor(action_array, device=device),
-        "action_mask": _to_tensor(mask_array, device=device, dtype=torch.bool),
-        "action_index": torch.as_tensor(action_indices, dtype=torch.long, device=device),
-        "old_logprob": _to_tensor(old_logprobs, device=device),
-        "target_return": _to_tensor(returns, device=device),
-        "advantage": _to_tensor(advantages, device=device),
-    }
-
-
 def _tensorize_rollout_sequence(
     rollout_sequence: RolloutSequence,
     normalized_advantage: np.ndarray,
@@ -1734,16 +1678,8 @@ def _update_model(
     if total_step_count <= 0:
         return _zero_loss_metrics()
 
-    if not model.use_lstm:
-        units_per_epoch = max(
-            1,
-            (int(total_step_count) + int(_FEEDFORWARD_STEP_BATCH_SIZE) - 1)
-            // int(_FEEDFORWARD_STEP_BATCH_SIZE),
-        )
-        unit_label = "batch"
-    else:
-        units_per_epoch = max(1, int(nonempty_sequence_count))
-        unit_label = "seq"
+    units_per_epoch = max(1, int(nonempty_sequence_count))
+    unit_label = "seq"
     progress_bar = _ModelUpdateProgressBar(
         update_index=int(update_index),
         total_epochs=max(0, int(config.update_epochs)),
@@ -1766,107 +1702,57 @@ def _update_model(
             epoch_total_loss = 0.0
             processed_weight = 0.0
 
-            if not model.use_lstm:
-                for step_refs in _iter_feedforward_step_refs(
-                    rollout_sequences,
-                    batch_size=_FEEDFORWARD_STEP_BATCH_SIZE,
-                ):
-                    batch = _build_feedforward_training_batch_from_refs(
-                        rollout_sequences,
-                        normalized_advantages,
-                        step_refs,
-                        device=device,
-                    )
-                    logits, values, _ = model.forward_step(
-                        state_vec=batch["state_vec"],
-                        action_features=batch["action_features"],
-                        action_mask=batch["action_mask"],
-                        hidden=None,
-                    )
-                    step_log_probs = torch.log_softmax(logits, dim=-1)
-                    step_probs = torch.softmax(logits, dim=-1)
-                    chosen_indices = batch["action_index"].unsqueeze(1)
-                    new_logprob = step_log_probs.gather(1, chosen_indices).squeeze(1)
-                    entropy = -(step_probs * step_log_probs).sum(dim=-1)
-                    old_logprob = batch["old_logprob"]
-                    target_return = batch["target_return"]
-                    advantage = batch["advantage"]
-                    ratio = torch.exp(new_logprob - old_logprob)
-                    clipped_ratio = torch.clamp(
-                        ratio,
-                        1.0 - float(config.clip_epsilon),
-                        1.0 + float(config.clip_epsilon),
-                    )
-                    surrogate_1 = ratio * advantage
-                    surrogate_2 = clipped_ratio * advantage
-                    policy_loss = -torch.min(surrogate_1, surrogate_2).mean()
-                    value_loss = ((target_return - values) ** 2).mean()
-                    entropy_mean = entropy.mean()
-                    total_loss = (
-                        policy_loss
-                        + float(config.value_coef) * value_loss
-                        - float(config.entropy_coef) * entropy_mean
-                    )
-                    batch_weight = float(len(step_refs)) / float(total_step_count)
-                    (total_loss * batch_weight).backward()
-                    processed_weight += batch_weight
-                    epoch_policy_loss += float(policy_loss.detach().cpu().item()) * batch_weight
-                    epoch_value_loss += float(value_loss.detach().cpu().item()) * batch_weight
-                    epoch_entropy += float(entropy_mean.detach().cpu().item()) * batch_weight
-                    epoch_total_loss += float(total_loss.detach().cpu().item()) * batch_weight
-                    progress_bar.advance()
-            else:
-                for sequence_idx, rollout_sequence in enumerate(rollout_sequences):
-                    step_count = int(rollout_sequence.step_count)
-                    if step_count <= 0:
-                        continue
-                    sequence_batch = _tensorize_rollout_sequence(
-                        rollout_sequence,
-                        normalized_advantages[sequence_idx],
-                        device=device,
-                    )
-                    hidden = model.init_hidden(1, device=device)
-                    logits, values, hidden = model.forward_sequence(
-                        state_vec=sequence_batch["state_vec"],
-                        action_features=sequence_batch["action_features"],
-                        action_mask=sequence_batch["action_mask"],
-                        hidden=hidden,
-                    )
-                    del hidden
-                    step_log_probs = torch.log_softmax(logits, dim=-1)
-                    step_probs = torch.softmax(logits, dim=-1)
-                    chosen_indices = sequence_batch["action_index"].unsqueeze(1)
-                    new_logprob = step_log_probs.gather(1, chosen_indices).squeeze(1)
-                    entropy = -(step_probs * step_log_probs).sum(dim=-1)
+            for sequence_idx, rollout_sequence in enumerate(rollout_sequences):
+                step_count = int(rollout_sequence.step_count)
+                if step_count <= 0:
+                    continue
+                sequence_batch = _tensorize_rollout_sequence(
+                    rollout_sequence,
+                    normalized_advantages[sequence_idx],
+                    device=device,
+                )
+                hidden = model.init_hidden(1, device=device)
+                logits, values, hidden = model.forward_sequence(
+                    state_vec=sequence_batch["state_vec"],
+                    action_features=sequence_batch["action_features"],
+                    action_mask=sequence_batch["action_mask"],
+                    hidden=hidden,
+                )
+                del hidden
+                step_log_probs = torch.log_softmax(logits, dim=-1)
+                step_probs = torch.softmax(logits, dim=-1)
+                chosen_indices = sequence_batch["action_index"].unsqueeze(1)
+                new_logprob = step_log_probs.gather(1, chosen_indices).squeeze(1)
+                entropy = -(step_probs * step_log_probs).sum(dim=-1)
 
-                    old_logprob = sequence_batch["old_logprob"]
-                    target_return = sequence_batch["target_return"]
-                    advantage = sequence_batch["advantage"]
+                old_logprob = sequence_batch["old_logprob"]
+                target_return = sequence_batch["target_return"]
+                advantage = sequence_batch["advantage"]
 
-                    ratio = torch.exp(new_logprob - old_logprob)
-                    clipped_ratio = torch.clamp(
-                        ratio,
-                        1.0 - float(config.clip_epsilon),
-                        1.0 + float(config.clip_epsilon),
-                    )
-                    surrogate_1 = ratio * advantage
-                    surrogate_2 = clipped_ratio * advantage
-                    policy_loss = -torch.min(surrogate_1, surrogate_2).mean()
-                    value_loss = ((target_return - values) ** 2).mean()
-                    entropy_mean = entropy.mean()
-                    total_loss = (
-                        policy_loss
-                        + float(config.value_coef) * value_loss
-                        - float(config.entropy_coef) * entropy_mean
-                    )
-                    sequence_weight = float(step_count) / float(total_step_count)
-                    (total_loss * sequence_weight).backward()
-                    processed_weight += sequence_weight
-                    epoch_policy_loss += float(policy_loss.detach().cpu().item()) * sequence_weight
-                    epoch_value_loss += float(value_loss.detach().cpu().item()) * sequence_weight
-                    epoch_entropy += float(entropy_mean.detach().cpu().item()) * sequence_weight
-                    epoch_total_loss += float(total_loss.detach().cpu().item()) * sequence_weight
-                    progress_bar.advance()
+                ratio = torch.exp(new_logprob - old_logprob)
+                clipped_ratio = torch.clamp(
+                    ratio,
+                    1.0 - float(config.clip_epsilon),
+                    1.0 + float(config.clip_epsilon),
+                )
+                surrogate_1 = ratio * advantage
+                surrogate_2 = clipped_ratio * advantage
+                policy_loss = -torch.min(surrogate_1, surrogate_2).mean()
+                value_loss = ((target_return - values) ** 2).mean()
+                entropy_mean = entropy.mean()
+                total_loss = (
+                    policy_loss
+                    + float(config.value_coef) * value_loss
+                    - float(config.entropy_coef) * entropy_mean
+                )
+                sequence_weight = float(step_count) / float(total_step_count)
+                (total_loss * sequence_weight).backward()
+                processed_weight += sequence_weight
+                epoch_policy_loss += float(policy_loss.detach().cpu().item()) * sequence_weight
+                epoch_value_loss += float(value_loss.detach().cpu().item()) * sequence_weight
+                epoch_entropy += float(entropy_mean.detach().cpu().item()) * sequence_weight
+                epoch_total_loss += float(total_loss.detach().cpu().item()) * sequence_weight
+                progress_bar.advance()
 
             if processed_weight <= 0.0:
                 optimizer.zero_grad(set_to_none=True)
@@ -2154,9 +2040,7 @@ def train_self_play(
         "resolved devices: "
         f"requested={requested_device} training={device.type} inference={inference_device.type}"
     )
-    if (
-        float(getattr(config, "slow_episode_trace_start_seconds", 0.0) or 0.0) > 0.0
-    ):
+    if bool(getattr(config, "slow_episode_trace_enabled", False)):
         print(
             "slow episode trace: "
             f"dir={slow_trace_dir} "

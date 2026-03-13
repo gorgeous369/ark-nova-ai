@@ -18,7 +18,6 @@ class _FakeModel:
     def __init__(self, *, state_dim: int = 4, action_dim: int = 3) -> None:
         self.state_dim = int(state_dim)
         self.action_dim = int(action_dim)
-        self.use_lstm = False
         self.training = False
         self.loaded_state_dict = None
 
@@ -33,13 +32,19 @@ class _FakeModel:
         self.training = bool(mode)
         return self
 
+    def init_hidden(self, batch_size, *, device):
+        return (
+            torch.zeros((1, int(batch_size), 1), dtype=torch.float32, device=device),
+            torch.zeros((1, int(batch_size), 1), dtype=torch.float32, device=device),
+        )
+
     def forward_step(self, *, state_vec, action_features, action_mask, hidden=None):
-        del action_mask, hidden
+        del action_mask
         batch_size = int(state_vec.shape[0])
         action_count = int(action_features.shape[1])
         logits = torch.zeros((batch_size, action_count), dtype=torch.float32, device=state_vec.device)
         values = torch.zeros((batch_size,), dtype=torch.float32, device=state_vec.device)
-        return logits, values, None
+        return logits, values, hidden
 
 
 def _write_checkpoint(path):

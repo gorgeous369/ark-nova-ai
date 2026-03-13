@@ -1,8 +1,7 @@
-"""Train Ark Nova self-play agents with Masked PPO/Recurrent PPO.
+"""Train Ark Nova self-play agents with recurrent PPO.
 
 Example:
     .venv/bin/python tools/rl/train_self_play.py \
-      --algo masked_ppo \
       --updates 100 \
       --episodes-per-update 8 \
       --output-dir runs/ppo_masked
@@ -25,13 +24,6 @@ from arknova_rl.config import PPOTrainConfig
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     defaults = PPOTrainConfig()
     parser = argparse.ArgumentParser(description="Ark Nova self-play RL trainer")
-    parser.add_argument(
-        "--algo",
-        type=str,
-        default=defaults.algo,
-        choices=["masked_ppo", "recurrent_ppo"],
-        help="Training variant",
-    )
     parser.add_argument("--seed", type=int, default=defaults.seed, help="Random seed")
     parser.add_argument(
         "--device",
@@ -108,22 +100,31 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Checkpoint save frequency (updates)",
     )
     parser.add_argument(
+        "--slow-episode-trace",
+        action="store_true",
+        help=(
+            "Enable slow episode trace recording "
+            f"(default window: {defaults.slow_episode_trace_start_seconds:.0f}s -> "
+            f"{defaults.slow_episode_trace_stop_seconds:.0f}s)"
+        ),
+    )
+    parser.add_argument(
         "--slow-episode-trace-start-seconds",
         type=float,
-        default=defaults.slow_episode_trace_start_seconds,
-        help="Start writing a live trace once an episode exceeds this wall-clock time in seconds (<=0 disables tracing)",
+        default=None,
+        help="Trace start threshold in seconds; providing this implicitly enables slow episode tracing",
     )
     parser.add_argument(
         "--slow-episode-trace-stop-seconds",
         type=float,
-        default=defaults.slow_episode_trace_stop_seconds,
-        help="Stop writing the live trace after this wall-clock time in seconds (<=0 records until episode end)",
+        default=None,
+        help="Trace stop threshold in seconds; providing this implicitly enables slow episode tracing",
     )
     parser.add_argument(
         "--slow-episode-trace-seconds",
         dest="slow_episode_trace_start_seconds",
         type=float,
-        default=argparse.SUPPRESS,
+        default=None,
         help=argparse.SUPPRESS,
     )
     parser.add_argument(
@@ -159,6 +160,32 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _resolve_slow_episode_trace_settings(
+    args: argparse.Namespace,
+    *,
+    defaults: PPOTrainConfig | None = None,
+) -> tuple[bool, float, float]:
+    resolved_defaults = defaults or PPOTrainConfig()
+    explicit_start = getattr(args, "slow_episode_trace_start_seconds", None)
+    explicit_stop = getattr(args, "slow_episode_trace_stop_seconds", None)
+    trace_requested = (
+        bool(getattr(args, "slow_episode_trace", False))
+        or explicit_start is not None
+        or explicit_stop is not None
+    )
+    start_seconds = (
+        float(resolved_defaults.slow_episode_trace_start_seconds)
+        if explicit_start is None
+        else float(explicit_start)
+    )
+    stop_seconds = (
+        float(resolved_defaults.slow_episode_trace_stop_seconds)
+        if explicit_stop is None
+        else float(explicit_stop)
+    )
+    return bool(trace_requested), float(start_seconds), float(stop_seconds)
+
+
 def main_cli() -> None:
     args = parse_args()
     try:
@@ -170,8 +197,14 @@ def main_cli() -> None:
             ) from exc
         raise
 
+    default_config = PPOTrainConfig()
+    (
+        slow_episode_trace_enabled,
+        slow_episode_trace_start_seconds,
+        slow_episode_trace_stop_seconds,
+    ) = _resolve_slow_episode_trace_settings(args, defaults=default_config)
+
     config = PPOTrainConfig(
-        algo=args.algo,
         seed=args.seed,
         device=args.device,
         rollout_workers=args.rollout_workers,
@@ -192,8 +225,9 @@ def main_cli() -> None:
         terminal_win_bonus=args.terminal_win_bonus,
         terminal_loss_penalty=args.terminal_loss_penalty,
         checkpoint_interval=args.checkpoint_interval,
-        slow_episode_trace_start_seconds=args.slow_episode_trace_start_seconds,
-        slow_episode_trace_stop_seconds=args.slow_episode_trace_stop_seconds,
+        slow_episode_trace_enabled=slow_episode_trace_enabled,
+        slow_episode_trace_start_seconds=slow_episode_trace_start_seconds,
+        slow_episode_trace_stop_seconds=slow_episode_trace_stop_seconds,
         fixed_eval_interval=args.fixed_eval_interval,
         fixed_eval_episodes=args.fixed_eval_episodes,
         fixed_eval_opponent=args.fixed_eval_opponent,
@@ -202,7 +236,7 @@ def main_cli() -> None:
     resume_from = Path(args.resume_from) if str(args.resume_from).strip() else None
     print(
         f"[{format_log_timestamp()}] starting training: "
-        f"algo={config.algo} updates={config.total_updates} "
+        f"updates={config.total_updates} "
         f"episodes_per_update={config.episodes_per_update} "
         f"device={config.device} rollout_workers={config.rollout_workers} "
         f"output_dir={output_dir} "

@@ -1,4 +1,4 @@
-"""Masked actor-critic model with MLP+LSTM backbone."""
+"""Recurrent actor-critic model with MLP+LSTM backbone."""
 
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ class MaskedActorCritic(nn.Module):
         hidden_size: int = 256,
         lstm_size: int = 128,
         action_hidden_size: int = 128,
-        use_lstm: bool = True,
     ) -> None:
         super().__init__()
         self.state_dim = int(state_dim)
@@ -27,7 +26,6 @@ class MaskedActorCritic(nn.Module):
         self.hidden_size = int(hidden_size)
         self.lstm_size = int(lstm_size)
         self.action_hidden_size = int(action_hidden_size)
-        self.use_lstm = bool(use_lstm)
 
         self.state_encoder = nn.Sequential(
             nn.Linear(self.state_dim, self.hidden_size),
@@ -35,16 +33,12 @@ class MaskedActorCritic(nn.Module):
             nn.Linear(self.hidden_size, self.hidden_size),
             nn.ReLU(),
         )
-        if self.use_lstm:
-            self.state_lstm = nn.LSTM(
-                input_size=self.hidden_size,
-                hidden_size=self.lstm_size,
-                batch_first=True,
-            )
-            state_latent_dim = self.lstm_size
-        else:
-            self.state_lstm = None
-            state_latent_dim = self.hidden_size
+        self.state_lstm = nn.LSTM(
+            input_size=self.hidden_size,
+            hidden_size=self.lstm_size,
+            batch_first=True,
+        )
+        state_latent_dim = self.lstm_size
 
         self.action_encoder = nn.Sequential(
             nn.Linear(self.action_dim, self.action_hidden_size),
@@ -69,9 +63,7 @@ class MaskedActorCritic(nn.Module):
         batch_size: int,
         *,
         device: torch.device,
-    ) -> Optional[Tuple[torch.Tensor, torch.Tensor]]:
-        if not self.use_lstm:
-            return None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         h = torch.zeros(1, int(batch_size), self.lstm_size, device=device)
         c = torch.zeros(1, int(batch_size), self.lstm_size, device=device)
         return h, c
@@ -83,7 +75,7 @@ class MaskedActorCritic(nn.Module):
         action_features: torch.Tensor,
         action_mask: torch.Tensor,
         hidden: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Forward one environment step.
 
         Args:
@@ -107,12 +99,11 @@ class MaskedActorCritic(nn.Module):
         action_count = action_features.shape[1]
 
         state_latent = self.state_encoder(state_vec)
-        if self.use_lstm:
-            if hidden is None:
-                hidden = self.init_hidden(batch_size, device=state_vec.device)
-            lstm_input = state_latent.unsqueeze(1)  # [B,1,H]
-            lstm_output, hidden = self.state_lstm(lstm_input, hidden)
-            state_latent = lstm_output[:, 0, :]
+        if hidden is None:
+            hidden = self.init_hidden(batch_size, device=state_vec.device)
+        lstm_input = state_latent.unsqueeze(1)  # [B,1,H]
+        lstm_output, hidden = self.state_lstm(lstm_input, hidden)
+        state_latent = lstm_output[:, 0, :]
 
         action_flat = action_features.reshape(batch_size * action_count, self.action_dim)
         action_latent = self.action_encoder(action_flat).reshape(
@@ -136,7 +127,7 @@ class MaskedActorCritic(nn.Module):
         action_features: torch.Tensor,
         action_mask: torch.Tensor,
         hidden: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """Forward an entire rollout sequence for recurrent PPO updates.
 
         Args:
@@ -160,12 +151,11 @@ class MaskedActorCritic(nn.Module):
         action_count = action_features.shape[1]
 
         state_latent = self.state_encoder(state_vec)
-        if self.use_lstm:
-            if hidden is None:
-                hidden = self.init_hidden(1, device=state_vec.device)
-            lstm_input = state_latent.unsqueeze(0)  # [1,T,H]
-            lstm_output, hidden = self.state_lstm(lstm_input, hidden)
-            state_latent = lstm_output.squeeze(0)
+        if hidden is None:
+            hidden = self.init_hidden(1, device=state_vec.device)
+        lstm_input = state_latent.unsqueeze(0)  # [1,T,H]
+        lstm_output, hidden = self.state_lstm(lstm_input, hidden)
+        state_latent = lstm_output.squeeze(0)
 
         action_flat = action_features.reshape(step_count * action_count, self.action_dim)
         action_latent = self.action_encoder(action_flat).reshape(
