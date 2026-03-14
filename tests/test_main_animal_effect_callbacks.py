@@ -1,3 +1,5 @@
+import copy
+
 import main
 import pytest
 
@@ -582,6 +584,92 @@ def test_hypnosis_ignores_stale_x_spend_queue_values_that_are_no_longer_legal():
         "effect[hypnosis] target=P2 action=cards x=0" in str(entry)
         for entry in state.effect_log
     )
+
+
+def test_hypnosis_two_play_legal_actions_use_post_action_remaining_x_budget():
+    state, player = make_basic_animals_play_state(seed=61423, enclosure_sizes=(1, 1))
+    target = state.players[1]
+    configure_player(
+        state,
+        action_name="animals",
+        strength=2,
+    )
+    player.action_upgraded["animals"] = True
+    player.x_tokens = 3
+    player.hand = [
+        AnimalCard(
+            name="Hypnosis Alpha",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            ability_title="Hypnosis 1",
+            card_type="animal",
+            number=90144,
+            instance_id="hypnosis-alpha",
+        ),
+        AnimalCard(
+            name="Hypnosis Beta",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            ability_title="Hypnosis 1",
+            card_type="animal",
+            number=90145,
+            instance_id="hypnosis-beta",
+        ),
+    ]
+    target.appeal = 5
+    target.action_order = ["cards", "build", "animals", "association", "sponsors"]
+    state.zoo_display = []
+    state.zoo_deck = [
+        AnimalCard(
+            name="Deck Draw 1",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            card_type="animal",
+            number=90146,
+            instance_id="deck-draw-1",
+        ),
+        AnimalCard(
+            name="Deck Draw 2",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            card_type="animal",
+            number=90147,
+            instance_id="deck-draw-2",
+        ),
+        AnimalCard(
+            name="Deck Draw 3",
+            cost=0,
+            size=1,
+            appeal=0,
+            conservation=0,
+            card_type="animal",
+            number=90148,
+            instance_id="deck-draw-3",
+        ),
+    ]
+
+    two_play_actions = [
+        action
+        for action in legal_actions_for_player(state, player_id=0)
+        if action.type == ActionType.MAIN_ACTION
+        and action.card_name == "animals"
+        and int(action.value or 0) == 1
+        and len((action.details or {}).get("hypnosis_x_spent_choices") or []) == 2
+    ]
+
+    assert two_play_actions
+
+    for action in two_play_actions:
+        sim_state = copy.deepcopy(state)
+        main.apply_action(sim_state, copy.deepcopy(action))
 
 
 def test_resistance_effect_interactive_prompts_for_final_scoring_choice(monkeypatch):

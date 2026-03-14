@@ -2966,6 +2966,21 @@ def _resolve_action_detail_variants_by_simulation(
     return resolved or []
 
 
+def _simulate_main_action_effect_prelude(
+    player: PlayerState,
+    *,
+    chosen_action: str,
+    x_spent: int,
+) -> None:
+    if x_spent < 0:
+        raise ValueError("x_spent cannot be negative.")
+    if x_spent > int(player.x_tokens):
+        raise ValueError("Not enough X-tokens for selected action.")
+    _rotate_action_card_to_slot_1(player, chosen_action)
+    if x_spent > 0:
+        player.x_tokens -= x_spent
+
+
 def _resolve_pending_action_variants_by_simulation(
     *,
     state: GameState,
@@ -6185,6 +6200,7 @@ def _enumerate_concrete_animals_actions(
         last_subfunction="_enumerate_concrete_animals_actions",
     )
     strength = int((template_action.details or {}).get("effective_strength", 0))
+    x_spent = int(template_action.value or 0)
     options = list_legal_animals_options(state=state, player_id=player_id, strength=strength)
     actions: List[Action] = []
     choice_effect_codes = {
@@ -6220,17 +6236,29 @@ def _enumerate_concrete_animals_actions(
         *,
         max_results: Optional[int] = None,
     ) -> List[Tuple[Dict[str, Any], str]]:
-        return _resolve_action_detail_variants_by_simulation(
-            state=state,
-            player_id=player_id,
-            base_details=details_payload,
-            executor=lambda sim_state, sim_player, sim_details: _perform_animals_action_effect(
+        def _execute_animals_details(
+            sim_state: GameState,
+            sim_player: PlayerState,
+            sim_details: Dict[str, Any],
+        ) -> None:
+            _simulate_main_action_effect_prelude(
+                sim_player,
+                chosen_action="animals",
+                x_spent=x_spent,
+            )
+            _perform_animals_action_effect(
                 state=sim_state,
                 player=sim_player,
                 strength=strength,
                 details=sim_details,
                 player_id=player_id,
-            ),
+            )
+
+        return _resolve_action_detail_variants_by_simulation(
+            state=state,
+            player_id=player_id,
+            base_details=details_payload,
+            executor=_execute_animals_details,
             invalid_effect_log_prefixes=("animals_followup_skipped_missing_hand_card",),
             result_signature_builder=lambda sim_state: _animals_resolution_result_signature(
                 sim_state,
@@ -18656,8 +18684,14 @@ def play_game(
     seed: int = 42,
     verbose: bool = True,
     include_marine_world: bool = False,
+    private_viewer_names: Optional[Set[str]] = None,
 ) -> Dict[str, int]:
     manual_draft_players = {name for name in player_names if isinstance(agents.get(name), HumanPlayer)}
+    visible_private_players = (
+        None
+        if private_viewer_names is None
+        else {str(name) for name in private_viewer_names}
+    )
     state = setup_game(
         seed=seed,
         player_names=player_names,
@@ -18698,17 +18732,26 @@ def play_game(
             print(f"  {idx}. {project.data_id} | {project.title} | blocked_in_2p={blocked_level}")
         print("- Final scoring cards (setup draw):")
         for player in state.players:
-            cards = [card.data_id for card in player.final_scoring_cards]
-            print(f"  {player.name}: {cards}")
+            if visible_private_players is None or player.name in visible_private_players:
+                cards = [card.data_id for card in player.final_scoring_cards]
+                print(f"  {player.name}: {cards}")
+            else:
+                print(f"  {player.name}: hidden ({len(player.final_scoring_cards)} cards)")
         print()
 
     if verbose:
         print("- Opening 8-card draft per player:")
         for player in state.players:
-            print(f"  {player.name}:")
-            for idx, card in enumerate(player.opening_draft_drawn, start=1):
-                mark = " [KEEP]" if (idx - 1) in set(player.opening_draft_kept_indices) else ""
-                print(f"    {idx}. {_format_card_line(card)}{mark}")
+            if visible_private_players is None or player.name in visible_private_players:
+                print(f"  {player.name}:")
+                for idx, card in enumerate(player.opening_draft_drawn, start=1):
+                    mark = " [KEEP]" if (idx - 1) in set(player.opening_draft_kept_indices) else ""
+                    print(f"    {idx}. {_format_card_line(card)}{mark}")
+            else:
+                print(
+                    f"  {player.name}: hidden "
+                    f"({len(player.opening_draft_drawn)} draft cards, kept={len(player.opening_draft_kept_indices)})"
+                )
         print()
 
     while str(state.pending_decision_kind or "").strip() or not state.game_over():
@@ -18781,3 +18824,4 @@ if __name__ == "__main__":
     main_cli()
 # python main.py --seed 7
 # python tools/rl/train_self_play.py --rollout-workers 8 --algo masked_ppo --updates 100 --episodes-per-update 16 --output-dir runs/self_play_masked --resume-from runs/self_play_masked/checkpoint_0080.pt
+# python tools/rl/play_vs_checkpoint.py --checkpoint runs/self_play_masked/checkpoint_0190.pt --human-seat 2
